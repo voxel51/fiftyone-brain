@@ -1,25 +1,27 @@
-# This trains a cifar-10 under noisy labels.
-#
-# After loading the data, a fraction of the annotations will be corrupted at
-# random.  Then, the training loop will ensue; after every training (full), a
-# fraction of the samples will be evaluated for erroneous annotations and fixed
-# (by using the original, correct ones)
-#
-# What is the comparison?
-# To allow for a comparison, only half of the initial data will be used; at
-# each iteration through the main loop, a fraction of this data will be added.
-# For the annotation error case, we will fix the annotations and add the new
-# data.  For the baseline, we will just add the new data, which is what a naive
-# data scientist would do anyway.
-#
-# Another comparison would be to select just random samples to check and fix.
-# TODO
-#
-# In addition, simple reporting on the accuracy of the identification of errors
-# in the annotations
-#
-# jason corso
+"""
+This trains a cifar-10 under noisy labels.
 
+After loading the data, a fraction of the annotations will be corrupted at
+random.  Then, the training loop will ensue; after every training (full), a
+fraction of the samples will be evaluated for erroneous annotations and fixed
+(by using the original, correct ones)
+
+What is the comparison?
+To allow for a comparison, only half of the initial data will be used; at
+each iteration through the main loop, a fraction of this data will be added.
+For the annotation error case, we will fix the annotations and add the new
+data.  For the baseline, we will just add the new data, which is what a naive
+data scientist would do anyway.
+
+TODO Another comparison would be to select just random samples to check and fix.
+
+In addition, simple reporting on the accuracy of the identification of errors
+in the annotations
+
+| Copyright 2017-2020, Voxel51, Inc.
+| `voxel51.com <https://voxel51.com/>`_
+|
+"""
 import argparse
 from functools import partial
 import json

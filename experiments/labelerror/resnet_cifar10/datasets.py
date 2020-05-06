@@ -1,5 +1,10 @@
-# Implementation of datasets for the experiments
+"""
+Implementation of datasets for the experiments
 
+| Copyright 2017-2020, Voxel51, Inc.
+| `voxel51.com <https://voxel51.com/>`_
+|
+"""
 from functools import lru_cache as cache
 
 import torch

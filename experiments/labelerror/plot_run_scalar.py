@@ -1,12 +1,15 @@
-# script to plot a scalar value that was computed as certain points in an
-# iterative process.
-# will average results from many such runs and plot shaded error bars
-#
-# The script is growing in complexity a bit as the type of data I want to plot
-# increases.  It can also plot data-files that have multiple fields of results
-# and select one of them to plot per file.
-#
-# jason corso
+"""
+Script to plot a scalar value that was computed as certain points in an
+iterative process.  It will average results from many such runs and plot shaded
+error bars
+
+It can also plot data-files that have multiple fields of results and select one
+of them to plot per file.
+
+| Copyright 2017-2020, Voxel51, Inc.
+| `voxel51.com <https://voxel51.com/>`_
+|
+"""
 
 import argparse
 import json

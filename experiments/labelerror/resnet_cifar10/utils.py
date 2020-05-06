@@ -1,5 +1,10 @@
-# Simple utilities for experiments.
+"""
+Utilities for experiments.
 
+| Copyright 2017-2020, Voxel51, Inc.
+| `voxel51.com <https://voxel51.com/>`_
+|
+"""
 from collections import defaultdict
 import pandas as pd
 import time
