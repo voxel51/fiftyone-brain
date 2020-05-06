@@ -1,6 +1,7 @@
 """
+le_test1 --> initial tests for using fiftyone with this code
+
 This trains a cifar-10 under noisy labels with fixes via fiftyone.
-TODO: THIS IS NOT YET MAPPED TO FIFTYONE
 
 After loading the data, a fraction of the annotations will be corrupted at
 random.  Then, the training loop will ensue; after every training (full), a
