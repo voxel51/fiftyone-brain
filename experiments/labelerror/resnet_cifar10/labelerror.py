@@ -31,10 +31,8 @@ import time
 
 from scipy.stats import entropy
 
-#from dcp_core import *
-#from dcp_torch_backend import *
+from config import *
 from datasets import *
-from hd_config import *
 from simple_resnet import *
 from utils import Timer
 
