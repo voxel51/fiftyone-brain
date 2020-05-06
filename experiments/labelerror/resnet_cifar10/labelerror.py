@@ -1,5 +1,6 @@
 """
-This trains a cifar-10 under noisy labels.
+This trains a cifar-10 under noisy labels with fixes via fiftyone.
+TODO: THIS IS NOT YET MAPPED TO FIFTYONE
 
 After loading the data, a fraction of the annotations will be corrupted at
 random.  Then, the training loop will ensue; after every training (full), a
@@ -316,7 +317,7 @@ def main(config):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(prog="hd_annerr", add_help=True)
+    parser = argparse.ArgumentParser(prog="labelerror", add_help=True)
 
     parser.add_argument(
         "--batch_size", "-b",
