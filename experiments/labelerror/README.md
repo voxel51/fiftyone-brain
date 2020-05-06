@@ -4,6 +4,7 @@ How can we demonstrate that fiftyone can be used to detect annotation mistakes (
 
 Problem: Classification
 
+This code does not explicitly use eta or theta because it is intended as something that could be shared for a simple use of fiftyone without learning anything else about Voxel51
 
 
 
