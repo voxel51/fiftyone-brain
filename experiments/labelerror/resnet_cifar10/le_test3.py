@@ -103,6 +103,7 @@ def main(config):
     print(f"Finished getting data into fiftyone in {timer():.2f} seconds")
 
     # load the model using the model path config
+    assert(config.model_path)
     model = Network(simple_resnet()).to(device).half()
     model.load_state_dict(torch.load(config.model_path))
 
@@ -136,8 +137,8 @@ def main(config):
           (100 * correct / total))
 
     for i in range(10):
-        print('Accuracy of %5s : %.2f%%' % (
-              classes[i], 100 * class_correct[i] / class_total[i]))
+        print('Accuracy of %9s : %.2f%%' % (
+              cifar10_classes[i], 100 * class_correct[i] / class_total[i]))
 
     print("done")
 
