@@ -118,13 +118,16 @@ def main(config):
 
     start_N = round(config.p_initial * total_N)
 
-    incr_N = round((config.n_max-start_N) / config.n_increases)
+    incr_N = ( 0 if config.n_rounds == 1 else
+        round((config.n_max-start_N) / (config.n_rounds-1))
+    )
 
     corrupt_N = round(config.p_corrupt * total_N)
 
     print(f'Setting up the experiment: {total_N} training samples.')
     print(f'- starting with {start_N}')
-    print(f'- incrementing by {incr_N} for {config.n_increases} rounds')
+    print(f'- incrementing by {incr_N} for each of {config.n_rounds-1} rounds')
+    print(f'- total rounds: {config.n_rounds}')
 
     print(f'Starting the model training at {localtime()}')
 
@@ -144,7 +147,7 @@ def main(config):
 
     stats = {}
 
-    for iteration in range(config.n_increases):
+    for iteration in range(config.n_rounds):
         print(f'beginning next round of training, using {inuse_N} samples')
 
         if config.cold_start:
@@ -210,6 +213,9 @@ def main(config):
     if config.stats_path:
         with open(config.stats_path, 'w') as fp:
             json.dump(stats, fp)
+
+    if config.model_path:
+        torch.save(model.state_dict(),config.model_path)
 
 if __name__ == "__main__":
 

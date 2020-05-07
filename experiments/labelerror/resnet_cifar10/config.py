@@ -29,7 +29,7 @@ class Config:
             self.make_fixes = True
             self.perfect_fixes = True
 
-        self.n_increases = d["num_increases"]
+        self.n_rounds = d["num_rounds"]
         self.n_max = d["num_max_samples"]
         self.p_corrupt = d["percent_corrupt"]
         self.p_fixable = d["percent_fixable"]
@@ -76,7 +76,7 @@ def commandline():
         default=None,
         help="path to the file for saving the learned model if applicable")
     parser.add_argument(
-        "--num_increases", "--n_increases", "--num-increases", "--n-increases", "-i",
+        "--num_rounds", "--n_rounds", "--num-rounds", "--n-rounds", "-i",
         type=int,
         default=5,
         help="how many rounds to execute in a run")
