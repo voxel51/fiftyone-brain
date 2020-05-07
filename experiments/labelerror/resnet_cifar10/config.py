@@ -107,4 +107,4 @@ def commandline():
 
     args = parser.parse_args()
 
-    config = Config(args.__dict__)
+    return Config(args.__dict__)
