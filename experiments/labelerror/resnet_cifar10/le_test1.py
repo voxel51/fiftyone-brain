@@ -23,8 +23,6 @@ import fiftyone as fo
 from fiftyone.core.odm import drop_database
 
 from config import *
-from datasets import *
-from simple_resnet import *
 from utils import Timer
 
 TEMP_TRAIN_DIR="/tmp/le_test1/train"
