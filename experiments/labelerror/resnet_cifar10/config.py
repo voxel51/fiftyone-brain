@@ -74,7 +74,7 @@ def commandline():
         "--model_path", "-m", "--model-path",
         type=str,
         default=None,
-        help="path to the file for saving the learned model if applicable")
+        help="path to the file for loading/saving a model when applicable")
     parser.add_argument(
         "--num_rounds", "--n_rounds", "--num-rounds", "--n-rounds", "-i",
         type=int,
