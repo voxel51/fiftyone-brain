@@ -98,7 +98,7 @@ def main(config):
     # make the actual labels for the cifar-10 world
     labels = []
     for i, s in enumerate(cifar10_classes):
-        labels.append(fo.ClassificationLabel.create_new(label=s))
+        labels.append(fo.ClassificationLabel.create(label=s))
 
     timer = Timer()
     drop_database()
@@ -106,14 +106,14 @@ def main(config):
 
     samples = []
     for i, s in enumerate(whole_train_set):
-        sample = fo.Sample.create_new(train_image_paths[i], tags=["train"])
+        sample = fo.Sample.create(train_image_paths[i], tags=["train"])
         sample.add_label("ground_truth", labels[s[1]])
         samples.append(sample)
     train_ids = dataset.add_samples(samples)
 
     samples = []
     for i, s in enumerate(valid_set):
-        sample = fo.Sample.create_new(valid_image_paths[i], tags=["valid"])
+        sample = fo.Sample.create(valid_image_paths[i], tags=["valid"])
         sample.add_label("ground_truth", labels[s[1]])
         samples.append(sample)
     valid_ids = dataset.add_samples(samples)
