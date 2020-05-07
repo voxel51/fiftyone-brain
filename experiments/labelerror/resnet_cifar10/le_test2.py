@@ -147,9 +147,9 @@ def main(config):
     for iteration in range(config.n_increases):
         print(f'beginning next round of training, using {inuse_N} samples')
 
-        # uncomment this for a cold start to the model every iteration
-        #model = Network(simple_resnet()).to(device).half()
-        #logs, state = Table(), {MODEL: model, LOSS: x_ent_loss}
+        if config.cold_start:
+            model = Network(simple_resnet()).to(device).half()
+            logs, state = Table(), {MODEL: model, LOSS: x_ent_loss}
 
         train_batches = DataLoader(
                 Transform(whole_train_set_use, train_transforms),
@@ -210,7 +210,6 @@ def main(config):
     if config.stats_path:
         with open(config.stats_path, 'w') as fp:
             json.dump(stats, fp)
-
 
 if __name__ == "__main__":
 
