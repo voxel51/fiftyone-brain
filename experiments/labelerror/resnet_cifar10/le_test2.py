@@ -6,7 +6,6 @@ Loads the data, assigns ground-truth labels, then trains a clean model
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
-import argparse
 from functools import partial
 import json
 import os
@@ -102,8 +101,6 @@ def main(config):
 
     print(f"Finished getting data into fiftyone in {timer():.2f} seconds")
 
-    sys.exit()
-
     # function of dataset
     N_labels = 10
 
@@ -141,7 +138,7 @@ def main(config):
     # initially randomly shuffle the dataset and take the initial number of samples
     whole_train_set_use = whole_train_set[0:inuse_N]
     whole_train_set_avail = whole_train_set[inuse_N:]
-    print(f'Split training set into two; using {len(corr_train_set_use)}, available {len(corr_train_set_avail)}')
+    print(f'Split training set into two; using {len(whole_train_set_use)}, available {len(whole_train_set_avail)}')
 
     sm = torch.nn.Softmax(dim=1)
 
@@ -216,62 +213,8 @@ def main(config):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(prog="labelerror", add_help=True)
 
-    parser.add_argument(
-        "--batch_size", "-b",
-        type=int,
-        default=512,
-        help="what is the batch size for the training iterations")
-    parser.add_argument(
-        "--epochs", "-e",
-        type=int,
-        default=24,
-        help="what is the number of epochs for each training iteration")
-    parser.add_argument(
-        "--fixes", "-f",
-        type=str,
-        default="yes",
-        help="make fixes? options are yes, no, and perfect")
-    parser.add_argument(
-        "--num_increases", "--n_increases", "-i",
-        type=int,
-        default=5,
-        help="how many rounds to execute in a run")
-    parser.add_argument(
-        "--num_max_samples", "--n_max_samples", "--num-max", "--n_max",
-        type=int,
-        default=-1,
-        help="max samples to use in a run (default will use all samples)")
-    parser.add_argument(
-        "--percent_corrupt", "--p_corrupt",
-        type=float,
-        default=0.2,
-        help="what percentage [0,1] of the data (annotations) to corrupt")
-    parser.add_argument(
-        "--percent_fixable", "--p_fixable",
-        type=float,
-        default=0.2,
-        help="what percentage [0,1] of the data is fixable each round")
-    parser.add_argument(
-        "--percent_initial", "--p_initial",
-        type=float,
-        default=0.25,
-        help="what percentage [0,1] of the data to use for initial training")
-    parser.add_argument(
-        "--runs", "-r",
-        type=int,
-        default=6,
-        help="how many times to run the trial for statistical purposes")
-    parser.add_argument(
-        "--stats_path", "-s",
-        type=str,
-        default=None,
-        help="path to the file for saving the statistics in json if desired")
-
-    args = parser.parse_args()
-
-    config = Config(args.__dict__)
+    config = commandline()
 
     print(f"running with config: {config}")
 
