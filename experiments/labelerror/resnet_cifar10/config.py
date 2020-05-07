@@ -37,6 +37,7 @@ class Config:
 
         self.runs = d["runs"]
         self.stats_path = d["stats_path"]
+        self.model_path = d["model_path"]
 
     def __str__(self):
         return str(vars(self))
@@ -69,6 +70,11 @@ def commandline():
         type=str,
         default="yes",
         help="make fixes? options are yes, no, and perfect")
+    parser.add_argument(
+        "--model_path", "-m", "--model-path",
+        type=str,
+        default=None,
+        help="path to the file for saving the learned model if applicable")
     parser.add_argument(
         "--num_increases", "--n_increases", "--num-increases", "--n-increases", "-i",
         type=int,
