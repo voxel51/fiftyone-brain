@@ -17,6 +17,7 @@ class Config:
         '''d is a dictionary of arguments from command-line.'''
 
         self.batch_size = d["batch_size"]
+        self.cold_start = d["cold_start"]
         self.epochs = d["epochs"]
 
         self.fixes = d["fixes"]
