@@ -15,6 +15,7 @@ import random
 import sys
 import time
 
+import ipdb
 from scipy.misc import imsave
 from scipy.stats import entropy
 
@@ -153,6 +154,9 @@ def main(config):
               cifar10_classes[i], 100 * class_correct[i] / class_total[i]))
 
     print("done")
+
+    if config.start_ipython:
+        ipdb.set_trace()
 
 if __name__ == "__main__":
 

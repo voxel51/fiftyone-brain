@@ -29,6 +29,7 @@ class Config:
             self.make_fixes = True
             self.perfect_fixes = True
 
+        self.model_path = d["model_path"]
         self.n_rounds = d["num_rounds"]
         self.n_max = d["num_max_samples"]
         self.p_corrupt = d["percent_corrupt"]
@@ -36,8 +37,8 @@ class Config:
         self.p_initial = d["percent_initial"]
 
         self.runs = d["runs"]
+        self.start_ipython = d["start_ipython"]
         self.stats_path = d["stats_path"]
-        self.model_path = d["model_path"]
 
     def __str__(self):
         return str(vars(self))
@@ -76,7 +77,7 @@ def commandline():
         default=None,
         help="path to the file for loading/saving a model when applicable")
     parser.add_argument(
-        "--num_rounds", "--n_rounds", "--num-rounds", "--n-rounds", "-i",
+        "--num_rounds", "--n_rounds", "--num-rounds", "--n-rounds",
         type=int,
         default=5,
         help="how many rounds to execute in a run")
@@ -106,6 +107,15 @@ def commandline():
         type=int,
         default=6,
         help="how many times to run the trial for statistical purposes")
+    parser.add_argument(
+        "--start_ipython", "--start-ipython", "-i",
+        dest="start_ipython",
+        action="store_true")
+    parser.add_argument(
+        "--no_start_ipython", "--no-start-ipython", "--no-start_ipython",
+        dest="start_ipython",
+        action="store_false")
+    parser.set_defaults(start_ipython=False)
     parser.add_argument(
         "--stats_path", "-s", "--stats-path",
         type=str,
