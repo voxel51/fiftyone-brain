@@ -2,6 +2,7 @@
 le_test3 --> initial tests for using fiftyone with this code
 Loads the data, assigns ground-truth labels, loads a model
 Runs prediction and associates predictions with the fiftyone dataset
+Generates simple scalar insight for each simple
 
 | Copyright 2017-2020, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -104,7 +105,6 @@ def main(config):
 
     print(f"Finished getting data into fiftyone in {timer():.2f} seconds")
 
-
     # load the model using the model path config
     assert(config.model_path)
     model = Network(simple_resnet()).to(device).half()
@@ -142,9 +142,13 @@ def main(config):
                 class_correct[label] += c[i].item()
                 class_total[label] += 1
 
-            for prediction, theid in zip(predicted, ids):
+            for prediction, theid, thelogit in zip(predicted, ids, y):
                 label = fo.ClassificationLabel.create(cifar10_classes[prediction])
                 dataset[theid].add_label("prediction", label)
+
+                insight = fo.ScalarInsight.create(name="max-logit",
+                                                  scalar=np.max(thelogit.cpu().numpy()))
+                dataset[theid].add_insight("prediction", insight)
 
     print('Accuracy of the network on the 10K test images: %.2f%%' %
           (100 * correct / total))
