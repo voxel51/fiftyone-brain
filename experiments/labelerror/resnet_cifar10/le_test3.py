@@ -7,6 +7,7 @@ Runs prediction and associates predictions with the fiftyone dataset
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+import copy
 from functools import partial
 import json
 import os
@@ -102,6 +103,7 @@ def main(config):
 
     print(f"Finished getting data into fiftyone in {timer():.2f} seconds")
 
+
     # load the model using the model path config
     assert(config.model_path)
     model = Network(simple_resnet()).to(device).half()
@@ -109,16 +111,23 @@ def main(config):
 
     model.train(False) # == model.eval()
 
-    train_batches = DataLoader(whole_train_set, config.batch_size, shuffle=False, drop_last=False)
-    valid_batches = DataLoader(valid_set, config.batch_size, shuffle=False, drop_last=False)
+    # I need to get my datasets into a format where I'll have the ids available
+    # as well during the data loading
+    train_imgs, train_labels = zip(*whole_train_set)
+    fo_train_set = list(zip(train_imgs, train_labels, train_ids))
+
+    valid_imgs, valid_labels = zip(*valid_set)
+    fo_valid_set = list(zip(valid_imgs, valid_labels, valid_ids))
+
+    train_batches = DataLoader(fo_train_set, config.batch_size, shuffle=False, drop_last=False)
+    valid_batches = DataLoader(fo_valid_set, config.batch_size, shuffle=False, drop_last=False)
 
     correct = 0
     total = 0
     class_correct = list(0. for i in range(10))
     class_total = list(0. for i in range(10))
     with torch.no_grad():
-        for data in valid_batches.dataloader:
-            images, labels = data
+        for images, labels, ids in valid_batches.dataloader:
             inputs = dict(input=images.cuda().half())
             outputs = model(inputs)
             y = outputs['logits']
@@ -132,6 +141,9 @@ def main(config):
                 class_correct[label] += c[i].item()
                 class_total[label] += 1
 
+            for prediction, theid in zip(predicted, ids):
+                label = fo.ClassificationLabel.create(cifar10_classes[prediction])
+                dataset[theid].add_label("prediction", label)
 
     print('Accuracy of the network on the 10K test images: %.2f%%' %
           (100 * correct / total))
@@ -141,8 +153,6 @@ def main(config):
               cifar10_classes[i], 100 * class_correct[i] / class_total[i]))
 
     print("done")
-
-
 
 if __name__ == "__main__":
 
