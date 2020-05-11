@@ -1,27 +1,50 @@
 """
-Definitions of methods that compute insights related to annotation mistakes.
+Definitions of methods that compute insights related to sample hardness.
 
 | Copyright 2017-2020, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
 
+import numpy as np
+from scipy.stats import entropy
+
 import fiftyone.core.dataset as fod
+import fiftyone.core.insights as foi
 import fiftyone.core.sample as fos
 
+def _softmax(npa):
+    """Computes softmax on the numpy array npa.
 
-def compute_label_mistakes(data, validate=False):
+    @todo Replace with scipy.special.softmax after upgrading to scipy as it is
+    more numerically stable.
+    """
+    a = np.exp(npa)
+    return a / sum(a)
+
+def compute_hardness(data, key, validate=False):
     """Computes a :class:`fiftyone.core.insight.ScalarInsight` scoring the
     chance there is a mistake in each sample's label.
 
+    Will add an insight to each sample describing its "hardness" (see below)
+    and associate them with the insight group "key".
+
+    @todo DESCRIBE HARDNESS.  Specify for classification
+
     Args:
         data: a :class:`fiftyone.core.collection:SampleCollection`
+        key: string denoting what group label to operate for getting the label
+            prediction information and for adding the insight
         validate (False): validate correctness of samples in data
-
-
-    Works for classification data.
-    Expects
-    Will validate
-    MORE
     """
     #todo add mechanism for validating the samples
+
+    for sample in data.iter_samples():
+        label = sample.get_label(key)
+
+        # do your thing
+        hardness=entropy(_softmax(np.asarray(label.logits)))
+
+        # add insight here...
+        insight = foi.ScalarInsight.create(name="hardness", scalar=hardness)
+        sample.add_insight(key, insight)
