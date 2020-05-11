@@ -53,7 +53,6 @@ def compute_hardness(data, key, validate=False):
             prediction information and for adding the insight
         validate (False): validate correctness of samples in data
     """
-    #todo add mechanism for validating the samples
     if validate:
         _validate(data, key)
 
