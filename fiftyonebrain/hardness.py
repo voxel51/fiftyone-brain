@@ -9,9 +9,7 @@ Definitions of methods that compute insights related to sample hardness.
 import numpy as np
 from scipy.stats import entropy
 
-import fiftyone.core.dataset as fod
 import fiftyone.core.insights as foi
-import fiftyone.core.sample as fos
 
 def _softmax(npa):
     """Computes softmax on the numpy array npa.
