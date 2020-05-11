@@ -33,7 +33,7 @@ def _validate(data, key):
                 " failed compute_hardness validation because it has no logits")
 
 
-def compute_hardness(data, key, validate=False):
+def compute_hardness(data, key, key_insight=None, validate=False):
     """Computes a :class:`fiftyone.core.insight.ScalarInsight` scoring the
     chance there is a mistake in each sample's label.
 
@@ -49,15 +49,18 @@ def compute_hardness(data, key, validate=False):
         data: a :class:`fiftyone.core.collection:SampleCollection`
         key: string denoting what group label to operate for getting the label
             prediction information and for adding the insight
+        key_insight (None): string denoting the group for the insight
+            denotation to be specified only if different than `key`
         validate (False): validate correctness of samples in data
     """
     if validate:
         _validate(data, key)
 
+    ikey = key_insight or key
     for sample in data.iter_samples():
         label = sample.get_label(key)
 
         hardness=entropy(_softmax(np.asarray(label.logits)))
 
         insight = foi.ScalarInsight.create(name="hardness", scalar=hardness)
-        sample.add_insight(key, insight)
+        sample.add_insight(ikey, insight)
