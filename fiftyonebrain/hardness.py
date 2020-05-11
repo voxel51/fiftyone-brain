@@ -57,9 +57,7 @@ def compute_hardness(data, key, validate=False):
     for sample in data.iter_samples():
         label = sample.get_label(key)
 
-        # do your thing
         hardness=entropy(_softmax(np.asarray(label.logits)))
 
-        # add insight here...
         insight = foi.ScalarInsight.create(name="hardness", scalar=hardness)
         sample.add_insight(key, insight)
