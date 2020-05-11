@@ -64,6 +64,14 @@ def main(config):
     print(f"train set: {len(whole_train_set)} samples")
     print(f"valid set: {len(valid_set)} samples")
 
+    if config.take:
+        whole_train_set = whole_train_set[:config.take]
+        valid_set = whole_train_set[:config.take]
+        print(f"using a subset of the data")
+        print(f"train set: {len(whole_train_set)} samples")
+        print(f"valid set: {len(valid_set)} samples")
+
+
     # TEMPORARY
     # Not production usage of fiftyone, but gets the point across to actually
     # get the Data into the system, from the format of this experiment
@@ -162,10 +170,12 @@ def main(config):
     if config.start_ipython:
         ipdb.set_trace()
 
+    return dataset
+
 if __name__ == "__main__":
 
     config = commandline()
 
     print(f"running with config: {config}")
 
-    main(config)
+    dataset = main(config)

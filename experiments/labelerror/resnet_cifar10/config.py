@@ -39,6 +39,7 @@ class Config:
         self.runs = d["runs"]
         self.start_ipython = d["start_ipython"]
         self.stats_path = d["stats_path"]
+        self.take = d["take"]
 
     def __str__(self):
         return str(vars(self))
@@ -121,6 +122,11 @@ def commandline():
         type=str,
         default=None,
         help="path to the file for saving the statistics in json if desired")
+    parser.add_argument(
+        "--take", "-t",
+        type=int,
+        default=None,
+        help="how many samples to take in a subset of the dataset (default is all)")
 
     args = parser.parse_args()
 
