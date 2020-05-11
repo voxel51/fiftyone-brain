@@ -151,7 +151,10 @@ def main(config):
                 class_total[label] += 1
 
             for prediction, theid, thelogit in zip(predicted, ids, y):
-                label = fo.ClassificationLabel.create(cifar10_classes[prediction])
+                label = fo.ClassificationLabel.create(
+                    cifar10_classes[prediction],
+                    logits = thelogit
+                )
                 dataset[theid].add_label("prediction", label)
 
                 insight = fo.ScalarInsight.create(name="max-logit",
