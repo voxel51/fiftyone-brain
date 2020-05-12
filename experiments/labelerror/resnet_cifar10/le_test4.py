@@ -24,9 +24,10 @@ from scipy.stats import entropy
 import fiftyone as fo
 from fiftyone.core.odm import drop_database
 
+from fiftyone.brain.models.simple_resnet import *
+
 from config import *
 from datasets import *
-from simple_resnet import *
 from utils import Timer
 
 TEMP_TRAIN_DIR="/tmp/le_test/train"
@@ -71,7 +72,6 @@ def main(config):
         print(f"using a subset of the data")
         print(f"train set: {len(whole_train_set)} samples")
         print(f"valid set: {len(valid_set)} samples")
-
 
     # TEMPORARY
     # Not production usage of fiftyone, but gets the point across to actually
