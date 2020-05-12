@@ -6,8 +6,30 @@ Installs `fiftyone-brain`.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+from distutils.command.build import build
 from setuptools import setup, find_packages
+from wheel.bdist_wheel import bdist_wheel
 
+from pyarmor.pyarmor import main as call_pyarmor
+
+
+class CustomBuild(build):
+    def run(self):
+        build.run(self)
+        call_pyarmor(['build', '--output', self.build_lib])
+
+
+class CustomBdistWheel(bdist_wheel):
+    def finalize_options(self):
+        bdist_wheel.finalize_options(self)
+        # not pure Python - pytransform shared lib from pyarmor is OS-dependent
+        self.root_is_pure = False
+
+
+cmdclass = {
+    "build": CustomBuild,
+    "bdist_wheel": CustomBdistWheel,
+}
 
 setup(
     name="fiftyone-brain",
@@ -27,4 +49,5 @@ setup(
     ],
     scripts=[],
     python_requires=">=2.7",
+    cmdclass=cmdclass,
 )
