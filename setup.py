@@ -6,6 +6,8 @@ Installs `fiftyone-brain`.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+import os
+import shutil
 from distutils.command.build import build
 from setuptools import setup, find_packages
 from wheel.bdist_wheel import bdist_wheel
@@ -16,7 +18,10 @@ from pyarmor.pyarmor import main as call_pyarmor
 class CustomBuild(build):
     def run(self):
         build.run(self)
-        call_pyarmor(['build', '--output', self.build_lib])
+        fiftyone_dir = os.path.join(self.build_lib, 'fiftyone')
+        shutil.rmtree(fiftyone_dir)
+        call_pyarmor(['obfuscate', '--recursive', '--output', fiftyone_dir,
+            os.path.join('fiftyone', '__init__.py')])
 
 
 class CustomBdistWheel(bdist_wheel):
