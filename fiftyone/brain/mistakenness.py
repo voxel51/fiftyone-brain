@@ -33,13 +33,17 @@ def _validate(data, key_p, key_l):
     for sample in data.iter_samples():
         label = sample.get_label(key_p)
         if label.logits is None:
-            raise ValueError("sample " + sample.id + " failed " +
-                "compute_mistakenness validation because it has no logits")
+            raise ValueError(
+                "sample " + sample.id + " failed " +
+                "compute_mistakenness validation because it has no logits"
+            )
         label = sample.get_label(key_l)
         if label is None:
-            raise ValueError("sample " + sample.id + " failed " +
+            raise ValueError(
+                "sample " + sample.id + " failed " +
                 "compute_mistakenness validation because it has no entry in " +
-                key_l)
+                key_l
+            )
 
 
 def compute_mistakenness(data, key_prediction, key_label="ground_truth",

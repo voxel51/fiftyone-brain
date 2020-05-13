@@ -31,8 +31,10 @@ def _validate(data, key):
     for sample in data.iter_samples():
         label = sample.get_label(key)
         if label.logits is None:
-            raise ValueError("sample " + sample.id +
-                " failed compute_hardness validation because it has no logits")
+            raise ValueError(
+                "sample " + sample.id +
+                " failed compute_hardness validation because it has no logits"
+            )
 
 
 def compute_hardness(data, key, key_insight=None, validate=False):
