@@ -53,7 +53,7 @@ setup(
     author_email="info@voxel51.com",
     url="https://github.com/voxel51/fiftyone-brain",
     license="",
-    packages=find_packages(),
+    packages=["fiftyone.brain"],
     include_package_data=True,
     classifiers=[
         "Operating System :: MacOS :: MacOS X",
