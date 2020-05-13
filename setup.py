@@ -18,10 +18,19 @@ from pyarmor.pyarmor import main as call_pyarmor
 class CustomBuild(build):
     def run(self):
         build.run(self)
-        fiftyone_dir = os.path.join(self.build_lib, 'fiftyone')
-        shutil.rmtree(fiftyone_dir)
-        call_pyarmor(['obfuscate', '--recursive', '--output', fiftyone_dir,
-            os.path.join('fiftyone', '__init__.py')])
+        # remove the source and bytecode (.pyc) files, and replace them with
+        # obfuscated files
+        brain_dir = os.path.join(self.build_lib, "fiftyone", "brain")
+        shutil.rmtree(brain_dir)
+        call_pyarmor(
+            [
+                "obfuscate",
+                "--recursive",
+                "--output",
+                brain_dir,
+                os.path.join("fiftyone", "brain", "__init__.py"),
+            ]
+        )
 
 
 class CustomBdistWheel(bdist_wheel):
