@@ -11,6 +11,7 @@ from scipy.stats import entropy
 
 import fiftyone.core.insights as foi
 
+
 def _softmax(npa):
     """Computes softmax on the numpy array npa.
 
@@ -19,6 +20,7 @@ def _softmax(npa):
     """
     a = np.exp(npa)
     return a / sum(a)
+
 
 def _validate(data, key):
     """Check if all samples in the dataset are usable for the hardness
@@ -35,15 +37,18 @@ def _validate(data, key):
 
 def compute_hardness(data, key, key_insight=None, validate=False):
     """Computes a :class:`fiftyone.core.insight.ScalarInsight` scoring the
-    chance there is a mistake in each sample's label.
+    difficulty in which each sample was to classify.
 
     Will add an insight to each sample describing its "hardness" (see below)
-    and associate them with the insight group "key".
+    and associate them with the insight group `key_insight`.
 
     Hardness is a measure computed based on model prediction output that
     summarizes a measure of the uncertainty the model had with the sample.
     This makes hardness quantitative and can be used to detect things like
-    annotation errors.
+    hard samples, annotation errors during noisy training, and more.
+
+    Algorithm: Currently, hardness is computed as a direct measure on the
+    entropy of the logits.
 
     Args:
         data: a :class:`fiftyone.core.collection:SampleCollection`
@@ -60,7 +65,7 @@ def compute_hardness(data, key, key_insight=None, validate=False):
     for sample in data.iter_samples():
         label = sample.get_label(key)
 
-        hardness=entropy(_softmax(np.asarray(label.logits)))
+        hardness = entropy(_softmax(np.asarray(label.logits)))
 
         insight = foi.ScalarInsight.create(name="hardness", scalar=hardness)
         sample.add_insight(ikey, insight)
