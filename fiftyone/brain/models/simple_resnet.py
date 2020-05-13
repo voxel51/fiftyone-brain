@@ -29,6 +29,17 @@ def path_iter(nested_dict, pfx=()):
         if isinstance(val, dict): yield from path_iter(val, (*pfx, name))
         else: yield ((*pfx, name), val)
 
+
+def group_by_key(items):
+    res = defaultdict(list)
+    for k, v in items:
+        res[k].append(v)
+    return res
+
+
+union = lambda *dicts: {k: v for d in dicts for (k, v) in d.items()}
+
+
 ## Data Preprocessing and Handling
 def preprocess(dataset, transforms):
     dataset = copy.copy(dataset) #shallow copy
