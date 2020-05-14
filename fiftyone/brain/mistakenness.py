@@ -68,7 +68,9 @@ def compute_mistakenness(
     if validate:
         _validate(data, key_prediction, key_label)
 
-    ikey = key_insight or key_prediction
+    if key_insight is None:
+        key_insight = key_prediction
+
     for sample in data:
         label = sample.get_label(key_prediction)
         check = sample.get_label(key_label)
@@ -78,7 +80,7 @@ def compute_mistakenness(
         value = exp(m * c)
 
         insight = foi.ScalarInsight.create(name="mistakenness", scalar=value)
-        sample.add_insight(ikey, insight)
+        sample.add_insight(key_insight, insight)
 
 
 def _validate(data, key_prediction, key_label):
