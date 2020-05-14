@@ -9,7 +9,7 @@ Installs `fiftyone-brain`.
 import os
 import shutil
 from distutils.command.build import build
-from setuptools import setup, find_packages
+from setuptools import setup
 from wheel.bdist_wheel import bdist_wheel
 
 from pyarmor.pyarmor import main as call_pyarmor
