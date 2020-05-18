@@ -43,16 +43,6 @@ def compute_mistakenness(
     the label.  This makes the measure quantitative and can be used to detect
     things like annotation errors as well as unusually hard samples.
 
-    **Algorithm:** the chance of a mistake is related to how confident the
-    model prediction was as well as whether or not the prediction is correct.
-    A prediction that is highly confident and incorrect is likely to be a
-    mistake.  A prediction that is low confidence and incorrect is not likely
-    to be a mistake.  Let us compute a confidence measure based on negative
-    entropy of logits: $c = -entropy(logits)$. (High when low uncertainty, and
-    low confidence when high uncertainty.)  Let us define modulator, $m$, based
-    on whether or not the answer is correct.  $m = 1$ when the label is correct
-    and $0$ otherwise. Then, mistakenness is computed using $exp(m * c)$.
-
     Args:
         data: an iterable of :class:`fiftyone.core.sample.Sample` instances
         key_prediction: string denoting what group label to operate for getting
@@ -64,6 +54,17 @@ def compute_mistakenness(
             denotation to be specified only if different than `key`
         validate (False): whether to validate that the provided samples have
             the required fields to be processed
+    """
+    """
+    **Algorithm:** the chance of a mistake is related to how confident the
+    model prediction was as well as whether or not the prediction is correct.
+    A prediction that is highly confident and incorrect is likely to be a
+    mistake.  A prediction that is low confidence and incorrect is not likely
+    to be a mistake.  Let us compute a confidence measure based on negative
+    entropy of logits: $c = -entropy(logits)$. (High when low uncertainty, and
+    low confidence when high uncertainty.)  Let us define modulator, $m$, based
+    on whether or not the answer is correct.  $m = 1$ when the label is correct
+    and $0$ otherwise. Then, mistakenness is computed using $exp(m * c)$.
     """
     if validate:
         _validate(data, key_prediction, key_label)
@@ -104,10 +105,8 @@ def _validate(data, key_prediction, key_label):
 
 
 def _softmax(npa):
-    """Computes softmax on the numpy array.
-
-    @todo Replace with ``scipy.special.softmax`` after upgrading to scipy as it
-    is more numerically stable.
-    """
+    """Computes softmax on the numpy array."""
+    # @todo Replace with ``scipy.special.softmax`` after upgrading to scipy as
+    #       it is more numerically stable.
     a = np.exp(npa)
     return a / sum(a)
