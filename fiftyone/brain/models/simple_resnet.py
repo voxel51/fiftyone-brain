@@ -5,6 +5,10 @@ Only suitable for smallish data.
 Original Implementation of this is from David Page's work on fast model
 training with resnets.  <https://github.com/davidcpage/cifar10-fast/>
 
+@todo This code needs to be significantly clean and tightened.  It is here now
+just to get something in the codebase with a model that we can train for use in
+a variety of tests and other things like developing uniqueness.
+
 | Copyright 2017-2020, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
