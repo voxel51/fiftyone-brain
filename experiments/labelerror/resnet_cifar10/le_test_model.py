@@ -1,9 +1,8 @@
 """
-le_test4 --> initial tests for using fiftyone with this code
-Loads the data, assigns ground-truth labels, loads a model
-Runs prediction and associates predictions with the fiftyone dataset
-Generates simple scalar insight for each simple
-Same as le_test3, except using the modeling code that is now in the brain
+Tests a model by loading the cifar10 dataset and then running predictions
+against it.  Also associates the predictions and an insight associated with it
+in the fiftyone dataset.
+
 
 Run with at least the following command line:
     -m model_path.pth
