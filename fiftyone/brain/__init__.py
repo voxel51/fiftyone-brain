@@ -8,3 +8,5 @@ See https://github.com/voxel51/fiftyone for more information.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+from .hardness import compute_hardness
+from .mistakenness import compute_mistakenness
