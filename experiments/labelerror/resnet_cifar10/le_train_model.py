@@ -1,7 +1,25 @@
 """
 Trains a clean model using the brain.model simple_resnet code.  This model can
-be used throughout the experiment and for testing as needed.  Does not interact
-with fiftyone as that is not needed here.
+be used throughout the experiment and for testing as needed.
+
+Does not interact with fiftyone as that is not needed here.
+
+This is just a driver for training a model using this architecture.  This code
+is not used in conducting the actual label-error experiments, which is in the
+`labelerror.py` file.
+
+Supports these config parameters:
+    - config.take
+    - config.epochs
+    - config.batch_size
+    - config.n_max
+    - config.p_initial
+    - config.n_rounds
+    - config.cold_start
+    - config.stats_path
+    - config.model_path
+And a simple (minimal) set of these to run on a small machine is
+    - `run le_train_model -t 2000 -e 12 -b 64 --n_rounds 1 --p_initial 1.0 -m /tmp/foo.pth`
 
 | Copyright 2017-2020, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
