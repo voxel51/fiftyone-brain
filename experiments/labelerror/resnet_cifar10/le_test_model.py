@@ -3,7 +3,6 @@ Tests a model by loading the cifar10 dataset and then running predictions
 against it.  Also associates the predictions and an insight associated with it
 in the fiftyone dataset.
 
-
 Run with at least the following command line:
     -m model_path.pth
 
@@ -35,7 +34,6 @@ from config import *
 from datasets import *
 from utils import Timer
 
-TEMP_TRAIN_DIR="/tmp/le_test/train"
 TEMP_VALID_DIR="/tmp/le_test/valid"
 
 localtime = lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
@@ -57,6 +55,7 @@ def main(config):
 
     ## Initial Data Input
     # Produces train_set and valid_set that are lists of tuples: (image, label)
+    # (only the valid_set will be used in this script)
     timer = Timer()
     whole_dataset = cifar10(root=DATA_DIR)
     print("Preprocessing training data")
@@ -64,18 +63,14 @@ def main(config):
         partial(normalise, mean=np.array(cifar10_mean, dtype=np.float32), std=np.array(cifar10_std, dtype=np.float32)),
         partial(transpose, source='NHWC', target='NCHW'),
     ]
-    whole_train_set = list(zip(*preprocess(whole_dataset['train'], [partial(pad, border=4)] + transforms).values()))
     valid_set = list(zip(*preprocess(whole_dataset['valid'], transforms).values()))
     print(f"Finished loading and preprocessing in {timer():.2f} seconds")
 
-    print(f"train set: {len(whole_train_set)} samples")
     print(f"valid set: {len(valid_set)} samples")
 
     if config.take:
-        whole_train_set = whole_train_set[:config.take]
         valid_set = whole_train_set[:config.take]
         print(f"using a subset of the data")
-        print(f"train set: {len(whole_train_set)} samples")
         print(f"valid set: {len(valid_set)} samples")
 
     # TEMPORARY
@@ -89,9 +84,7 @@ def main(config):
     # preprocessing on my data everytime I load an image in from disk, if I can
     # avoid that.
     #
-    os.makedirs(TEMP_TRAIN_DIR, exist_ok=True)
     os.makedirs(TEMP_VALID_DIR, exist_ok=True)
-    train_image_paths = write_images(TEMP_TRAIN_DIR, list(zip(*whole_train_set))[0])
     valid_image_paths = write_images(TEMP_VALID_DIR, list(zip(*valid_set))[0])
 
     # make the actual labels for the cifar-10 world
@@ -102,13 +95,6 @@ def main(config):
     timer = Timer()
     drop_database()
     dataset = fo.Dataset("le_cifar10")
-
-    samples = []
-    for i, s in enumerate(whole_train_set):
-        sample = fo.Sample.create(train_image_paths[i], tags=["train"])
-        sample.add_label("ground_truth", labels[s[1]])
-        samples.append(sample)
-    train_ids = dataset.add_samples(samples)
 
     samples = []
     for i, s in enumerate(valid_set):
@@ -130,13 +116,10 @@ def main(config):
 
     # I need to get my datasets into a format where I'll have the ids available
     # as well during the data loading
-    train_imgs, train_labels = zip(*whole_train_set)
-    fo_train_set = list(zip(train_imgs, train_labels, train_ids))
 
     valid_imgs, valid_labels = zip(*valid_set)
     fo_valid_set = list(zip(valid_imgs, valid_labels, valid_ids))
 
-    train_batches = DataLoader(fo_train_set, config.batch_size, shuffle=False, drop_last=False)
     valid_batches = DataLoader(fo_valid_set, config.batch_size, shuffle=False, drop_last=False)
 
     print("running predictions on the data")
