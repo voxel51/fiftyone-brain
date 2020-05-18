@@ -7,16 +7,38 @@ We currently follow all of the practices established in
 [ETA](https://github.com/voxel51/eta) for the Python code in this repository,
 so this guide is mostly pointers to the relevant resources there!
 
-
 ## Coding style
 
-- [Python style guide](https://github.com/voxel51/eta/blob/develop/docs/python_style_guide.md)
-- [Linting guide](https://github.com/voxel51/eta/blob/develop/docs/linting_guide.md)
-- [Logging guide](https://github.com/voxel51/eta/blob/develop/docs/logging_guide.md)
-- [Markdown style guide](https://github.com/voxel51/eta/blob/develop/docs/markdown_style_guide.md)
+-   [Python style guide](https://github.com/voxel51/eta/blob/develop/docs/python_style_guide.md)
+-   [Linting guide](https://github.com/voxel51/eta/blob/develop/docs/linting_guide.md)
+-   [Logging guide](https://github.com/voxel51/eta/blob/develop/docs/logging_guide.md)
+-   [Markdown style guide](https://github.com/voxel51/eta/blob/develop/docs/markdown_style_guide.md)
 
+## Documentation
+
+All private or internal-facing documentation should be kept out of docstrings,
+as these are visible to end-users of the package. Instead, this information can
+be placed in `#`-style comments or additional triple-quoted string literals:
+
+```python
+def func():
+    """Public-facing docs."""
+    # a short private note
+    ...
+
+
+def func2():
+    """Public-facing docs."""
+    """
+    Longer, even more private information.
+    """
+    ...
+```
+
+Be sure to keep a line break between the end of a docstring and the beginning
+of another string literal to prevent them from being
+[concatenated](https://docs.python.org/3/reference/lexical_analysis.html#string-literal-concatenation).
 
 ## Copyright
 
-Copyright 2017-2020, Voxel51, Inc.<br>
-voxel51.com
+Copyright 2017-2020, Voxel51, Inc.<br> voxel51.com

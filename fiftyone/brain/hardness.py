@@ -34,8 +34,6 @@ def compute_hardness(data, key_label, key_insight=None, validate=False):
     This makes hardness quantitative and can be used to detect things like
     hard samples, annotation errors during noisy training, and more.
 
-    **Algorithm:** hardness is computed directly as the entropy of the logits.
-
     Args:
         data: an iterable of :class:`fiftyone.core.sample.Sample` instances
         key: string denoting what group label to operate for getting the label
@@ -45,6 +43,7 @@ def compute_hardness(data, key_label, key_insight=None, validate=False):
         validate (False): whether to validate that the provided samples have
             the required fields to be processed
     """
+    # **Algorithm:** hardness is computed directly as the entropy of the logits.
     if validate:
         _validate(data, key_label)
 
@@ -74,10 +73,8 @@ def _validate(data, key_label):
 
 
 def _softmax(npa):
-    """Computes softmax on the numpy array.
-
-    @todo Replace with ``scipy.special.softmax`` after upgrading to scipy as it
-    is more numerically stable.
-    """
+    """Computes softmax on the numpy array."""
+    # @todo Replace with ``scipy.special.softmax`` after upgrading to scipy as
+    #       it is more numerically stable.
     a = np.exp(npa)
     return a / sum(a)
