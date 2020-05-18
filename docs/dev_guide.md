@@ -56,7 +56,8 @@ fobh.compute_hardness(...)
 
 So, in the `fiftyone.brain` package `__init__.py`, you should import core, public-facing methods:
 ```
-from .hardness
+from .hardness import compute_hardness
+```
 
 
 
