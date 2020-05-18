@@ -5,6 +5,12 @@ Runs prediction and associates predictions with the fiftyone dataset
 Generates simple scalar insight for each simple
 Same as le_test3, except using the modeling code that is now in the brain
 
+Run with at least the following command line:
+    -m model_path.pth
+
+Uses
+    -t number
+
 | Copyright 2017-2020, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
@@ -119,6 +125,8 @@ def main(config):
     model = Network(simple_resnet()).to(device).half()
     model.load_state_dict(torch.load(config.model_path))
 
+    print("Model loaded.")
+
     model.train(False) # == model.eval()
 
     # I need to get my datasets into a format where I'll have the ids available
@@ -131,6 +139,8 @@ def main(config):
 
     train_batches = DataLoader(fo_train_set, config.batch_size, shuffle=False, drop_last=False)
     valid_batches = DataLoader(fo_valid_set, config.batch_size, shuffle=False, drop_last=False)
+
+    print("running predictions on the data")
 
     correct = 0
     total = 0
