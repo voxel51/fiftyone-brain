@@ -73,8 +73,6 @@ def main(config):
         round((config.n_max-start_N) / (config.n_rounds-1))
     )
 
-    corrupt_N = round(config.p_corrupt * total_N)
-
     print(f'Setting up the experiment: {total_N} training samples.')
     print(f'- starting with {start_N}')
     print(f'- incrementing by {incr_N} for each of {config.n_rounds-1} rounds')
@@ -89,12 +87,9 @@ def main(config):
 
     valid_batches = DataLoader(valid_set, config.batch_size, shuffle=False, drop_last=False)
 
-    # initially randomly shuffle the dataset and take the initial number of samples
     whole_train_set_use = whole_train_set[0:inuse_N]
     whole_train_set_avail = whole_train_set[inuse_N:]
     print(f'Split training set into two; using {len(whole_train_set_use)}, available {len(whole_train_set_avail)}')
-
-    sm = torch.nn.Softmax(dim=1)
 
     stats = {}
 
