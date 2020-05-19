@@ -21,6 +21,7 @@ from builtins import *
 import os.path
 
 import numpy as np
+from sklearn.neighbors import NearestNeighbors
 import torch
 from torch import nn
 import torchvision
@@ -36,7 +37,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 cpu = torch.device("cpu")
 
 
-def compute_uniqueness(data, key_label, key_insight=None, validate=False):
+def compute_uniqueness(data, key_label=None, key_insight=None, validate=False):
     """Adds a ``uniqueness`` :class:`fiftyone.core.insight.ScalarInsight` to
     each sample scoring how unique it is with respect to the rest of the
     samples in `data`.
@@ -46,10 +47,12 @@ def compute_uniqueness(data, key_label, key_insight=None, validate=False):
 
     Args:
         data: an iterable of :class:`fiftyone.core.sample.Sample` instances
-        key: string denoting what group label to operate for getting the label
-            prediction information and for adding the insight
+        key_label (None): string denoting what group label to operate for
+            getting the label prediction information.  If this is None, then
+            all samples in `data` are used.
         key_insight (None): string denoting the group for the insight
-            denotation to be specified only if different than `key`
+            denotation to be specified.  If this is None, then `key_label` is
+            used.  If both are none, then `key_insight` is set to `uniqueness`.
         validate (False): whether to validate that the provided samples have
             the required fields to be processed
     """
@@ -62,11 +65,17 @@ def compute_uniqueness(data, key_label, key_insight=None, validate=False):
     in the set.  This is different than, say, "representativeness" which would
     stress samples that are core to dense clusters of related samples.
     """
+    # convert to a parameter with a default, for tuning
+    K = 8
+
     if validate:
         _validate(data, key_label)
 
     if key_insight is None:
-        key_insight = key_label
+        if key_label is None:
+            key_insight = "uniqueness"
+        else:
+            key_insight = key_label
 
     # load the model first
     # @todo before finalizing this work, make this model downloadable/loadable
@@ -78,17 +87,44 @@ def compute_uniqueness(data, key_label, key_insight=None, validate=False):
     model = Network(simple_resnet()).to(device).half()
     model.load_state_dict(torch.load(MODEL_PATH))
 
+    # @todo support filtering down by key_label
     loader = _make_data_loader(data)
 
+    embeds = None
     model.train(False)
     with torch.no_grad():
-        for imgs, sample_ids in loader:
+        for imgs, _ in loader:
             vectors = _embed(model, imgs)
 
             # take the vectors and then compute knn on them
+            if embeds is None:
+                embeds = vectors
+            else:
+                # @todo: if speed is an issue, fix this...
+                embeds = np.vstack((embeds, vectors))
 
-    #    insight = foi.ScalarInsight.create(name="hardness", scalar=hardness)
-    #    sample.add_insight(key_insight, insight)
+    # @todo assess whether or not this is necessary. (input is float16)
+    embeds = embeds.astype('float32')
+
+    # each row of embeddings is a sample from the dataset (via row index)
+    # dists and indices have a useless first column ("itself")
+    knn = NearestNeighbors(n_neighbors=K+1, algorithm="ball_tree").fit(embeds)
+    dists, indices = knn.kneighbors(embeds)
+
+    assert(indices.shape[1] == K+1)
+
+    # @todo experiment on which method for assessing uniqueness is best
+    # to get something going, for now, just use the min value
+    value_dist = dists[:, 1:].min(1)
+    value_dist /= value_dist.max()
+
+    # @todo make this only filter down by the key_label
+    for index, sample in enumerate(data.iter_samples()):
+        insight = foi.ScalarInsight.create(name="uniqueness",
+                                           scalar=value_dist[index])
+        sample.add_insight(key_insight, insight)
+
+    # @todo should these functions return anything?
 
 
 def _make_data_loader(data, batch_size=16):
@@ -159,6 +195,8 @@ def _validate(data, key_label):
     @todo When fiftyone extends support to cloud and non-local data, this
     validation will need to change.
     """
+    # @todo add support for filtering down by key_label first in case the user
+    # forgot to do that
     for sample in data:
         if not os.path.exists(sample.filepath):
             raise ValueError(
