@@ -28,9 +28,9 @@ You will also need to `pip install flickrapi` for this to work.
 Next, let's download three sets of images to process together.  I suggest using three distinct object-nouns like "badger", "wolverine", and "kitten".  For the actual downloading, we will use the provided `query_flickr.py` script:
 
 ```
-python query-flickr <KEY> <SECRET> "badger" 
-python query-flickr <KEY> <SECRET> "wolverine" 
-python query-flickr <KEY> <SECRET> "kitten" 
+python query-flickr.py <KEY> <SECRET> "badger" 
+python query-flickr.py <KEY> <SECRET> "wolverine" 
+python query-flickr.py <KEY> <SECRET> "kitten" 
 ```
 
 
