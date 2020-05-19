@@ -116,6 +116,7 @@ def compute_uniqueness(data, key_label=None, key_insight=None, validate=False):
     # @todo experiment on which method for assessing uniqueness is best
     # to get something going, for now, just take a weight mean
     weights = [0.5, 0.35, 0.15]
+    dists = dists[:, 1:]
     dists *= weights
     value_dist = dists.mean(1)
 
