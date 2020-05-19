@@ -27,14 +27,40 @@ You will also need to `pip install flickrapi` for this to work.
 
 Next, let's download three sets of images to process together.  I suggest using three distinct object-nouns like "badger", "wolverine", and "kitten".  For the actual downloading, we will use the provided `query_flickr.py` script:
 
-```
+```sh
 python query-flickr.py <KEY> <SECRET> "badger" 
 python query-flickr.py <KEY> <SECRET> "wolverine" 
 python query-flickr.py <KEY> <SECRET> "kitten" 
 ```
 
-
 For the remainder of this walkthrough, let's assume the images are in directory `data`.
+
+### Load The Data Into FiftyOne
+
+In an IPython shell, let's now work through getting this data into FiftyOne and working with it.
+
+```py
+import fiftyone as fo
+
+dataset = fo.Dataset.from_images_dir('data', recursive=True, name='walkthrough')
+```
+This command uses a factory method on the `Dataset` class to traverse a directory of images (including subdirectories) and generate a dataset instance in FiftyOne.  This does not load the images from disk.  The first argument is the path to the images, the second is whether we should traverse recursively (yes in our case), and the third is a name for the dataset.
+
+Now we can visualize it and get summary information about it quickly.
+```py
+print(dataset.summary())
+session = fo.launch_dashboard()
+session.dataset = dataset
+```
+
+Please refer to XXX for more useful things you can do with the dataset and dashboard.
+
+### Compute Uniqueness and Analyze
+
+Now, let's analyze the data.  For example, we may want to understand what are the most unique images among the data as they may inform or harm model training; we may want to discover duplicates or redundant samples.
+
+
+
 
 ## Copyright
 
