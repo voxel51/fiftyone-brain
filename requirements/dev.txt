@@ -6,3 +6,4 @@ pre-commit==2.0.1
 pylint==1.9.4;python_version<"3"
 pylint==2.3.1;python_version>="3"
 pyarmor==6.1.0
+twine>=3
