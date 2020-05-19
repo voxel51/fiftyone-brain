@@ -66,7 +66,7 @@ def compute_uniqueness(data, key_label=None, key_insight=None, validate=False):
     stress samples that are core to dense clusters of related samples.
     """
     # convert to a parameter with a default, for tuning
-    K = 8
+    K = 3
 
     if validate:
         _validate(data, key_label)
@@ -114,8 +114,12 @@ def compute_uniqueness(data, key_label=None, key_insight=None, validate=False):
     assert(indices.shape[1] == K+1)
 
     # @todo experiment on which method for assessing uniqueness is best
-    # to get something going, for now, just use the min value
-    value_dist = dists[:, 1:].min(1)
+    # to get something going, for now, just take a weight mean
+    weights = [0.5, 0.35, 0.15]
+    dists *= weights
+    value_dist = dists.mean(1)
+
+    # need to normalize to keep the user on common footing across datasets
     value_dist /= value_dist.max()
 
     # @todo make this only filter down by the key_label
