@@ -10,3 +10,4 @@ See https://github.com/voxel51/fiftyone for more information.
 """
 from .hardness import compute_hardness
 from .mistakenness import compute_mistakenness
+from .uniqueness import compute_uniqueness
