@@ -77,15 +77,7 @@ def compute_uniqueness(data, key_label=None, key_insight=None, validate=False):
         else:
             key_insight = key_label
 
-    # load the model first
-    # @todo before finalizing this work, make this model downloadable/loadable
-    # from somewhere open/general/permanent
-    MODEL_PATH="/scratch/jason-model-cache/cifar10-20200507.pth"
-    # @todo make this code into some form of a fiftyone.brain class to allow
-    # for different models with the same functionality (or similar).  Will use
-    # the eta classes for models.  Next step
-    model = Network(simple_resnet()).to(device).half()
-    model.load_state_dict(torch.load(MODEL_PATH))
+    model = etal.load_default_deployment_model("simple_resnet_cifar10")
 
     # @todo support filtering down by key_label
     loader = _make_data_loader(data)

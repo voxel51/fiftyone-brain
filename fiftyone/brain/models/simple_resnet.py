@@ -22,6 +22,7 @@ from itertools import chain
 import numpy as np
 import torch
 from torch import nn
+import torchvision
 
 from eta.core.config import Config
 import eta.core.learning as etal
@@ -30,6 +31,10 @@ import eta.core.utils as etau
 
 # This is a small model with a fixed size, so let cudnn optimize
 torch.backends.cudnn.benchmark = True
+
+# @todo consider moving these outside to some brain utils or config
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+cpu = torch.device("cpu")
 
 
 #
@@ -76,6 +81,18 @@ class SimpleResnetImageClassifierConfig(Config,
 
 
 class SimpleResnetImageClassifier(etal.ImageClassifier):
+    """Definition of the SimpleResnetImageClassifier
+
+    Attributes:
+        config: Instances of :class:SimpleResnetImageClassifierConfig
+        specifying the information about the model.
+
+    """
+    """
+    @todo Can we make a more generic bridge to ETA for Torch models that would
+    specify some location or function that defines the graph but is otherwise
+    generic?
+    """
     def __init__(self, config):
         self.config = config
 
@@ -87,19 +104,27 @@ class SimpleResnetImageClassifier(etal.ImageClassifier):
         self.labels_map = self.config.labels_string.split(", ")
         self.labels_rev = {v: i for i, v in enumerate(self.labels_map)}
 
-        print("TODO ACTUALLY LOAD THE MODEL")
-        print(model_path)
-
-        print(type(self.config.image_mean))
-        print(self.config.image_mean)
-
-        print(self.labels_rev)
+        self._setup_model()
 
     def predict(self, img):
         pass
 
     def predict_all(self, imgs):
         pass
+
+    def _setup_model(self):
+        # Instantiates the model and sets up any preprocessing, etc.
+        self.transforms = torchvision.transforms.Compose(
+            [
+                torchvision.transforms.Resize([32, 32]),
+                torchvision.transforms.ToTensor(),
+                torchvision.transforms.Normalize(mean, std),
+            ]
+        )
+
+        # load the model first
+        self.model = Network(simple_resnet()).to(device).half()
+        self.model.load_state_dict(torch.load(self.model_path))
 
 
 #
