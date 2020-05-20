@@ -129,14 +129,13 @@ class SimpleResnetImageClassifier(etal.ImageClassifier):
         confidences = np.max(odds, axis=1) / np.sum(odds, axis=1)
         return predictions, confidences, logits
 
-    def embed(model, imgs):
+    def embed(self, imgs):
         """Embeds the imgs into the model's space."""
         """
         @todo Should this be an implementation of the get_features?
 
         XXX unclear if the layer should be flatten or linear;
         """
-        print(imgs.shape)
         inputs = dict(input=imgs.cuda().half())
         outputs = self.model(inputs)
         return outputs['flatten'].detach().cpu().numpy()
