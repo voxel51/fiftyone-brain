@@ -12,11 +12,11 @@ from distutils.command.build import build
 from setuptools import setup
 from wheel.bdist_wheel import bdist_wheel
 
-from pyarmor.pyarmor import main as call_pyarmor
-
 
 class CustomBuild(build):
     def run(self):
+        from pyarmor.pyarmor import main as call_pyarmor
+
         build.run(self)
         # remove the source and bytecode (.pyc) files, and replace them with
         # obfuscated files
@@ -55,6 +55,10 @@ setup(
     license="",
     packages=["fiftyone.brain"],
     include_package_data=True,
+    install_requires=[
+        "numpy",
+        "scipy",
+    ],
     classifiers=[
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX :: Linux",
