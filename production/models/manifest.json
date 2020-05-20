@@ -1,0 +1,24 @@
+{
+    "models": [
+        {
+            "base_name": "simple_resnet_cifar10",
+            "base_filename": "simple_resnet_cifar10.pth",
+            "version": "1.0",
+            "description": "Simple internal Resnet classifier implementation trained on CIFAR-10",
+            "manager": {
+                "type": "eta.core.models.ETAModelManager",
+                "config": {
+                    "google_drive_id": "1SIO9XreK0w1ja4EuhBWcR10CnWxCOsom"
+                }
+            },
+            "default_deployment_config_dict": {
+                "type": "eta.detectors.XXX",
+                "config": {
+                    "model_name": "simple_resnet_cifar10",
+                    "labels_path": "XXX{{eta}}/tensorflow/models/research/object_detection/data/mscoco_complete_label_map.pbtxt"
+                }
+            },
+            "date_created": "2020-05-07 08:25:51"
+        }
+    ]
+}
