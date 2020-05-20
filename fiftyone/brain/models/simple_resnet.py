@@ -86,7 +86,6 @@ class SimpleResnetImageClassifier(etal.ImageClassifier):
     Attributes:
         config: Instances of :class:SimpleResnetImageClassifierConfig
         specifying the information about the model.
-
     """
     """
     @todo Can we make a more generic bridge to ETA for Torch models that would
@@ -97,35 +96,66 @@ class SimpleResnetImageClassifier(etal.ImageClassifier):
         self.config = config
 
         if self.config.model_path:
-            model_path = self.config.model_path
+            self.weights_path = self.config.model_path
         else:
-            model_path = etam.download_model(self.config.model_name)
+            self.weights_path = etam.download_model(self.config.model_name)
 
         self.labels_map = self.config.labels_string.split(", ")
         self.labels_rev = {v: i for i, v in enumerate(self.labels_map)}
 
+        self._transforms = None
+        self._model = None
+
         self._setup_model()
+
+    @property
+    def transforms(self):
+        return self._transforms
+
+    @property
+    def model(self):
+        return self._model
 
     def predict(self, img):
         pass
 
     def predict_all(self, imgs):
-        pass
+        """Computes a prediction on the imgs using the model."""
+        inputs = dict(input=imgs.cuda().half())
+        outputs = self.model(inputs)
+        logits = outputs['logits'].detach().cpu().numpy()
+        predictions = np.argmax(logits, axis=1)
+        odds = np.exp(logits)
+        confidences = np.max(odds, axis=1) / np.sum(odds, axis=1)
+        return predictions, confidences, logits
+
+    def embed(model, imgs):
+        """Embeds the imgs into the model's space."""
+        """
+        @todo Should this be an implementation of the get_features?
+
+        XXX unclear if the layer should be flatten or linear;
+        """
+        print(imgs.shape)
+        inputs = dict(input=imgs.cuda().half())
+        outputs = self.model(inputs)
+        return outputs['flatten'].detach().cpu().numpy()
 
     def _setup_model(self):
         # Instantiates the model and sets up any preprocessing, etc.
-        self.transforms = torchvision.transforms.Compose(
+        self._transforms = torchvision.transforms.Compose(
             [
                 torchvision.transforms.Resize([32, 32]),
                 torchvision.transforms.ToTensor(),
-                torchvision.transforms.Normalize(mean, std),
+                torchvision.transforms.Normalize(self.config.image_mean,
+                                                 self.config.image_std),
             ]
         )
 
         # load the model first
-        self.model = Network(simple_resnet()).to(device).half()
-        self.model.load_state_dict(torch.load(self.model_path))
-
+        self._model = Network(simple_resnet()).to(device).half()
+        self._model.load_state_dict(torch.load(self.weights_path))
+        self._model.train(False)
 
 #
 ## Utils; should they be moved elsewhere?

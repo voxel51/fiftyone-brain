@@ -80,13 +80,12 @@ def compute_uniqueness(data, key_label=None, key_insight=None, validate=False):
     model = etal.load_default_deployment_model("simple_resnet_cifar10")
 
     # @todo support filtering down by key_label
-    loader = _make_data_loader(data)
+    loader = _make_data_loader(data, model.transforms)
 
     embeds = None
-    model.train(False)
     with torch.no_grad():
         for imgs, _ in loader:
-            vectors = _embed(model, imgs)
+            vectors = model.embed(imgs)
 
             # take the vectors and then compute knn on them
             if embeds is None:
@@ -127,7 +126,7 @@ def compute_uniqueness(data, key_label=None, key_insight=None, validate=False):
     # @todo should these functions return anything?
 
 
-def _make_data_loader(data, batch_size=16):
+def _make_data_loader(data, transforms, batch_size=16):
     """Makes a data loader that can be used for getting the dataset off-disk
     and processed by our model.
 
@@ -136,18 +135,9 @@ def _make_data_loader(data, batch_size=16):
 
     Args:
         data: an iterable of :class:`fiftyone.core.sample.Sample` instances
+        transforms: a torchvision Transform sequence
         batch_size: the int size of the batches in the loader
     """
-    mean = [0.4914, 0.4822, 0.4465]
-    std = [0.2023, 0.1994, 0.2010]
-    transforms = torchvision.transforms.Compose(
-        [
-            torchvision.transforms.Resize([32, 32]),
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(mean, std),
-        ]
-    )
-
     # XXX should the fiftyone view be able to supply this operation directly?
     image_paths = []
     sample_ids = []
