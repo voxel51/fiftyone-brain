@@ -23,11 +23,88 @@ import numpy as np
 import torch
 from torch import nn
 
+from eta.core.config import Config
+import eta.core.learning as etal
+import eta.core.models as etam
+import eta.core.utils as etau
 
 # This is a small model with a fixed size, so let cudnn optimize
 torch.backends.cudnn.benchmark = True
 
+
+#
+## Definition of actual class that will be used
+#
+class SimpleResnetImageClassifierConfig(Config,
+                                        etal.HasDefaultDeploymentConfig):
+    """SimpleResnetImageClassifier configuration settings.
+
+    Attributes:
+        model_name: the name of the published model to load.  If this value is
+            provided, model_path does not need to be
+        model_path: the path to the model .pth weights to use.  If this value
+            is provided the, model_name does not need to be.
+        labels_string: a comma-separated list of the class-names in the
+            classifier, ordered in accordance with the trained model (this is
+            essentially a label map)
+        image_mean: a 3-array of mean values [0,1] for preprocessing the input
+        image_std: a 3-array of std values [0,1] for preprocessing the input
+    """
+    def __init__(self, d):
+        self.model_name = self.parse_string(d, "model_name", default=None)
+        self.model_path = self.parse_string(d, "model_path", default=None)
+
+        if self.model_name:
+            d = self.load_default_deployment_params(d, self.model_name)
+
+        self.image_mean = self.parse_array(d, "image_mean", default=None)
+        self.image_std = self.parse_array(d, "image_std", default=None)
+
+        self.labels_string = self.parse_string(d, "labels_string", default=None)
+
+        self._validate()
+
+    def _validate(self):
+        if not self.model_name and not self.model_path:
+            raise ConfigError(
+                "Either `model_name` or `model_path` must be provided"
+            )
+        if not self.image_mean or not self.image_std:
+            raise ConfigError(
+                "Both `image_mean` and `image_std` must be provided"
+            )
+
+
+class SimpleResnetImageClassifier(etal.ImageClassifier):
+    def __init__(self, config):
+        self.config = config
+
+        if self.config.model_path:
+            model_path = self.config.model_path
+        else:
+            model_path = etam.download_model(self.config.model_name)
+
+        self.labels_map = self.config.labels_string.split(", ")
+        self.labels_rev = {v: i for i, v in enumerate(self.labels_map)}
+
+        print("TODO ACTUALLY LOAD THE MODEL")
+        print(model_path)
+
+        print(type(self.config.image_mean))
+        print(self.config.image_mean)
+
+        print(self.labels_rev)
+
+    def predict(self, img):
+        pass
+
+    def predict_all(self, imgs):
+        pass
+
+
+#
 ## Utils; should they be moved elsewhere?
+#
 def path_iter(nested_dict, pfx=()):
     for name, val in nested_dict.items():
         if isinstance(val, dict): yield from path_iter(val, (*pfx, name))
@@ -44,7 +121,9 @@ def group_by_key(items):
 union = lambda *dicts: {k: v for d in dicts for (k, v) in d.items()}
 
 
+#
 ## Data Preprocessing and Handling
+#
 def preprocess(dataset, transforms):
     dataset = copy.copy(dataset) #shallow copy
     for transform in transforms:
@@ -164,8 +243,6 @@ class Transform():
 
 
 
-## Utils
-
 class PiecewiseLinear(namedtuple('PiecewiseLinear', ('knots', 'vals'))):
     def __call__(self, t):
         return np.interp([t], self.knots, self.vals)[0]
@@ -174,8 +251,9 @@ class Const(namedtuple('Const', ['val'])):
     def __call__(self, x):
         return self.val
 
+#
 ## Define the network
-
+#
 has_inputs = lambda node: type(node) is tuple
 
 def build_graph(net):
@@ -274,8 +352,10 @@ def simple_resnet(channels=None, weight=0.125, pool=nn.MaxPool2d(2), extra_layer
         n[layer]['extra'] = conv_bn(channels[layer], channels[layer])
     return n
 
-## Losses, Optimizers
 
+#
+## Losses, Optimizers
+#
 class CrossEntropyLoss(namedtuple('CrossEntropyLoss', [])):
     def __call__(self, log_probs, target):
         return torch.nn.functional.nll_loss(log_probs, target, reduction='none')
@@ -336,8 +416,9 @@ LARS = partial(optimiser, update=LARS_update, state_init=zeros_like)
 SGD = partial(optimiser, update=nesterov_update, state_init=zeros_like)
 
 
+#
 ## Training Code
-
+#
 MODEL = 'model'
 LOSS = 'loss'
 VALID_MODEL = 'valid_model'
@@ -409,6 +490,3 @@ def train_epoch(state, timer, train_batches, valid_batches, train_steps=default_
         'valid': union({'time': valid_time}, valid_summary),
         'total time': timer.total_time
     }
-
-
-
