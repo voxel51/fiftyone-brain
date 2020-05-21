@@ -8,6 +8,18 @@ See https://github.com/voxel51/fiftyone for more information.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+import eta
+import os.path
+__models_cache__ = (
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "models",
+        "cache"
+    )
+)
+eta.config.models_dirs.insert(0, __models_cache__)
+
+
 from .hardness import compute_hardness
 from .mistakenness import compute_mistakenness
 from .uniqueness import compute_uniqueness
