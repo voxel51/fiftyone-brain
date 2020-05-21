@@ -85,7 +85,9 @@ def compute_uniqueness(data, key_label=None, key_insight=None, validate=False):
     embeds = None
     with torch.no_grad():
         for imgs, _ in loader:
-            vectors = model.embed(imgs)
+            # @todo the existence of model.embed_all is happenstance of the model
+            # we loaded above, this should be documented/fixed/generalized
+            vectors = model.embed_all(imgs)
 
             # take the vectors and then compute knn on them
             if embeds is None:

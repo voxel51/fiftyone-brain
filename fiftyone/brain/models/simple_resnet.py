@@ -20,11 +20,13 @@ import copy
 from functools import partial, singledispatch
 from itertools import chain
 import numpy as np
+from PIL import Image as PILImage
 import torch
 from torch import nn
 import torchvision
 
 from eta.core.config import Config
+import eta.core.data as etad
 import eta.core.learning as etal
 import eta.core.models as etam
 import eta.core.utils as etau
@@ -83,6 +85,17 @@ class SimpleResnetImageClassifierConfig(Config,
 class SimpleResnetImageClassifier(etal.ImageClassifier):
     """Definition of the SimpleResnetImageClassifier
 
+    This implementation assumes that the preprocessing transformations have
+    already been applied to the images before they are sent to the prediction
+    and related functions.  If you want these functions to perform the
+    preprocessing for you, then you need to call `toggle_preprocess()` first.
+    Typically, this is not needed when you are working with Torch DataLoaders,
+    for example.
+
+    Current implementation supports single processing of Numpy Arrays and PIL
+    Images (with or without preprocessing) and batch processing of Torch
+    Tensors (already preprocessed).
+
     Attributes:
         config: Instances of :class:SimpleResnetImageClassifierConfig
         specifying the information about the model.
@@ -106,39 +119,10 @@ class SimpleResnetImageClassifier(etal.ImageClassifier):
         self._transforms = None
         self._model = None
 
+        # This is toggled via toggle_preprocess()
+        self._preprocess = False
+
         self._setup_model()
-
-    @property
-    def transforms(self):
-        return self._transforms
-
-    @property
-    def model(self):
-        return self._model
-
-    def predict(self, img):
-        pass
-
-    def predict_all(self, imgs):
-        """Computes a prediction on the imgs using the model."""
-        inputs = dict(input=imgs.cuda().half())
-        outputs = self.model(inputs)
-        logits = outputs['logits'].detach().cpu().numpy()
-        predictions = np.argmax(logits, axis=1)
-        odds = np.exp(logits)
-        confidences = np.max(odds, axis=1) / np.sum(odds, axis=1)
-        return predictions, confidences, logits
-
-    def embed(self, imgs):
-        """Embeds the imgs into the model's space."""
-        """
-        @todo Should this be an implementation of the get_features?
-
-        XXX unclear if the layer should be flatten or linear;
-        """
-        inputs = dict(input=imgs.cuda().half())
-        outputs = self.model(inputs)
-        return outputs['flatten'].detach().cpu().numpy()
 
     def _setup_model(self):
         # Instantiates the model and sets up any preprocessing, etc.
@@ -155,6 +139,118 @@ class SimpleResnetImageClassifier(etal.ImageClassifier):
         self._model = Network(simple_resnet()).to(device).half()
         self._model.load_state_dict(torch.load(self.weights_path))
         self._model.train(False)
+
+    @property
+    def transforms(self):
+        return self._transforms
+
+    @property
+    def model(self):
+        return self._model
+
+    def predict(self, img):
+        """Computes the prediction on a single image.
+
+        Arguments:
+            img: A PIL Image, Numpy ND-Array or Torch Tensor (CHW)
+        """
+        if isinstance (img, torch.Tensor):
+            raise NotImplementedError("predict cannot accept torch.Tensor")
+
+        img = self._preprocess_if_needed(img)
+
+        # need to check the shape of img to ensure that it meets the contract,
+        # since the user may have passed in the numpy array directly and it was
+        # not preprocessed
+        if len(img.shape) != 4:
+            if isinstance(img, np.ndarray):
+                img = img[np.newaxis, :]
+            elif isinstance(img, torch.Tensor):
+                img = img.unsqueeze(0)
+
+        return self.predict_all(img)
+
+    def predict_all(self, imgs):
+        """Computes a prediction on the imgs using the model.
+
+        Following the contract for `eta.core.learning.ImageClassifier`, returns
+        the output predictions in `eta.core.data.AttributeContainer`.
+
+        Currently assumes the `imgs` are preprocessed already and will directly
+        apply them.
+
+        Arguments:
+            imgs: an array of images ordered NCHW as Tensors or Numpy
+        """
+        if isinstance(imgs, np.ndarray):
+            imgs = torch.from_numpy(imgs)
+
+        inputs = dict(input=imgs.cuda().half())
+        outputs = self.model(inputs)
+        logits = outputs['logits'].detach().cpu().numpy()
+        predictions = np.argmax(logits, axis=1)
+        odds = np.exp(logits)
+        confidences = np.max(odds, axis=1) / np.sum(odds, axis=1)
+        #return predictions, confidences, logits
+
+        attributes = []
+        for prediction, confidence in zip(predictions, confidences):
+            attr = etad.CategoricalAttribute(
+                "label",
+                self.labels_map[prediction],
+                confidence=confidence
+            )
+            container = etad.AttributeContainer.from_iterable([attr])
+            attributes.append(container)
+
+        return attributes
+
+
+    def embed_all(self, imgs):
+        """Embeds the imgs into the model's space."""
+        """
+        @todo Should this be an implementation of the get_features?
+
+        XXX unclear if the layer should be flatten or linear;
+        """
+        imgs = self._preprocess_if_needed(imgs)
+        inputs = dict(input=imgs.cuda().half())
+        outputs = self.model(inputs)
+        return outputs['flatten'].detach().cpu().numpy()
+
+    def toggle_preprocess(self, set_to=None):
+        """Toggle the preprocess boolean.
+
+        Arguments:
+            set_to: (default: None) force setting True or False instead of
+                toggling
+        """
+        if set_to:
+            assert(isinstance(set_to), bool)
+            self._preprocess = set_to
+        else:
+            self._preprocess = True if self._preprocess == False else False
+
+    def _preprocess_if_needed(self, img):
+        """Preprocess the single image through the transforms if needed."""
+        if self._preprocess:
+            print("preprocessing")
+            if isinstance(img, torch.Tensor):
+                return NotImplementedError(
+                    "Cannot preprocess Tensors at this time."
+                )
+            if isinstance(img, np.ndarray):
+                print("preprocessing from ndarray")
+                #CONVERT TO PIL
+                # need to separately process each image
+                if np.max(img) <= 1.00001:
+                    img = img * 255
+                img = PILImage.fromarray(np.uint8(img))
+
+            img = self._transforms(img)
+
+        return img
+
 
 #
 ## Utils; should they be moved elsewhere?
