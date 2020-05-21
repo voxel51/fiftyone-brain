@@ -36,9 +36,10 @@ def transpose(x, source, target):
 
 foo.drop_database()
 dataset = foz.load_zoo_dataset("cifar10", split="test")
-view = dataset.default_view().sample(100)
+view = dataset.view().take(100)
 sample = next(iter(view))
 filepath = sample.filepath
+print("Working on image at %s" % filepath)
 
 im_pil = Image.open(filepath)
 print(f"im_pil is type {type(im_pil)}")

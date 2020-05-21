@@ -184,11 +184,10 @@ class SimpleResnetImageClassifier(etal.ImageClassifier):
 
         inputs = dict(input=imgs.cuda().half())
         outputs = self._model(inputs)
-        logits = outputs['logits'].detach().cpu().numpy()
+        logits = np.float32(outputs['logits'].detach().cpu().numpy())
         predictions = np.argmax(logits, axis=1)
         odds = np.exp(logits)
         confidences = np.max(odds, axis=1) / np.sum(odds, axis=1)
-        #return predictions, confidences, logits
 
         attributes = []
         for prediction, confidence in zip(predictions, confidences):
@@ -213,7 +212,7 @@ class SimpleResnetImageClassifier(etal.ImageClassifier):
         imgs = self._preprocess_if_needed(imgs)
         inputs = dict(input=imgs.cuda().half())
         outputs = self._model(inputs)
-        return outputs['flatten'].detach().cpu().numpy()
+        return np.float32(outputs['flatten'].detach().cpu().numpy())
 
     def toggle_preprocess(self, set_to=None):
         """Toggle the preprocess boolean.

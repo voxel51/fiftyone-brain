@@ -25,7 +25,7 @@ import fiftyone.core.odm as foo
 
 foo.drop_database()
 dataset = foz.load_zoo_dataset("cifar10", split="test")
-view = dataset.default_view().sample(100)
+view = dataset.view().take(100)
 
 fob.compute_uniqueness(view)
 
