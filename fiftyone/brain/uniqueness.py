@@ -28,7 +28,6 @@ import torchvision
 
 from fiftyone.brain.models.simple_resnet import *
 
-import fiftyone.core.insights as foi
 import fiftyone.utils.torch as fout
 
 
@@ -118,9 +117,7 @@ def compute_uniqueness(data, key_label=None, key_insight=None, validate=False):
 
     # @todo make this only filter down by the key_label
     for index, sample in enumerate(data.iter_samples()):
-        insight = foi.ScalarInsight.create(name="uniqueness",
-                                           scalar=value_dist[index])
-        sample.add_insight(key_insight, insight)
+        sample[key_insight] = value_dist[index]
 
     # @todo should these functions return anything?
 
