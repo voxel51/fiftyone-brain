@@ -1,5 +1,5 @@
 """
-Definitions of methods that compute insights related to sample uniqueness
+Methods that compute insights related to sample uniqueness.
 
 | Copyright 2017-2020, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -27,7 +27,6 @@ from torch import nn
 import torchvision
 
 from fiftyone.brain.models.simple_resnet import *
-
 import fiftyone.utils.torch as fout
 
 
@@ -36,74 +35,59 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 cpu = torch.device("cpu")
 
 
-def compute_uniqueness(data, key_label=None, key_insight=None, validate=False):
-    """Adds a ``uniqueness`` :class:`fiftyone.core.insight.ScalarInsight` to
-    each sample scoring how unique it is with respect to the rest of the
-    samples in `data`.
+def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
+    """Adds a uniqueness field to each sample scoring how unique it is with
+    respect to the rest of the samples.
 
     This function only uses the pixel data and can process labeled or unlabeled
     data.
 
     Args:
-        data: an iterable of :class:`fiftyone.core.sample.Sample` instances
-        key_label (None): string denoting what group label to operate for
-            getting the label prediction information.  If this is None, then
-            all samples in `data` are used.
-        key_insight (None): string denoting the group for the insight
-            denotation to be specified.  If this is None, then `key_label` is
-            used.  If both are none, then `key_insight` is set to `uniqueness`.
+        samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
+        uniqueness_field ("uniqueness"): the field name to use to store the
+        uniqueness value for each samples.
         validate (False): whether to validate that the provided samples have
             the required fields to be processed
     """
-    """
-    **Algorithm:** uniqueness is computed based on a backend model.  Each
-    sample is embedded into a vector space based on the model.  Then, we
-    compute the knn's (k is a parameter of the uniqueness function).  The
-    uniqueness is then proportional to these distances NOT YET DEFINED).
-    The intuition is that a sample is unique when it is far from other samples
-    in the set.  This is different than, say, "representativeness" which would
-    stress samples that are core to dense clusters of related samples.
-    """
+    #
+    # Algorithm
+    #
+    # Uniqueness is computed based on a classification model.  Each sample is
+    # embedded into a vector space based on the model.  Then, we compute the
+    # knn's (k is a parameter of the uniqueness function).  The uniqueness is
+    # then proportional to these distances.  The intuition is that a sample is
+    # unique when it is far from other samples in the set.  This is different
+    # than, say, "representativeness" which would stress samples that are core
+    # to dense clusters of related samples.
+    #
     # @todo convert to a parameter with a default, for tuning
     K = 3
 
     if validate:
-        _validate(data, key_label)
-
-    if key_insight is None:
-        if key_label is None:
-            key_insight = "uniqueness"
-        else:
-            key_insight = key_label
+        _validate(samples)
 
     model = etal.load_default_deployment_model("simple_resnet_cifar10")
 
-    # @todo support filtering down by key_label
-    loader = _make_data_loader(data, model.transforms)
+    loader = _make_data_loader(samples, model.transforms)
 
     embeds = None
     with torch.no_grad():
         for imgs, _ in loader:
-            # @todo the existence of model.embed_all is happenstance of the model
-            # we loaded above, this should be documented/fixed/generalized
+            # @todo the existence of model.embed_all is not well engineered
             vectors = model.embed_all(imgs)
 
-            # take the vectors and then compute knn on them
             if embeds is None:
                 embeds = vectors
             else:
                 # @todo: if speed is an issue, fix this...
                 embeds = np.vstack((embeds, vectors))
 
-    # @todo assess whether or not this is necessary. (input is float16)
-    embeds = embeds.astype('float32')
-
     # each row of embeddings is a sample from the dataset (via row index)
     # dists and indices have a useless first column ("itself")
     knn = NearestNeighbors(n_neighbors=K+1, algorithm="ball_tree").fit(embeds)
     dists, indices = knn.kneighbors(embeds)
 
-    assert(indices.shape[1] == K+1)
+    assert indices.shape[1] == K+1
 
     # @todo experiment on which method for assessing uniqueness is best
     # to get something going, for now, just take a weight mean
@@ -115,9 +99,8 @@ def compute_uniqueness(data, key_label=None, key_insight=None, validate=False):
     # need to normalize to keep the user on common footing across datasets
     value_dist /= value_dist.max()
 
-    # @todo make this only filter down by the key_label
-    for index, sample in enumerate(data.iter_samples()):
-        sample[key_insight] = value_dist[index]
+    for index, sample in enumerate(samples.iter_samples()):
+        sample[uniqueness_field] = value_dist[index]
 
     # @todo should these functions return anything?
 
@@ -134,7 +117,6 @@ def _make_data_loader(data, transforms, batch_size=16):
         transforms: a torchvision Transform sequence
         batch_size: the int size of the batches in the loader
     """
-    # XXX should the fiftyone view be able to supply this operation directly?
     image_paths = []
     sample_ids = []
     for sample in data:
@@ -148,18 +130,16 @@ def _make_data_loader(data, transforms, batch_size=16):
                                        num_workers=4)
 
 
-def _validate(data, key_label):
+def _validate(samples):
     """Validates that all samples in the dataset are usable for the uniqueness
     computation by checking that their file-paths are valid.
 
     @todo When fiftyone extends support to cloud and non-local data, this
     validation will need to change.
     """
-    # @todo add support for filtering down by key_label first in case the user
-    # forgot to do that
-    for sample in data:
+    for sample in samples:
         if not os.path.exists(sample.filepath):
             raise ValueError(
-                "Sample '%s' failed `compute_uniquess` validation because it "
-                "does not exist on disk at " % sample.filepath
+                "Sample '%s' failed `compute_uniqueness` validation because it"
+                " does not exist on disk at " % sample.filepath
             )
