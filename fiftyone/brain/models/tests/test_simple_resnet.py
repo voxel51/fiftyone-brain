@@ -34,13 +34,11 @@ def transpose(x, source, target):
     """Simple transpose function for Tensors."""
     return x.permute([source.index(d) for d in target])
 
-#foo.drop_database()
-#@dataset = foz.load_zoo_dataset("cifar10", split="test")
-#view = dataset.default_view().sample(100)
-#sample = next(iter(view))
-#filepath = sample.filepath
-
-filepath = "/tmp/kitten.jpg"
+foo.drop_database()
+dataset = foz.load_zoo_dataset("cifar10", split="test")
+view = dataset.default_view().sample(100)
+sample = next(iter(view))
+filepath = sample.filepath
 
 im_pil = Image.open(filepath)
 print(f"im_pil is type {type(im_pil)}")
