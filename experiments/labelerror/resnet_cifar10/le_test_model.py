@@ -13,17 +13,12 @@ Uses
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
-import copy
 from functools import partial
-import json
 import os
-import random
-import sys
 import time
 
 import ipdb
 from scipy.misc import imsave
-from scipy.stats import entropy
 
 import fiftyone as fo
 from fiftyone.core.odm import drop_database
