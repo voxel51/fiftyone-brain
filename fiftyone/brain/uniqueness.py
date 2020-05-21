@@ -65,7 +65,7 @@ def compute_uniqueness(data, key_label=None, key_insight=None, validate=False):
     in the set.  This is different than, say, "representativeness" which would
     stress samples that are core to dense clusters of related samples.
     """
-    # convert to a parameter with a default, for tuning
+    # @todo convert to a parameter with a default, for tuning
     K = 3
 
     if validate:
@@ -112,9 +112,6 @@ def compute_uniqueness(data, key_label=None, key_insight=None, validate=False):
     dists = dists[:, 1:]
     dists *= weights
     value_dist = dists.mean(1)
-
-    # or just use min-distance
-    #value_dist = dists[:, 1:].min(1)
 
     # need to normalize to keep the user on common footing across datasets
     value_dist /= value_dist.max()
