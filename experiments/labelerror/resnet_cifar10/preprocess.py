@@ -56,3 +56,26 @@ def _(x, source, target):
 def _(x, source, target):
     return x.permute([source.index(d) for d in target])
 
+
+class Transform():
+    def __init__(self, dataset, transforms):
+        self.dataset, self.transforms = dataset, transforms
+        self.choices = None
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index):
+        data, labels = self.dataset[index]
+        data = data.copy()
+        for choices, f in zip(self.choices, self.transforms):
+            data = f(data, **choices[index])
+        return data, labels
+
+    def set_random_choices(self):
+        self.choices = []
+        x_shape = self.dataset[0][0].shape
+        N = len(self)
+        for t in self.transforms:
+            self.choices.append(np.random.choice(t.options(x_shape), N))
+            x_shape = t.output_shape(x_shape) if hasattr(t, 'output_shape') else x_shape
