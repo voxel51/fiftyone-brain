@@ -321,6 +321,8 @@ class Crop(namedtuple('Crop', ('h', 'w'))):
 
 class FlipLR(namedtuple('FlipLR', ())):
     def __call__(self, x, choice):
+        if isinstance(x, np.ndarray):
+            return x[..., ::-1].copy()
         return torch.flip(x, [-1]) if choice else x
 
     def options(self, shape):
