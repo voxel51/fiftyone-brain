@@ -23,10 +23,9 @@ import os.path
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 import torch
-from torch import nn
-import torchvision
 
-from fiftyone.brain.models.simple_resnet import *
+import eta.core.learning as etal
+
 import fiftyone.utils.torch as fout
 
 
