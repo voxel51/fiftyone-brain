@@ -154,32 +154,6 @@ def _make_data_loader(data, transforms, batch_size=16):
                                        num_workers=4)
 
 
-def _predict(model, imgs):
-    """Computes a prediction on the imgs using the model.
-
-    @todo should be part of the actual model instance representation
-    """
-    inputs = dict(input=imgs.cuda().half())
-    outputs = model(inputs)
-    logits = outputs['logits'].detach().cpu().numpy()
-    predictions = np.argmax(logits, axis=1)
-    odds = np.exp(logits)
-    confidences = np.max(odds, axis=1) / np.sum(odds, axis=1)
-    return predictions, confidences, logits
-
-
-def _embed(model, imgs):
-    """Embeds the imgs into the model's space.
-
-    @todo should be in the actual model instance representation
-
-    XXX unclear if should be flatten or linear;
-    """
-    inputs = dict(input=imgs.cuda().half())
-    outputs = model(inputs)
-    return outputs['flatten'].detach().cpu().numpy()
-
-
 def _validate(data, key_label):
     """Validates that all samples in the dataset are usable for the uniqueness
     computation by checking that their file-paths are valid.
