@@ -30,11 +30,12 @@ from fiftyone.core.odm import drop_database
 
 from fiftyone.brain.models.simple_resnet import *
 
+from preprocess import *
 from config import *
 from datasets import *
 from utils import Timer
 
-TEMP_VALID_DIR="/tmp/le_test/valid"
+TEMP_VALID_DIR = "/tmp/le_test/valid"
 
 localtime = lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
 
@@ -60,16 +61,20 @@ def main(config):
     whole_dataset = cifar10(root=DATA_DIR)
     print("Preprocessing training data")
     transforms = [
-        partial(normalise, mean=np.array(cifar10_mean, dtype=np.float32), std=np.array(cifar10_std, dtype=np.float32)),
+        partial(normalise,
+                mean=np.array(cifar10_mean, dtype=np.float32),
+                std=np.array(cifar10_std, dtype=np.float32)),
         partial(transpose, source='NHWC', target='NCHW'),
     ]
-    valid_set = list(zip(*preprocess(whole_dataset['valid'], transforms).values()))
+    valid_set = list(
+        zip(*preprocess(whole_dataset['valid'], transforms).values())
+    )
     print(f"Finished loading and preprocessing in {timer():.2f} seconds")
 
     print(f"valid set: {len(valid_set)} samples")
 
     if config.take:
-        valid_set = whole_train_set[:config.take]
+        valid_set = valid_set[:config.take]
         print(f"using a subset of the data")
         print(f"valid set: {len(valid_set)} samples")
 
@@ -90,7 +95,7 @@ def main(config):
     # make the actual labels for the cifar-10 world
     labels = []
     for i, s in enumerate(cifar10_classes):
-        labels.append(fo.ClassificationLabel.create(label=s))
+        labels.append(fo.Classification(label=s))
 
     timer = Timer()
     drop_database()
@@ -98,15 +103,15 @@ def main(config):
 
     samples = []
     for i, s in enumerate(valid_set):
-        sample = fo.Sample.create(valid_image_paths[i], tags=["valid"])
-        sample.add_label("ground_truth", labels[s[1]])
+        sample = fo.Sample(filepath=valid_image_paths[i], tags=["valid"])
+        sample["ground_truth"] = labels[s[1]]
         samples.append(sample)
     valid_ids = dataset.add_samples(samples)
 
     print(f"Finished getting data into fiftyone in {timer():.2f} seconds")
 
     # load the model using the model path config
-    assert(config.model_path)
+    assert config.model_path
     model = Network(simple_resnet()).to(device).half()
     model.load_state_dict(torch.load(config.model_path))
 
@@ -120,7 +125,9 @@ def main(config):
     valid_imgs, valid_labels = zip(*valid_set)
     fo_valid_set = list(zip(valid_imgs, valid_labels, valid_ids))
 
-    valid_batches = DataLoader(fo_valid_set, config.batch_size, shuffle=False, drop_last=False)
+    valid_batches = DataLoader(
+        fo_valid_set, config.batch_size, shuffle=False, drop_last=False
+    )
 
     print("running predictions on the data")
 
@@ -144,15 +151,14 @@ def main(config):
                 class_total[label] += 1
 
             for prediction, theid, thelogit in zip(predicted, ids, y):
-                label = fo.ClassificationLabel.create(
-                    cifar10_classes[prediction],
-                    logits = thelogit
+                label = fo.Classification(
+                    label=cifar10_classes[prediction],
+                    logits=thelogit
                 )
-                dataset[theid].add_label("prediction", label)
-
-                insight = fo.ScalarInsight.create(name="max-logit",
-                                                  scalar=np.max(thelogit.cpu().numpy()))
-                dataset[theid].add_insight("prediction", insight)
+                dataset[theid]["prediction"] = label
+                dataset[theid]["max-logit"] = (
+                    float(np.max(thelogit.cpu().numpy()))
+                )
 
     print('Accuracy of the network on the 10K test images: %.2f%%' %
           (100 * correct / total))
