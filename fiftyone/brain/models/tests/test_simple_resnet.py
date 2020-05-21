@@ -83,3 +83,5 @@ print("ET2")
 p = model.predict(im_et2)
 print(p[0])
 
+#@todo logging a need to understand why the predictions on the ETA images are
+#different than those on the other formats. -- just by a confidence level
