@@ -6,11 +6,14 @@ The proprietary brains behind [FiftyOne](https://github.com/voxel51/fiftyone).
 
 ## Repository Layout
 
-- `./docs` documentation about the repository and project
-- `./experiments` contains internal-only examples in the form of specific experiments about FiftyOne's value. 
-- `./fiftyone` is the actual `fiftyone.brain` python code
-- `./production` contains the work needed to generate production models, code, etc., associated with the brain.  It is contained scripts and such for repeatable, versioned model training for uniqueness, for example.
-- `./requirements` is the standard requirements folder for the python project
+-   `./docs` documentation about the repository and project
+-   `./experiments` contains internal-only examples in the form of specific
+    experiments about FiftyOne's value.
+-   `./fiftyone` is the actual `fiftyone.brain` python code
+-   `./production` contains the work needed to generate production models,
+    code, etc., associated with the brain. It is contained scripts and such for
+    repeatable, versioned model training for uniqueness, for example.
+-   `./requirements` is the standard requirements folder for the python project
 
 ## Installation
 
