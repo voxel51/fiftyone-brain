@@ -1,6 +1,28 @@
 """
-le_test2 --> initial tests for using fiftyone with this code
-Loads the data, assigns ground-truth labels, then trains a clean model
+Trains a clean model using the brain.model simple_resnet code.  This model can
+be used throughout the experiment and for testing as needed.
+
+Does not interact with fiftyone as that is not needed here.
+
+This is just a driver for training a model using this architecture.  This code
+is not used in conducting the actual label-error experiments, which is in the
+`labelerror.py` file.
+
+Supports these config parameters:
+
+    - config.take
+    - config.epochs
+    - config.batch_size
+    - config.n_max
+    - config.p_initial
+    - config.n_rounds
+    - config.cold_start
+    - config.stats_path
+    - config.model_path
+
+A simple (minimal) set of these to run on a small machine is::
+
+    run le_train_model -t 2000 -e 12 -b 64 --n_rounds 1 --p_initial 1.0 -m /tmp/foo.pth
 
 | Copyright 2017-2020, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -9,15 +31,16 @@ Loads the data, assigns ground-truth labels, then trains a clean model
 from functools import partial
 import json
 import os
+import random
+import sys
 import time
 
-from imageio import imsave
-
-import fiftyone as fo
+from fiftyone.brain.models.simple_resnet import *
 
 from config import *
 from datasets import *
-from simple_resnet import *
+from preprocess import *
+from training import *
 from utils import Timer
 
 
@@ -27,27 +50,10 @@ TEMP_VALID_DIR = "/tmp/le_test/valid"
 localtime = lambda: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
 
-def write_images(root, images, overwrite=False):
-    paths = []
-    for i, s in enumerate(images):
-        path = os.path.join(root, f"{i:05d}.jpg")
-        paths.append(path)
-
-        if overwrite or not os.path.exists(path):
-            img = s.copy()
-            img = transpose(img, source="CHW", target="HWC")
-            imsave(path, img)
-
-    return paths
-
-
 def main(config):
-    #
-    # Load dataset
-    #
-    # `train_set` and `valid_set` that are lists of `(image, label)` tuples
-    #
 
+    ## Initial Data Input
+    # Produces train_set and valid_set that are lists of tuples: (image, label)
     timer = Timer()
     whole_dataset = cifar10(root=DATA_DIR)
     print("Preprocessing training data")
@@ -74,49 +80,12 @@ def main(config):
     print(f"train set: {len(whole_train_set)} samples")
     print(f"valid set: {len(valid_set)} samples")
 
-    # Write raw dataset to disk
-    os.makedirs(TEMP_TRAIN_DIR, exist_ok=True)
-    os.makedirs(TEMP_VALID_DIR, exist_ok=True)
-    train_image_paths = write_images(
-        TEMP_TRAIN_DIR, list(zip(*whole_train_set))[0]
-    )
-    valid_image_paths = write_images(TEMP_VALID_DIR, list(zip(*valid_set))[0])
-
-    #
-    # Load data into FiftyOne
-    #
-
-    timer = Timer()
-    dataset = fo.Dataset("le_cifar10")
-
-    # Train split
-    train_samples = []
-    for i, s in enumerate(whole_train_set):
-        train_samples.append(
-            fo.Sample(
-                train_image_paths[i],
-                tags=["train"],
-                ground_truth=fo.Classification(label=cifar10_classes[s[1]]),
-            )
-        )
-
-    train_ids = dataset.add_samples(train_samples)
-
-    # Valid split
-    valid_samples = []
-    for i, s in enumerate(valid_set):
-        valid_samples.append(
-            fo.Sample(
-                valid_image_paths[i],
-                tags=["valid"],
-                ground_truth=fo.Classification(label=cifar10_classes[s[1]]),
-            )
-        )
-
-    valid_ids = dataset.add_samples(valid_samples)
-
-    print(f"Finished getting data into fiftyone in {timer():.2f} seconds")
-    print(dataset.summary())
+    if config.take:
+        whole_train_set = whole_train_set[: config.take]
+        valid_set = whole_train_set[: config.take]
+        print(f"using a subset of the data")
+        print(f"train set: {len(whole_train_set)} samples")
+        print(f"valid set: {len(valid_set)} samples")
 
     # function of dataset
     N_labels = 10
@@ -142,8 +111,6 @@ def main(config):
         else round((config.n_max - start_N) / (config.n_rounds - 1))
     )
 
-    corrupt_N = round(config.p_corrupt * total_N)
-
     print(f"Setting up the experiment: {total_N} training samples.")
     print(f"- starting with {start_N}")
     print(f"- incrementing by {incr_N} for each of {config.n_rounds-1} rounds")
@@ -160,16 +127,13 @@ def main(config):
         valid_set, config.batch_size, shuffle=False, drop_last=False
     )
 
-    # initially randomly shuffle the dataset and take the initial number of
-    # samples
     whole_train_set_use = whole_train_set[0:inuse_N]
     whole_train_set_avail = whole_train_set[inuse_N:]
     print(
-        f"Split training set into two; using {len(whole_train_set_use)}, "
+        f"Split training set into two; "
+        + f"using {len(whole_train_set_use)}, "
         + f"available {len(whole_train_set_avail)}"
     )
-
-    sm = torch.nn.Softmax(dim=1)
 
     stats = {}
 
@@ -187,9 +151,8 @@ def main(config):
             set_random_choices=True,
             drop_last=True,
         )
-        lr = (
-            lambda step: lr_schedule(step / len(train_batches))
-            / config.batch_size
+        lr = lambda step: (
+            lr_schedule(step / len(train_batches)) / config.batch_size
         )
         opts = [
             SGD(
@@ -215,9 +178,11 @@ def main(config):
                     ),
                 )
             )
-        logs.df().query(f"epoch=={config.epochs}")[
-            ["train_acc", "valid_acc"]
-        ].describe()
+        (
+            logs.df()
+            .query(f"epoch=={config.epochs}")[["train_acc", "valid_acc"]]
+            .describe()
+        )
 
         model.train(False)  # == model.eval()
 

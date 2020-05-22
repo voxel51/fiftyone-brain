@@ -1,0 +1,26 @@
+{
+    "models": [
+        {
+            "base_name": "simple_resnet_cifar10",
+            "base_filename": "simple_resnet_cifar10.pth",
+            "version": "1.0",
+            "description": "Simple internal Resnet classifier implementation trained on CIFAR-10",
+            "manager": {
+                "type": "eta.core.models.ETAModelManager",
+                "config": {
+                    "google_drive_id": "1SIO9XreK0w1ja4EuhBWcR10CnWxCOsom"
+                }
+            },
+            "default_deployment_config_dict": {
+                "type": "fiftyone.brain.models.SimpleResnetImageClassifier",
+                "config": {
+                    "model_name": "simple_resnet_cifar10",
+                    "labels_string": "airplane, automobile, bird, cat, deer, dog, frog, horse, ship, truck",
+                    "image_mean": [0.4914, 0.4822, 0.4465],
+                    "image_std": [0.2023, 0.1994, 0.2010]
+                }
+            },
+            "date_created": "2020-05-07 08:25:51"
+        }
+    ]
+}

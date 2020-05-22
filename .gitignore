@@ -13,3 +13,6 @@ dist/
 .idea
 
 *~
+
+/fiftyone/brain/models/cache/**/*
+!/fiftyone/brain/models/cache/manifest.json
