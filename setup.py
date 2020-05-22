@@ -8,6 +8,7 @@ Installs `fiftyone-brain`.
 """
 import os
 import shutil
+
 from distutils.command.build import build
 from setuptools import setup
 from wheel.bdist_wheel import bdist_wheel
@@ -63,11 +64,6 @@ class CustomBdistWheel(bdist_wheel):
         build.pyarmor_platform = pyarmor_platform
 
 
-cmdclass = {
-    "build": CustomBuild,
-    "bdist_wheel": CustomBdistWheel,
-}
-
 setup(
     name="fiftyone-brain",
     version="0.1.0",
@@ -87,5 +83,5 @@ setup(
     ],
     scripts=[],
     python_requires=">=2.7",
-    cmdclass=cmdclass,
+    cmdclass={"build": CustomBuild, "bdist_wheel": CustomBdistWheel,},
 )
