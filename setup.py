@@ -74,7 +74,7 @@ setup(
     license="",
     packages=["fiftyone.brain"],
     include_package_data=True,
-    install_requires=["numpy", "scipy"],
+    install_requires=["numpy", "scipy", "scikit-learn"],
     classifiers=[
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX :: Linux",
