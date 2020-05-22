@@ -23,12 +23,20 @@ import os
 
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
-import torch
 
 import eta.core.learning as etal
 import eta.core.utils as etau
 
-import fiftyone.utils.torch as fout
+import fiftyone.core.utils as fou
+
+try:
+    import torch
+
+    import fiftyone.utils.torch as fout
+except ImportError:
+    # This feature requires PyTorch, but don't complain unless the user
+    # actually tries to run `compute_uniqueness()`
+    pass
 
 
 logger = logging.getLogger(__name__)
@@ -48,6 +56,9 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
         validate (False): whether to validate that the provided samples have
             the required fields to be processed
     """
+    # This feature requires PyTorch, so ensure that the user has it installed
+    fou.ensure_torch()
+
     #
     # Algorithm
     #
