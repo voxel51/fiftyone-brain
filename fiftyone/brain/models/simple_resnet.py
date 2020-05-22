@@ -1,8 +1,8 @@
 """
-Implementation of a simple ResNet that is suitable only for smallish data.
+Implementation of a simple Resnet that is suitable only for smallish data.
 
-Original Implementation of this is from David Page's work on fast model
-training with resnets.  <https://github.com/davidcpage/cifar10-fast/>
+The original implementation of this is from David Page's work on fast model
+training with resnets at https://github.com/davidcpage/cifar10-fast.
 
 @todo This code needs to be significantly clean and tightened.  It is here now
 just to get something in the codebase with a model that we can train for use in
