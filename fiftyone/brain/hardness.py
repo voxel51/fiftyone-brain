@@ -18,8 +18,15 @@ from builtins import *
 # pragma pylint: enable=unused-wildcard-import
 # pragma pylint: enable=wildcard-import
 
+import logging
+
 import numpy as np
 from scipy.stats import entropy
+
+import eta.core.utils as etau
+
+
+logger = logging.getLogger(__name__)
 
 
 def compute_hardness(
@@ -45,15 +52,20 @@ def compute_hardness(
     #
     # Algorithm
     #
-    # Hardness is computed directly as the entropy of the logits.
+    # Hardness is computed directly as the entropy of the logits
     #
     if validate:
         _validate(samples, label_field)
 
-    for sample in samples:
-        label = sample[label_field]
-        hardness = entropy(_softmax(np.asarray(label.logits)))
-        sample[hardness_field] = hardness
+    num_samples = len(samples)
+    logger.info("Computing hardness for %d samples...", num_samples)
+    with etau.ProgressBar(iters_str="samples") as progress:
+        for sample in progress(samples):
+            label = sample[label_field]
+            hardness = entropy(_softmax(np.asarray(label.logits)))
+            sample[hardness_field] = hardness
+
+    logger.info("Hardness computation complete")
 
 
 def _validate(samples, label_field):
