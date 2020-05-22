@@ -9,6 +9,7 @@ is not used in conducting the actual label-error experiments, which is in the
 `labelerror.py` file.
 
 Supports these config parameters:
+
     - config.take
     - config.epochs
     - config.batch_size
@@ -18,8 +19,10 @@ Supports these config parameters:
     - config.cold_start
     - config.stats_path
     - config.model_path
-And a simple (minimal) set of these to run on a small machine is
-    - `run le_train_model -t 2000 -e 12 -b 64 --n_rounds 1 --p_initial 1.0 -m /tmp/foo.pth`
+
+A simple (minimal) set of these to run on a small machine is::
+
+    run le_train_model -t 2000 -e 12 -b 64 --n_rounds 1 --p_initial 1.0 -m /tmp/foo.pth
 
 | Copyright 2017-2020, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -44,7 +47,7 @@ from utils import Timer
 TEMP_TRAIN_DIR = "/tmp/le_test/train"
 TEMP_VALID_DIR = "/tmp/le_test/valid"
 
-localtime = lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+localtime = lambda: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
 
 def main(config):
@@ -55,19 +58,22 @@ def main(config):
     whole_dataset = cifar10(root=DATA_DIR)
     print("Preprocessing training data")
     transforms = [
-        partial(normalise,
-                mean=np.array(cifar10_mean, dtype=np.float32),
-                std=np.array(cifar10_std, dtype=np.float32)),
-        partial(transpose, source='NHWC', target='NCHW'),
+        partial(
+            normalise,
+            mean=np.array(cifar10_mean, dtype=np.float32),
+            std=np.array(cifar10_std, dtype=np.float32),
+        ),
+        partial(transpose, source="NHWC", target="NCHW"),
     ]
     whole_train_set = list(
-        zip(*preprocess(
-            whole_dataset['train'],
-            [partial(pad, border=4)] + transforms).values()
+        zip(
+            *preprocess(
+                whole_dataset["train"], [partial(pad, border=4)] + transforms
+            ).values()
         )
     )
     valid_set = list(
-        zip(*preprocess(whole_dataset['valid'], transforms).values())
+        zip(*preprocess(whole_dataset["valid"], transforms).values())
     )
     print(f"Finished loading and preprocessing in {timer():.2f} seconds")
 
@@ -75,8 +81,8 @@ def main(config):
     print(f"valid set: {len(valid_set)} samples")
 
     if config.take:
-        whole_train_set = whole_train_set[:config.take]
-        valid_set = whole_train_set[:config.take]
+        whole_train_set = whole_train_set[: config.take]
+        valid_set = whole_train_set[: config.take]
         print(f"using a subset of the data")
         print(f"train set: {len(whole_train_set)} samples")
         print(f"valid set: {len(valid_set)} samples")
@@ -99,66 +105,86 @@ def main(config):
 
     start_N = round(config.p_initial * total_N)
 
-    incr_N = (0 if config.n_rounds == 1 else
-        round((config.n_max-start_N) / (config.n_rounds-1))
+    incr_N = (
+        0
+        if config.n_rounds == 1
+        else round((config.n_max - start_N) / (config.n_rounds - 1))
     )
 
-    print(f'Setting up the experiment: {total_N} training samples.')
-    print(f'- starting with {start_N}')
-    print(f'- incrementing by {incr_N} for each of {config.n_rounds-1} rounds')
-    print(f'- total rounds: {config.n_rounds}')
+    print(f"Setting up the experiment: {total_N} training samples.")
+    print(f"- starting with {start_N}")
+    print(f"- incrementing by {incr_N} for each of {config.n_rounds-1} rounds")
+    print(f"- total rounds: {config.n_rounds}")
 
-    print(f'Starting the model training at {localtime()}')
+    print(f"Starting the model training at {localtime()}")
 
     inuse_N = start_N
 
     model = Network(simple_resnet()).to(device).half()
     logs, state = Table(), {MODEL: model, LOSS: x_ent_loss}
 
-    valid_batches = DataLoader(valid_set, config.batch_size, shuffle=False,
-                               drop_last=False)
+    valid_batches = DataLoader(
+        valid_set, config.batch_size, shuffle=False, drop_last=False
+    )
 
     whole_train_set_use = whole_train_set[0:inuse_N]
     whole_train_set_avail = whole_train_set[inuse_N:]
-    print(f'Split training set into two; ' +
-          f'using {len(whole_train_set_use)}, ' +
-          f'available {len(whole_train_set_avail)}')
+    print(
+        f"Split training set into two; "
+        + f"using {len(whole_train_set_use)}, "
+        + f"available {len(whole_train_set_avail)}"
+    )
 
     stats = {}
 
     for iteration in range(config.n_rounds):
-        print(f'beginning next round of training, using {inuse_N} samples')
+        print(f"beginning next round of training, using {inuse_N} samples")
 
         if config.cold_start:
             model = Network(simple_resnet()).to(device).half()
             logs, state = Table(), {MODEL: model, LOSS: x_ent_loss}
 
         train_batches = DataLoader(
-                Transform(whole_train_set_use, train_transforms),
-                config.batch_size, shuffle=True, set_random_choices=True,
-                drop_last=True
+            Transform(whole_train_set_use, train_transforms),
+            config.batch_size,
+            shuffle=True,
+            set_random_choices=True,
+            drop_last=True,
         )
         lr = lambda step: (
-            lr_schedule(step/len(train_batches))/config.batch_size
+            lr_schedule(step / len(train_batches)) / config.batch_size
         )
         opts = [
-            SGD(trainable_params(model).values(),
-            {'lr': lr, 'weight_decay':
-             Const(5e-4*config.batch_size), 'momentum': Const(0.9)})
+            SGD(
+                trainable_params(model).values(),
+                {
+                    "lr": lr,
+                    "weight_decay": Const(5e-4 * config.batch_size),
+                    "momentum": Const(0.9),
+                },
+            )
         ]
         state[OPTS] = opts
 
         for epoch in range(config.epochs):
-            logs.append(union({'epoch': epoch+1},
-                train_epoch(state, Timer(torch.cuda.synchronize),
-                            train_batches, valid_batches))
+            logs.append(
+                union(
+                    {"epoch": epoch + 1},
+                    train_epoch(
+                        state,
+                        Timer(torch.cuda.synchronize),
+                        train_batches,
+                        valid_batches,
+                    ),
+                )
             )
-        (logs.df()
-         .query(f'epoch=={config.epochs}')[['train_acc', 'valid_acc']]
-         .describe()
+        (
+            logs.df()
+            .query(f"epoch=={config.epochs}")[["train_acc", "valid_acc"]]
+            .describe()
         )
 
-        model.train(False) # == model.eval()
+        model.train(False)  # == model.eval()
 
         # record scores for this iteration
         iteration_stats = {}
@@ -166,14 +192,14 @@ def main(config):
 
         correct = 0
         total = 0
-        class_correct = list(0. for i in range(10))
-        class_total = list(0. for i in range(10))
+        class_correct = list(0.0 for i in range(10))
+        class_total = list(0.0 for i in range(10))
         with torch.no_grad():
             for data in valid_batches.dataloader:
                 images, labels = data
                 inputs = dict(input=images.cuda().half())
                 outputs = model(inputs)
-                y = outputs['logits']
+                y = outputs["logits"]
                 _, predicted = torch.max(y, 1)
                 total += labels.size(0)
                 labels_gpu = labels.cuda().half()
@@ -196,11 +222,11 @@ def main(config):
 
         stats[inuse_N] = iteration_stats
 
-    print(f'finished the full training; stats to follow')
+    print(f"finished the full training; stats to follow")
     print(stats)
 
     if config.stats_path:
-        with open(config.stats_path, 'w') as fp:
+        with open(config.stats_path, "w") as fp:
             json.dump(stats, fp)
 
     if config.model_path:

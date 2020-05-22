@@ -18,10 +18,9 @@ import os
 import time
 
 import ipdb
-from scipy.misc import imsave
+from imageio import imsave
 
 import fiftyone as fo
-from fiftyone.core.odm import drop_database
 
 from fiftyone.brain.models.simple_resnet import *
 
@@ -32,7 +31,8 @@ from utils import Timer
 
 TEMP_VALID_DIR = "/tmp/le_test/valid"
 
-localtime = lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+localtime = lambda: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
 
 def write_images(root, images, overwrite=False):
     paths = []
@@ -42,10 +42,11 @@ def write_images(root, images, overwrite=False):
 
         if overwrite or not os.path.exists(path):
             img = s.copy()
-            img = transpose(img, source='CHW', target='HWC')
+            img = transpose(img, source="CHW", target="HWC")
             imsave(path, img)
 
     return paths
+
 
 def main(config):
 
@@ -56,34 +57,26 @@ def main(config):
     whole_dataset = cifar10(root=DATA_DIR)
     print("Preprocessing training data")
     transforms = [
-        partial(normalise,
-                mean=np.array(cifar10_mean, dtype=np.float32),
-                std=np.array(cifar10_std, dtype=np.float32)),
-        partial(transpose, source='NHWC', target='NCHW'),
+        partial(
+            normalise,
+            mean=np.array(cifar10_mean, dtype=np.float32),
+            std=np.array(cifar10_std, dtype=np.float32),
+        ),
+        partial(transpose, source="NHWC", target="NCHW"),
     ]
     valid_set = list(
-        zip(*preprocess(whole_dataset['valid'], transforms).values())
+        zip(*preprocess(whole_dataset["valid"], transforms).values())
     )
     print(f"Finished loading and preprocessing in {timer():.2f} seconds")
 
     print(f"valid set: {len(valid_set)} samples")
 
     if config.take:
-        valid_set = valid_set[:config.take]
+        valid_set = valid_set[: config.take]
         print(f"using a subset of the data")
         print(f"valid set: {len(valid_set)} samples")
 
-    # TEMPORARY
-    # Not production usage of fiftyone, but gets the point across to actually
-    # get the Data into the system, from the format of this experiment
-    #
-    # The system does not support a good way to get data already loaded in
-    # memory into it.  I think this is a significant limitation for certain
-    # types of usage.  Furthermore, there are challenges here in this actual
-    # usage of fiftyone because it is a bad idea to need to perform the
-    # preprocessing on my data everytime I load an image in from disk, if I can
-    # avoid that.
-    #
+    # Write raw dataset to disk
     os.makedirs(TEMP_VALID_DIR, exist_ok=True)
     valid_image_paths = write_images(TEMP_VALID_DIR, list(zip(*valid_set))[0])
 
@@ -92,16 +85,24 @@ def main(config):
     for i, s in enumerate(cifar10_classes):
         labels.append(fo.Classification(label=s))
 
+    #
+    # Load data into FiftyOne
+    #
+
     timer = Timer()
-    drop_database()
     dataset = fo.Dataset("le_cifar10")
 
-    samples = []
+    valid_samples = []
     for i, s in enumerate(valid_set):
-        sample = fo.Sample(filepath=valid_image_paths[i], tags=["valid"])
-        sample["ground_truth"] = labels[s[1]]
-        samples.append(sample)
-    valid_ids = dataset.add_samples(samples)
+        valid_samples.append(
+            fo.Sample(
+                valid_image_paths[i],
+                tags=["valid"],
+                ground_truth=fo.Classification(label=cifar10_classes[s[1]]),
+            )
+        )
+
+    valid_ids = dataset.add_samples(valid_samples)
 
     print(f"Finished getting data into fiftyone in {timer():.2f} seconds")
 
@@ -112,7 +113,7 @@ def main(config):
 
     print("Model loaded.")
 
-    model.train(False) # == model.eval()
+    model.train(False)  # == model.eval()
 
     # I need to get my datasets into a format where I'll have the ids available
     # as well during the data loading
@@ -128,13 +129,13 @@ def main(config):
 
     correct = 0
     total = 0
-    class_correct = list(0. for i in range(10))
-    class_total = list(0. for i in range(10))
+    class_correct = list(0.0 for i in range(10))
+    class_total = list(0.0 for i in range(10))
     with torch.no_grad():
         for images, labels, ids in valid_batches.dataloader:
             inputs = dict(input=images.cuda().half())
             outputs = model(inputs)
-            y = outputs['logits']
+            y = outputs["logits"]
             _, predicted = torch.max(y, 1)
             total += labels.size(0)
             labels_gpu = labels.cuda().half()
@@ -147,20 +148,23 @@ def main(config):
 
             for prediction, theid, thelogit in zip(predicted, ids, y):
                 label = fo.Classification(
-                    label=cifar10_classes[prediction],
-                    logits=thelogit
+                    label=cifar10_classes[prediction], logits=thelogit
                 )
                 dataset[theid]["prediction"] = label
-                dataset[theid]["max-logit"] = (
-                    float(np.max(thelogit.cpu().numpy()))
+                dataset[theid]["max-logit"] = float(
+                    np.max(thelogit.cpu().numpy())
                 )
 
-    print('Accuracy of the network on the 10K test images: %.2f%%' %
-          (100 * correct / total))
+    print(
+        "Accuracy of the network on the 10K test images: %.2f%%"
+        % (100 * correct / total)
+    )
 
     for i in range(10):
-        print('Accuracy of %9s : %.2f%%' % (
-              cifar10_classes[i], 100 * class_correct[i] / class_total[i]))
+        print(
+            "Accuracy of %9s : %.2f%%"
+            % (cifar10_classes[i], 100 * class_correct[i] / class_total[i])
+        )
 
     print("done")
 
@@ -168,6 +172,7 @@ def main(config):
         ipdb.set_trace()
 
     return dataset
+
 
 if __name__ == "__main__":
 

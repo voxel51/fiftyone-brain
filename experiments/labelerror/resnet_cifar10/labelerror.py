@@ -37,7 +37,8 @@ from simple_resnet import *
 from utils import Timer
 
 
-localtime = lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+localtime = lambda: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
 
 def main(config):
 
@@ -45,16 +46,28 @@ def main(config):
     # Productes train_set and valid_set that are lists of tuples: (image, label)
     whole_dataset = cifar10(root=DATA_DIR)
     timer = Timer()
-    print('Preprocessing training data')
+    print("Preprocessing training data")
     transforms = [
-        partial(normalise, mean=np.array(cifar10_mean, dtype=np.float32), std=np.array(cifar10_std, dtype=np.float32)),
-        partial(transpose, source='NHWC', target='NCHW'),
+        partial(
+            normalise,
+            mean=np.array(cifar10_mean, dtype=np.float32),
+            std=np.array(cifar10_std, dtype=np.float32),
+        ),
+        partial(transpose, source="NHWC", target="NCHW"),
     ]
-    whole_train_set = list(zip(*preprocess(whole_dataset['train'], [partial(pad, border=4)] + transforms).values()))
-    print(f'Finished in {timer():.2} seconds')
-    print('Preprocessing test data')
-    valid_set = list(zip(*preprocess(whole_dataset['valid'], transforms).values()))
-    print(f'Finished in {timer():.2} seconds')
+    whole_train_set = list(
+        zip(
+            *preprocess(
+                whole_dataset["train"], [partial(pad, border=4)] + transforms
+            ).values()
+        )
+    )
+    print(f"Finished in {timer():.2} seconds")
+    print("Preprocessing test data")
+    valid_set = list(
+        zip(*preprocess(whole_dataset["valid"], transforms).values())
+    )
+    print(f"Finished in {timer():.2} seconds")
 
     # function of dataset
     N_labels = 10
@@ -68,24 +81,24 @@ def main(config):
     total_N = len(whole_train_set)
 
     # should be cleaner
-    if(config.n_max < 0):
+    if config.n_max < 0:
         config.n_max = total_N
 
     start_N = round(config.p_initial * total_N)
 
-    incr_N = round((config.n_max-start_N) / config.n_increases)
+    incr_N = round((config.n_max - start_N) / config.n_increases)
 
     corrupt_N = round(config.p_corrupt * total_N)
 
-    print(f'Setting up the experiment: {total_N} training samples.')
-    print(f'- starting with {start_N}')
-    print(f'- incrementing by {incr_N} for {config.n_increases} rounds')
+    print(f"Setting up the experiment: {total_N} training samples.")
+    print(f"- starting with {start_N}")
+    print(f"- incrementing by {incr_N} for {config.n_increases} rounds")
 
     total_stats = {}
 
     for run_index in range(config.runs):
 
-        print(f'Starting training iteration {run_index} at {localtime()}')
+        print(f"Starting training iteration {run_index} at {localtime()}")
 
         # first, corrupt a random percentage of the data
         # this is wasteful and will create a copy of the training data in memory
@@ -94,13 +107,13 @@ def main(config):
         # the strategy for corrupting the data randomly and then recalling the
         # original values
         corr_bool = [True for x in range(corrupt_N)]
-        corr_bool.extend([False for x in range(total_N-corrupt_N)])
+        corr_bool.extend([False for x in range(total_N - corrupt_N)])
 
         for i in range(corrupt_N):
             t = corr_train_set[i]
-            c = random.randint(0, N_labels-1)
+            c = random.randint(0, N_labels - 1)
             while c == t[1]:
-                c = random.randint(0, N_labels-1)
+                c = random.randint(0, N_labels - 1)
             corr_train_set[i] = (t[0], c)
 
         shuffler = list(range(total_N))
@@ -120,40 +133,68 @@ def main(config):
         model = Network(simple_resnet()).to(device).half()
         logs, state = Table(), {MODEL: model, LOSS: x_ent_loss}
 
-        valid_batches = DataLoader(valid_set, config.batch_size, shuffle=False, drop_last=False)
+        valid_batches = DataLoader(
+            valid_set, config.batch_size, shuffle=False, drop_last=False
+        )
 
         # initially randomly shuffle the dataset and take the initial number of samples
         corr_train_set_use = corr_train_set[0:inuse_N]
         corr_train_set_avail = corr_train_set[inuse_N:]
-        print(f'Split training set into two; using {len(corr_train_set_use)}, available {len(corr_train_set_avail)}')
+        print(
+            f"Split training set into two; using {len(corr_train_set_use)}, available {len(corr_train_set_avail)}"
+        )
 
         sm = torch.nn.Softmax(dim=1)
 
         stats = {}
 
         for iteration in range(config.n_increases):
-            print(f'beginning next round of training, using {inuse_N} samples')
+            print(f"beginning next round of training, using {inuse_N} samples")
 
             if config.cold_start:
                 model = Network(simple_resnet()).to(device).half()
                 logs, state = Table(), {MODEL: model, LOSS: x_ent_loss}
 
             train_batches = DataLoader(
-                    Transform(corr_train_set_use, train_transforms),
-                    config.batch_size, shuffle=True, set_random_choices=True, drop_last=True
+                Transform(corr_train_set_use, train_transforms),
+                config.batch_size,
+                shuffle=True,
+                set_random_choices=True,
+                drop_last=True,
             )
-            lr = lambda step: lr_schedule(step/len(train_batches))/config.batch_size
+            lr = (
+                lambda step: lr_schedule(step / len(train_batches))
+                / config.batch_size
+            )
             opts = [
-                SGD(trainable_params(model).values(),
-                {'lr': lr, 'weight_decay': Const(5e-4*config.batch_size), 'momentum': Const(0.9)})
+                SGD(
+                    trainable_params(model).values(),
+                    {
+                        "lr": lr,
+                        "weight_decay": Const(5e-4 * config.batch_size),
+                        "momentum": Const(0.9),
+                    },
+                )
             ]
             state[OPTS] = opts
 
             for epoch in range(config.epochs):
-                logs.append(union({'epoch': epoch+1}, train_epoch(state, Timer(torch.cuda.synchronize), train_batches, valid_batches)))
-            logs.df().query(f'epoch=={config.epochs}')[['train_acc', 'valid_acc']].describe()
+                logs.append(
+                    union(
+                        {"epoch": epoch + 1},
+                        train_epoch(
+                            state,
+                            Timer(torch.cuda.synchronize),
+                            train_batches,
+                            valid_batches,
+                        ),
+                    )
+                )
+            logs.df().query(f"epoch=={config.epochs}")[
+                ["train_acc", "valid_acc"]
+            ].describe()
 
-            model.train(False) # == model.eval()
+            model.train(False)  # == model.eval()
 
             # record scores for this iteration
             iteration_stats = {}
@@ -161,14 +202,14 @@ def main(config):
 
             correct = 0
             total = 0
-            class_correct = list(0. for i in range(10))
-            class_total = list(0. for i in range(10))
+            class_correct = list(0.0 for i in range(10))
+            class_total = list(0.0 for i in range(10))
             with torch.no_grad():
                 for data in valid_batches.dataloader:
                     images, labels = data
                     inputs = dict(input=images.cuda().half())
                     outputs = model(inputs)
-                    y = outputs['logits']
+                    y = outputs["logits"]
                     _, predicted = torch.max(y, 1)
                     total += labels.size(0)
                     labels_gpu = labels.cuda().half()
@@ -205,19 +246,25 @@ def main(config):
                 current_corrupted = sum(corr_bool[:inuse_N])
                 iteration_stats["current_corrupted"] = current_corrupted
 
-                print(f'"predicted" {fixed} of {fix_N} proposals to fix correctly')
-                print(f'{fixed / fix_N}')
-                print(f'there are currently a total of {current_corrupted} corrupted labels in use')
+                print(
+                    f'"predicted" {fixed} of {fix_N} proposals to fix correctly'
+                )
+                print(f"{fixed / fix_N}")
+                print(
+                    f"there are currently a total of {current_corrupted} corrupted labels in use"
+                )
             else:
-                review_batches = DataLoader(corr_train_set_use, 1, shuffle=False, drop_last=False)
+                review_batches = DataLoader(
+                    corr_train_set_use, 1, shuffle=False, drop_last=False
+                )
                 scores = []
                 with torch.no_grad():
                     for data in review_batches.dataloader:
                         images, labels = data
                         inputs = dict(input=images.cuda().half())
                         outputs = model(inputs)
-                        y = outputs['logits']
-                        #_, predicted = torch.max(y, 1)
+                        y = outputs["logits"]
+                        # _, predicted = torch.max(y, 1)
 
                         # likelihood of error in annotation can be a number of
                         # different heuristics.  just use entropy for now to get the
@@ -225,15 +272,15 @@ def main(config):
 
                         # todo: implement an entropy in torch to work on gpu
                         z = sm(y).cpu().numpy().squeeze()
-                        #e  = entropy(sm(y).numpy())
-                        e  = entropy(z)
+                        # e  = entropy(sm(y).numpy())
+                        e = entropy(z)
                         scores.append(e)
 
                 scores = np.asarray(scores)
                 si = np.argsort(scores)
-                si = np.flip(si.squeeze()) # because higher entropy at front
-                                           # beware of a need to sort in other
-                                           # heuristics
+                si = np.flip(si.squeeze())  # because higher entropy at front
+                # beware of a need to sort in other
+                # heuristics
 
                 # how many of those that we want to fix need to be fixed
                 # this is a bit of a funky calculation because we may want to fix more
@@ -250,12 +297,16 @@ def main(config):
                 current_corrupted = sum(corr_bool[:inuse_N])
                 iteration_stats["current_corrupted"] = current_corrupted
 
-                print(f'predicted {fix_correct} of {fix_N} proposals to fix correctly')
-                print(f'{fix_correct / fix_N}')
-                print(f'there are currently a total of {current_corrupted} corrupted labels in use')
+                print(
+                    f"predicted {fix_correct} of {fix_N} proposals to fix correctly"
+                )
+                print(f"{fix_correct / fix_N}")
+                print(
+                    f"there are currently a total of {current_corrupted} corrupted labels in use"
+                )
 
                 if config.make_fixes:
-                    print(f'making the fixes')
+                    print(f"making the fixes")
                     # fix the corruptions
                     for fix_i in si[:fix_N]:
                         t = corr_train_set_use[fix_i]
@@ -263,7 +314,7 @@ def main(config):
                         corr_train_set_use[fix_i] = (t[0], w)
                         corr_bool[fix_i] = False
                 else:
-                    print(f'not making the fixes because of the config')
+                    print(f"not making the fixes because of the config")
 
             model.train(True)
 
@@ -277,11 +328,11 @@ def main(config):
 
         total_stats[run_index] = stats
 
-    print(f'finished the full training; stats to follow')
+    print(f"finished the full training; stats to follow")
     print(total_stats)
 
     if config.stats_path:
-        with open(config.stats_path, 'w') as fp:
+        with open(config.stats_path, "w") as fp:
             json.dump(total_stats, fp)
 
 

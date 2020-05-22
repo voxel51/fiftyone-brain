@@ -7,16 +7,11 @@ It times the loading, etc...
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
-import argparse
 from functools import partial
-import json
 import os
-import random
-import sys
 import time
 
-from scipy.misc import imsave
-from scipy.stats import entropy
+from imageio import imsave
 
 import fiftyone as fo
 from fiftyone.core.odm import drop_database
@@ -93,7 +88,6 @@ def main():
     #
 
     timer = Timer()
-
     dataset = fo.Dataset("le_cifar10")
 
     # Train split
@@ -109,18 +103,18 @@ def main():
 
     dataset.add_samples(train_samples)
 
-    # Val split
-    val_samples = []
+    # Valid split
+    valid_samples = []
     for i, s in enumerate(valid_set):
-        val_samples.append(
+        valid_samples.append(
             fo.Sample(
                 valid_image_paths[i],
-                tags=["val"],
+                tags=["valid"],
                 ground_truth=fo.Classification(label=cifar10_classes[s[1]]),
             )
         )
 
-    dataset.add_samples(val_samples)
+    dataset.add_samples(valid_samples)
 
     print(f"Finished getting data into fiftyone in {timer():.2f} seconds")
     print(dataset.summary())
