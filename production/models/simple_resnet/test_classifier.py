@@ -19,7 +19,6 @@ from functools import partial
 import os
 import time
 
-import ipdb
 from imageio import imsave
 
 import fiftyone as fo
@@ -169,9 +168,6 @@ def main(config):
         )
 
     print("done")
-
-    if config.start_ipython:
-        ipdb.set_trace()
 
     return dataset
 
