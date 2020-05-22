@@ -1,7 +1,9 @@
 """
 Tests a model by loading the cifar10 dataset and then running predictions
-against it.  Also associates the predictions and an insight associated with it
-in the fiftyone dataset.
+against it.
+
+@todo Update this to use the actual class functionality of the model rather
+than the low-level model setup.
 
 Run with at least the following command line:
     -m model_path.pth
