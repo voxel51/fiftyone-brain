@@ -18,10 +18,16 @@ from builtins import *
 # pragma pylint: enable=unused-wildcard-import
 # pragma pylint: enable=wildcard-import
 
+import logging
 from math import exp
 
 import numpy as np
 from scipy.stats import entropy
+
+import eta.core.utils as etau
+
+
+logger = logging.getLogger(__name__)
 
 
 def compute_mistakenness(
@@ -71,15 +77,20 @@ def compute_mistakenness(
     if validate:
         _validate(samples, pred_field, label_field)
 
-    for sample in samples:
-        label = sample[pred_field]
-        check = sample[label_field]
+    num_samples = len(samples)
+    logger.info("Computing mistakenness for %d samples...", num_samples)
+    with etau.ProgressBar(iters_str="samples") as progress:
+        for sample in progress(samples):
+            label = sample[pred_field]
+            check = sample[label_field]
 
-        c = -1 * entropy(_softmax(np.asarray(label.logits)))
-        m = 1 if label.label == check.label else 0
-        mistakenness = exp(m * c)
+            c = -1 * entropy(_softmax(np.asarray(label.logits)))
+            m = 1 if label.label == check.label else 0
+            mistakenness = exp(m * c)
 
-        sample[mistakenness_field] = mistakenness
+            sample[mistakenness_field] = mistakenness
+
+    logger.info("Mistakenness computation complete")
 
 
 def _validate(samples, pred_field, label_field):
