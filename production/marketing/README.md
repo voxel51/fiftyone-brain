@@ -7,6 +7,10 @@ the code. Things like graphs, screen-shots, etc. This is in `fiftyone-brain`
 instead of `fiftyone` because it may reference experiment details with
 proprietary information that only exists in the brain.
 
+## Scripts
+
+-   `./shot_neardups.py` snaps the near-duplicates output from CIFAR-10
+
 ## Copyright
 
 Copyright 2017-2020, Voxel51, Inc.<br> voxel51.com
