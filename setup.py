@@ -66,7 +66,7 @@ class CustomBdistWheel(bdist_wheel):
 
 setup(
     name="fiftyone-brain",
-    version="0.1.0",
+    version="0.2.0",
     description="FiftyOne Brain",
     author="Voxel51, Inc.",
     author_email="info@voxel51.com",
