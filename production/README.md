@@ -8,6 +8,7 @@ The tools needed for any backend production-oriented work in the brains behind
 ## Directory Layout
 
 -   `./models` the model deployment and storage information for production
+-   `./marketing` scripts to help generate marketing material
 
 ## Models Production Setup
 
