@@ -8,13 +8,13 @@ screenshots, etc) backed by code.
 This is in `fiftyone-brain` instead of `fiftyone` because it may reference
 experiment details with proprietary information that only exists in the brain.
 
-## Scripts
+## Contents
 
--   `./shot_bdd_detections.py`: snaps a screenshot of some BDD object
-    detections loaded in the dashboard
-
--   `./shot_neardups.py` snaps a screenshot of the near-duplicates output from
-    CIFAR-10
+| Asset                    | Description                                                              |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `shot_bdd_detections.py` | Snaps a screenshot of some BDD object detections loaded in the dashboard |
+| `shot_neardups.py`       | Snaps a screenshot of the near-duplicates output from CIFAR-10           |
+| `use_cases_code.md`      | Example code demonstrating common FiftyOne use cases                     |
 
 ## Copyright
 
