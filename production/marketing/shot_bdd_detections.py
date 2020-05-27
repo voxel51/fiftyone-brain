@@ -7,10 +7,6 @@ of the python code.
 
 Outputs are placed in the `outputs/` directory.
 
-Source data::
-
-    /scratch/user/erich/fiftyone_bdd_example/bdd_subset.zip
-
 Usage::
 
     # From inside IPython
@@ -23,16 +19,27 @@ import os
 import time
 
 import eta.core.utils as etau
+import eta.core.storage as etas
 
 import fiftyone as fo
 import fiftyone.brain as fob
 
+
+FILE_ID = "1uioZHQ8VVUYb2OIrdD5M5gSw4XmGIOi_"
 
 DATASET_DIR = "data/bdd_subset"
 OUTPUT_DIR = "outputs"
 
 
 print("Working on BDD object detections")
+
+# Download dataset if necessary
+if not os.path.isdir(DATASET_DIR):
+    print("Downloading dataset to '%s'" % DATASET_DIR)
+    client = etas.GoogleDriveStorageClient()
+    tmp_path = client.get_file_metadata(FILE_ID)["name"]
+    client.download(FILE_ID, tmp_path)
+    etau.extract_archive(tmp_path, outdir="data", delete_archive=True)
 
 dataset = fo.Dataset.from_image_detection_dataset(DATASET_DIR, "BDD")
 
