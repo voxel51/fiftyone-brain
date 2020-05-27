@@ -89,6 +89,7 @@ def compute_mistakenness(
             mistakenness = exp(m * c)
 
             sample[mistakenness_field] = mistakenness
+            sample.save()
 
     logger.info("Mistakenness computation complete")
 

@@ -64,6 +64,7 @@ def compute_hardness(
             label = sample[label_field]
             hardness = entropy(_softmax(np.asarray(label.logits)))
             sample[hardness_field] = hardness
+            sample.save()
 
     logger.info("Hardness computation complete")
 
