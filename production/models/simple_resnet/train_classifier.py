@@ -1,12 +1,6 @@
 """
-Trains a clean model using the brain.model simple_resnet code.  This model can
-be used throughout the experiment and for testing as needed.
-
-Does not interact with fiftyone as that is not needed here.
-
-This is just a driver for training a model using this architecture.  This code
-is not used in conducting the actual label-error experiments, which is in the
-`labelerror.py` file.
+Trains a clean model using the brain.model simple_resnet class; it stores the
+weights in a file for publishing the model.
 
 Supports these config parameters:
 
@@ -22,7 +16,7 @@ Supports these config parameters:
 
 A simple (minimal) set of these to run on a small machine is::
 
-    run le_train_model -t 2000 -e 12 -b 64 --n_rounds 1 --p_initial 1.0 -m /tmp/foo.pth
+    run train_classifier.py -t 2000 -e 12 -b 64 --n_rounds 1 --p_initial 1.0 -m /tmp/foo.pth
 
 | Copyright 2017-2020, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_

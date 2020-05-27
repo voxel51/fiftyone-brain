@@ -1,7 +1,9 @@
 """
 Tests a model by loading the cifar10 dataset and then running predictions
-against it.  Also associates the predictions and an insight associated with it
-in the fiftyone dataset.
+against it.
+
+@todo Update this to use the actual class functionality of the model rather
+than the low-level model setup.
 
 Run with at least the following command line:
     -m model_path.pth
@@ -17,7 +19,6 @@ from functools import partial
 import os
 import time
 
-import ipdb
 from imageio import imsave
 
 import fiftyone as fo
@@ -167,9 +168,6 @@ def main(config):
         )
 
     print("done")
-
-    if config.start_ipython:
-        ipdb.set_trace()
 
     return dataset
 
