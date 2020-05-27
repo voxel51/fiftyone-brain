@@ -2,14 +2,19 @@
 
 Tools for generating marketing material across the FiftyOne project.
 
-This provides information on generating repeatable marketing material backed by
-the code. Things like graphs, screen-shots, etc. This is in `fiftyone-brain`
-instead of `fiftyone` because it may reference experiment details with
-proprietary information that only exists in the brain.
+This provides information on generating repeatable marketing material (graphs,
+screenshots, etc) backed by code.
+
+This is in `fiftyone-brain` instead of `fiftyone` because it may reference
+experiment details with proprietary information that only exists in the brain.
 
 ## Scripts
 
--   `./shot_neardups.py` snaps the near-duplicates output from CIFAR-10
+-   `./shot_bdd_detections.py`: snaps a screenshot of some BDD object
+    detections loaded in the dashboard
+
+-   `./shot_neardups.py` snaps a screenshot of the near-duplicates output from
+    CIFAR-10
 
 ## Copyright
 
