@@ -7,7 +7,6 @@ Installs `fiftyone-brain`.
 |
 """
 import os
-import shutil
 
 from distutils.command.build import build
 from setuptools import setup
@@ -22,7 +21,11 @@ class CustomBuild(build):
         # remove the source and bytecode (.pyc) files, and replace them with
         # obfuscated files
         brain_dir = os.path.join(self.build_lib, "fiftyone", "brain")
-        shutil.rmtree(brain_dir)
+        for root, dirs, files in os.walk(brain_dir):
+            for filename in files:
+                if os.path.splitext(filename)[-1].lower().startswith(".py"):
+                    os.remove(os.path.join(root, filename))
+
         call_pyarmor(
             [
                 "obfuscate",
