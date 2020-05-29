@@ -23,8 +23,13 @@ class CustomBuild(build):
         brain_dir = os.path.join(self.build_lib, "fiftyone", "brain")
         for root, dirs, files in os.walk(brain_dir):
             for filename in files:
-                if os.path.splitext(filename)[-1].lower().startswith(".py"):
-                    os.remove(os.path.join(root, filename))
+                if (
+                    os.path.splitext(filename)[-1].lower().startswith(".py")
+                    or "pytransform" in root
+                ):
+                    full_path = os.path.join(root, filename)
+                    print("Removing", full_path)
+                    os.remove(full_path)
 
         call_pyarmor(
             [
