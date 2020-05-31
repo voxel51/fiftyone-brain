@@ -29,11 +29,8 @@ import eta.core.utils as etau
 
 import fiftyone.core.utils as fou
 
-# Lazy equivalent of `import torchvision`
-torch = fou.LazyImporter("torch", "torch", globals(), fou.ensure_torch)
-
-# Lazy equivalent of `import fiftyone.utils.torch as fout`
-fout = fou.LazyImporter("fiftyone.utils.torch", "fout", globals())
+torch = fou.lazy_import("torch", fou.ensure_torch)
+fout = fou.lazy_import("fiftyone.utils.torch")
 
 
 logger = logging.getLogger(__name__)
