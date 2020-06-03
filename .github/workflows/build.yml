@@ -69,17 +69,20 @@ jobs:
         uses: actions/setup-python@v2
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install fiftyone
-        run: |
-          pip install --index https://pypi.voxel51.com fiftyone
       - name: Download fiftyone-brain wheel
         uses: actions/download-artifact@v2
         with:
           name: wheel-linux-${{ matrix.python-version }}
-          path: downloads/fiftyone-brain.whl
+          path: downloads
+      - name: test
+        run: |
+          ls -R downloads
       - name: Reinstall fiftyone-brain
         run: |
           pip install --force-reinstall --no-deps downloads/fiftyone-brain.whl
+      - name: Install fiftyone
+        run: |
+          pip install --index https://pypi.voxel51.com fiftyone
       - name: Install test dependencies
         run: |
           pip install imageio torch torchvision
