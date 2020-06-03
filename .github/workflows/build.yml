@@ -8,6 +8,7 @@ jobs:
     strategy:
       matrix:
         python-version:
+          - 3.5
           - 3.6
           - 3.7
           - 3.8
@@ -39,15 +40,15 @@ jobs:
       - name: Upload wheel (Linux)
         uses: actions/upload-artifact@v2
         with:
-          name: wheel-linux
+          name: wheel-linux-${{ matrix.python-version }}
           path: dist/*linux*.whl
       - name: Upload wheel (macOS)
         uses: actions/upload-artifact@v2
         with:
-          name: wheel-macos
+          name: wheel-macos-${{ matrix.python-version }}
           path: dist/*macos*.whl
       - name: Upload wheel (Windows)
         uses: actions/upload-artifact@v2
         with:
-          name: wheel-windows
+          name: wheel-windows-${{ matrix.python-version }}
           path: dist/*win*.whl
