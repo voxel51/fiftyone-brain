@@ -13,6 +13,8 @@ jobs:
           - 3.6
           - 3.7
           - 3.8
+    env:
+      VIRTUAL_ENV: test
     steps:
       - name: Clone fiftyone-brain
         uses: actions/checkout@v1
@@ -64,4 +66,4 @@ jobs:
           pip install imageio torch torchvision
       - name: Run tests
         run: |
-          find tests/ -name '*.py' -print0 | xargs -0 -n1 python
+          find tests/ -name '*.py' -print0 | xargs -0 --max-args 1 --verbose python
