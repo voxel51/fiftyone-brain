@@ -1,0 +1,53 @@
+name: Build
+
+on: push
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        python-version:
+          - 3.6
+          - 3.7
+          - 3.8
+    steps:
+      - name: Clone fiftyone-brain
+        uses: actions/checkout@v1
+        with:
+          submodules: true
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Check Python version
+        run: |
+          python --version
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip setuptools wheel
+          pip install pyarmor twine
+      - name: Build wheel (Linux)
+        run: |
+          python setup.py bdist_wheel --plat-name linux
+      - name: Build wheel (macOS)
+        run: |
+          python setup.py bdist_wheel --plat-name mac
+      - name: Build wheel (Windows)
+        run: |
+          python setup.py bdist_wheel --plat-name win
+      - name: Upload wheel (Linux)
+        uses: actions/upload-artifact@v2
+        with:
+          name: wheel-linux
+          path: package/db/dist/*linux*.whl
+      - name: Upload wheel (macOS)
+        uses: actions/upload-artifact@v2
+        with:
+          name: wheel-macos
+          path: package/db/dist/*macos*.whl
+      - name: Upload wheel (Windows)
+        uses: actions/upload-artifact@v2
+        with:
+          name: wheel-windows
+          path: package/db/dist/*win*.whl
