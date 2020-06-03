@@ -74,15 +74,12 @@ jobs:
         with:
           name: wheel-linux-${{ matrix.python-version }}
           path: downloads
-      - name: test
-        run: |
-          ls -R downloads
-      - name: Reinstall fiftyone-brain
-        run: |
-          pip install --force-reinstall --no-deps downloads/fiftyone-brain.whl
       - name: Install fiftyone
         run: |
           pip install --index https://pypi.voxel51.com fiftyone
+      - name: Reinstall fiftyone-brain
+        run: |
+          pip install --force-reinstall --no-deps downloads/*.whl
       - name: Install test dependencies
         run: |
           pip install imageio torch torchvision
