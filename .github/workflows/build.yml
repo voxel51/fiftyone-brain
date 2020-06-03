@@ -95,4 +95,4 @@ jobs:
           pip install imageio torch torchvision
       - name: Run tests
         run: |
-          find tests/ -name '*.py' -print0 | xargs -0 --max-args 1 --verbose python
+          script --quiet --return --command ./tests/run-tests.bash
