@@ -65,6 +65,10 @@ jobs:
     env:
       VIRTUAL_ENV: test # TODO remove when voxel51/fiftyone#152 is fixed
     steps:
+      - name: Clone fiftyone-brain
+        uses: actions/checkout@v1
+        with:
+          submodules: true
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v2
         with:
