@@ -40,14 +40,14 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: wheel-linux
-          path: package/db/dist/*linux*.whl
+          path: dist/*linux*.whl
       - name: Upload wheel (macOS)
         uses: actions/upload-artifact@v2
         with:
           name: wheel-macos
-          path: package/db/dist/*macos*.whl
+          path: dist/*macos*.whl
       - name: Upload wheel (Windows)
         uses: actions/upload-artifact@v2
         with:
           name: wheel-windows
-          path: package/db/dist/*win*.whl
+          path: dist/*win*.whl
