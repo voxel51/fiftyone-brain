@@ -80,7 +80,10 @@ jobs:
           path: downloads
       - name: Install fiftyone
         run: |
-          pip install --index https://pypi.voxel51.com fiftyone
+          git clone https://${{ secrets.FIFTYONE_GITHUB_TOKEN }}@github.com/voxel51/fiftyone fiftyone-src --depth 1 --branch develop
+          cd fiftyone-src
+          python setup.py bdist_wheel
+          pip install --index https://pypi.voxel51.com ./dist/*.whl
       - name: Reinstall fiftyone-brain
         run: |
           pip install --force-reinstall --no-deps downloads/*.whl
