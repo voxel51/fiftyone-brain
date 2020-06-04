@@ -112,4 +112,4 @@ jobs:
           pip3 install twine
       - name: Upload to pypi.voxel51.com
         run: |
-          twine upload --repository-url https://pypi.voxel51.com downloads/wheel-*/*.whl
+          python3 -m twine upload --repository-url https://pypi.voxel51.com downloads/wheel-*/*.whl
