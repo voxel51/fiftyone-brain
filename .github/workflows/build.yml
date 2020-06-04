@@ -96,7 +96,7 @@ jobs:
           pytest tests/
   publish:
     needs: [build, test]
-    if: startsWith(github.ref, "refs/tags/v")
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-18.04
     env:
       TWINE_USERNAME: voxel51-ci
