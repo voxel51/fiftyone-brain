@@ -26,8 +26,14 @@ import fiftyone.core.odm as foo
 def test_uniqueness():
     foo.drop_database()
     dataset = foz.load_zoo_dataset("cifar10", split="test")
-    view = dataset.view().take(100)
+    assert "uniqueness" not in dataset.get_field_schema()
 
+    view = dataset.view().take(100)
     fob.compute_uniqueness(view)
 
     print(dataset.summary())
+    assert "uniqueness" in dataset.get_field_schema()
+
+
+if __name__ == "__main__":
+    test_uniqueness()

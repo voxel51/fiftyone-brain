@@ -18,11 +18,14 @@ from builtins import *
 # pragma pylint: enable=unused-wildcard-import
 # pragma pylint: enable=wildcard-import
 
+import pytest
+
 import imageio
 from PIL import Image
 import torch
 import torchvision
 
+import eta.core.data as etad
 import eta.core.image as etai
 import eta.core.learning as etal
 
@@ -34,6 +37,18 @@ import fiftyone.core.odm as foo
 def transpose(x, source, target):
     """Simple transpose function for Tensors."""
     return x.permute([source.index(d) for d in target])
+
+
+def check_prediction(actual, expected):
+    """Compare two eta.core.data.CategoricalAttribute instances."""
+    assert isinstance(actual, etad.CategoricalAttribute)
+    assert isinstance(expected, etad.CategoricalAttribute)
+    actual = actual.serialize()
+    expected = expected.serialize()
+    for k in actual:
+        if k == "confidence":
+            continue
+        assert actual[k] == expected[k], k
 
 
 def test_simple_resnet():
@@ -55,14 +70,17 @@ def test_simple_resnet():
     im_torch = transpose(im_torch, "HWC", "CHW")
     print(f"im_torch is type {type(im_torch)}")
     print(im_torch.shape)
+    assert tuple(reversed(im_torch.shape)) == im_numpy.shape
 
     im_eta = etai.read(filepath)
     print(f"im_eta is type {type(im_eta)}")
     print(im_eta.shape)
+    assert tuple(im_eta.shape) == im_numpy.shape
 
     im_et2 = im_eta / 255
     print(f"im_et2 is type {type(im_et2)}")
     print(im_et2.shape)
+    assert tuple(im_et2.shape) == im_numpy.shape
 
     model = etal.load_default_deployment_model("simple_resnet_cifar10")
 
@@ -71,25 +89,32 @@ def test_simple_resnet():
     print("PIL")
     p = model.predict(im_pil)
     print(p[0])
+    p_pil = p[0]
 
     print("IMAGEIO")
     p = model.predict(im_numpy)
     print(p[0])
+    check_prediction(p[0], p_pil)
 
     print("TORCH")
-    try:
+    with pytest.raises(NotImplementedError):
         p = model.predict(im_torch)
         print(p[0])
-    except NotImplementedError:
-        print("successfully raised error on torch image")
+    print("successfully raised error on torch image")
 
     print("ETA")
     p = model.predict(im_eta)
     print(p[0])
+    check_prediction(p[0], p_pil)
 
     print("ET2")
     p = model.predict(im_et2)
     print(p[0])
+    check_prediction(p[0], p_pil)
 
     # @todo logging a need to understand why the predictions on the ETA images are
     # different than those on the other formats. -- just by a confidence level
+
+
+if __name__ == "__main__":
+    test_simple_resnet()
