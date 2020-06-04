@@ -23,10 +23,11 @@ import fiftyone.zoo as foz
 import fiftyone.core.odm as foo
 
 
-foo.drop_database()
-dataset = foz.load_zoo_dataset("cifar10", split="test")
-view = dataset.view().take(100)
+def test_uniqueness():
+    foo.drop_database()
+    dataset = foz.load_zoo_dataset("cifar10", split="test")
+    view = dataset.view().take(100)
 
-fob.compute_uniqueness(view)
+    fob.compute_uniqueness(view)
 
-print(dataset.summary())
+    print(dataset.summary())

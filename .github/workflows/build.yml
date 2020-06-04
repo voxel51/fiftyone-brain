@@ -92,7 +92,7 @@ jobs:
           pip install --force-reinstall --no-deps downloads/*.whl
       - name: Install test dependencies
         run: |
-          pip install imageio torch torchvision
+          pip install imageio pytest torch torchvision
       - name: Run tests
         run: |
-          script --quiet --return --command ./tests/run-tests.bash
+          pytest tests/

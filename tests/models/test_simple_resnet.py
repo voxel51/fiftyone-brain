@@ -36,59 +36,60 @@ def transpose(x, source, target):
     return x.permute([source.index(d) for d in target])
 
 
-foo.drop_database()
-dataset = foz.load_zoo_dataset("cifar10", split="test")
-view = dataset.view().take(100)
-sample = next(iter(view))
-filepath = sample.filepath
-print("Working on image at %s" % filepath)
+def test_simple_resnet():
+    foo.drop_database()
+    dataset = foz.load_zoo_dataset("cifar10", split="test")
+    view = dataset.view().take(100)
+    sample = next(iter(view))
+    filepath = sample.filepath
+    print("Working on image at %s" % filepath)
 
-im_pil = Image.open(filepath)
-print(f"im_pil is type {type(im_pil)}")
+    im_pil = Image.open(filepath)
+    print(f"im_pil is type {type(im_pil)}")
 
-im_numpy = imageio.imread(filepath)
-print(f"im_numpy is type {type(im_numpy)}")
-print(im_numpy.shape)
+    im_numpy = imageio.imread(filepath)
+    print(f"im_numpy is type {type(im_numpy)}")
+    print(im_numpy.shape)
 
-im_torch = torch.from_numpy(im_numpy)
-im_torch = transpose(im_torch, "HWC", "CHW")
-print(f"im_torch is type {type(im_torch)}")
-print(im_torch.shape)
+    im_torch = torch.from_numpy(im_numpy)
+    im_torch = transpose(im_torch, "HWC", "CHW")
+    print(f"im_torch is type {type(im_torch)}")
+    print(im_torch.shape)
 
-im_eta = etai.read(filepath)
-print(f"im_eta is type {type(im_eta)}")
-print(im_eta.shape)
+    im_eta = etai.read(filepath)
+    print(f"im_eta is type {type(im_eta)}")
+    print(im_eta.shape)
 
-im_et2 = im_eta / 255
-print(f"im_et2 is type {type(im_et2)}")
-print(im_et2.shape)
+    im_et2 = im_eta / 255
+    print(f"im_et2 is type {type(im_et2)}")
+    print(im_et2.shape)
 
-model = etal.load_default_deployment_model("simple_resnet_cifar10")
+    model = etal.load_default_deployment_model("simple_resnet_cifar10")
 
-model.toggle_preprocess()
+    model.toggle_preprocess()
 
-print("PIL")
-p = model.predict(im_pil)
-print(p[0])
-
-print("IMAGEIO")
-p = model.predict(im_numpy)
-print(p[0])
-
-print("TORCH")
-try:
-    p = model.predict(im_torch)
+    print("PIL")
+    p = model.predict(im_pil)
     print(p[0])
-except NotImplementedError:
-    print("successfully raised error on torch image")
 
-print("ETA")
-p = model.predict(im_eta)
-print(p[0])
+    print("IMAGEIO")
+    p = model.predict(im_numpy)
+    print(p[0])
 
-print("ET2")
-p = model.predict(im_et2)
-print(p[0])
+    print("TORCH")
+    try:
+        p = model.predict(im_torch)
+        print(p[0])
+    except NotImplementedError:
+        print("successfully raised error on torch image")
 
-# @todo logging a need to understand why the predictions on the ETA images are
-# different than those on the other formats. -- just by a confidence level
+    print("ETA")
+    p = model.predict(im_eta)
+    print(p[0])
+
+    print("ET2")
+    p = model.predict(im_et2)
+    print(p[0])
+
+    # @todo logging a need to understand why the predictions on the ETA images are
+    # different than those on the other formats. -- just by a confidence level
