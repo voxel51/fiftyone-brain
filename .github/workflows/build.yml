@@ -107,6 +107,9 @@ jobs:
         uses: actions/download-artifact@v2
         with:
           path: downloads
+      - name: Install dependencies
+        run: |
+          pip3 install twine
       - name: Upload to pypi.voxel51.com
         run: |
           twine upload --repository-url https://pypi.voxel51.com downloads/wheel-*/*.whl
