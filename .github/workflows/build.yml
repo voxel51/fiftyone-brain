@@ -54,6 +54,7 @@ jobs:
         with:
           name: wheel-windows-${{ matrix.python-version }}
           path: dist/*win*.whl
+
   test:
     needs: build
     runs-on: ubuntu-18.04
@@ -93,7 +94,8 @@ jobs:
           pip install imageio pytest torch torchvision
       - name: Run tests
         run: |
-          pytest tests/
+          pytest --verbose tests/
+
   publish:
     needs: [build, test]
     if: startsWith(github.ref, 'refs/tags/v')
