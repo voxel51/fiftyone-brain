@@ -62,7 +62,8 @@ jobs:
       fail-fast: false
       matrix:
         python-version:
-          - 3.6
+          - 3.5
+          - 3.8
     steps:
       - name: Clone fiftyone-brain
         uses: actions/checkout@v1
