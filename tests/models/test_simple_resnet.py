@@ -60,25 +60,25 @@ def test_simple_resnet():
     print("Working on image at %s" % filepath)
 
     im_pil = Image.open(filepath)
-    print(f"im_pil is type {type(im_pil)}")
+    print("im_pil is type %s" % type(im_pil))
 
     im_numpy = imageio.imread(filepath)
-    print(f"im_numpy is type {type(im_numpy)}")
+    print("im_numpy is type %s" % type(im_numpy))
     print(im_numpy.shape)
 
     im_torch = torch.from_numpy(im_numpy)
     im_torch = transpose(im_torch, "HWC", "CHW")
-    print(f"im_torch is type {type(im_torch)}")
+    print("im_torch is type %s" % type(im_torch))
     print(im_torch.shape)
     assert tuple(reversed(im_torch.shape)) == im_numpy.shape
 
     im_eta = etai.read(filepath)
-    print(f"im_eta is type {type(im_eta)}")
+    print("im_eta is type %s" % type(im_eta))
     print(im_eta.shape)
     assert tuple(im_eta.shape) == im_numpy.shape
 
     im_et2 = im_eta / 255
-    print(f"im_et2 is type {type(im_et2)}")
+    print("im_et2 is type %s" % type(im_et2))
     print(im_et2.shape)
     assert tuple(im_et2.shape) == im_numpy.shape
 
