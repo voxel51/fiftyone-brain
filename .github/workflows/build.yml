@@ -1,0 +1,118 @@
+name: Build
+
+on: push
+
+jobs:
+  build:
+    runs-on: ubuntu-18.04 # needed for pre-built python versions
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - 3.5
+          - 3.6
+          - 3.7
+          - 3.8
+    steps:
+      - name: Clone fiftyone-brain
+        uses: actions/checkout@v1
+        with:
+          submodules: true
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Check Python version
+        run: |
+          python --version
+          pip --version
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip setuptools wheel
+          pip install pyarmor twine
+      - name: Build wheel (Linux)
+        run: |
+          python setup.py bdist_wheel --plat-name linux
+      - name: Build wheel (macOS)
+        run: |
+          python setup.py bdist_wheel --plat-name mac
+      - name: Build wheel (Windows)
+        run: |
+          python setup.py bdist_wheel --plat-name win
+      - name: Upload wheel (Linux)
+        uses: actions/upload-artifact@v2
+        with:
+          name: wheel-linux-${{ matrix.python-version }}
+          path: dist/*linux*.whl
+      - name: Upload wheel (macOS)
+        uses: actions/upload-artifact@v2
+        with:
+          name: wheel-macos-${{ matrix.python-version }}
+          path: dist/*macos*.whl
+      - name: Upload wheel (Windows)
+        uses: actions/upload-artifact@v2
+        with:
+          name: wheel-windows-${{ matrix.python-version }}
+          path: dist/*win*.whl
+
+  test:
+    needs: build
+    runs-on: ubuntu-18.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - 3.6
+          - 3.8
+    steps:
+      - name: Clone fiftyone-brain
+        uses: actions/checkout@v1
+        with:
+          submodules: true
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip setuptools wheel
+      - name: Download fiftyone-brain wheel
+        uses: actions/download-artifact@v2
+        with:
+          name: wheel-linux-${{ matrix.python-version }}
+          path: downloads
+      - name: Install fiftyone
+        run: |
+          git clone https://${{ secrets.FIFTYONE_GITHUB_TOKEN }}@github.com/voxel51/fiftyone fiftyone-src --depth 1 --branch develop
+          cd fiftyone-src
+          python setup.py bdist_wheel
+          pip install --index https://pypi.voxel51.com ./dist/*.whl
+      - name: Reinstall fiftyone-brain
+        run: |
+          pip install --force-reinstall --no-deps downloads/*.whl
+      - name: Install test dependencies
+        run: |
+          pip install imageio pytest torch torchvision
+      - name: Run tests
+        run: |
+          pytest --verbose tests/
+
+  publish:
+    needs: [build, test]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-18.04
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v2
+        with:
+          path: downloads
+      - name: Install dependencies
+        run: |
+          pip3 install twine
+      - name: Upload to pypi.voxel51.com
+        env:
+          TWINE_USERNAME: voxel51-ci
+          TWINE_PASSWORD: ${{ secrets.FIFTYONE_GITHUB_TOKEN }}
+          TWINE_NON_INTERACTIVE: 1
+        run: |
+          python3 -m twine upload --repository-url https://pypi.voxel51.com downloads/wheel-*/*.whl
