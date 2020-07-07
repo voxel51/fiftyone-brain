@@ -68,5 +68,5 @@ def test_gray():
 
 
 if __name__ == "__main__":
-    # test_uniqueness()
+    test_uniqueness()
     test_gray()
