@@ -89,6 +89,7 @@ jobs:
           cd fiftyone-src
           python setup.py bdist_wheel
           pip install ./dist/*.whl
+          pip install voxel51-eta[storage]
       - name: Reinstall fiftyone-brain
         run: |
           pip install --force-reinstall --no-deps downloads/*.whl
