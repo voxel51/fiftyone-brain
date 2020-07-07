@@ -21,6 +21,8 @@ from builtins import *
 import fiftyone.brain as fob
 import fiftyone.zoo as foz
 import fiftyone.core.odm as foo
+from fiftyone.core.dataset import Dataset
+import fiftyone.types as fot
 
 
 def test_uniqueness():
@@ -35,5 +37,17 @@ def test_uniqueness():
     assert "uniqueness" in dataset.get_field_schema()
 
 
+def test_gray():
+    """Test default support for handling grayscale images."""
+    foo.drop_database()
+
+    dataset = Dataset.from_dir(
+        "/home/jason/Downloads/data/test", fot.ImageDirectory
+    )
+
+    print(dataset.summary())
+
+
 if __name__ == "__main__":
-    test_uniqueness()
+    # test_uniqueness()
+    test_gray()
