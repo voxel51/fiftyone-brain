@@ -82,11 +82,13 @@ jobs:
           name: wheel-linux-${{ matrix.python-version }}
           path: downloads
       - name: Install fiftyone
+        env:
+          PIP_INDEX_URL: https://voxel51-ci:${{ secrets.FIFTYONE_GITHUB_TOKEN }}@pypi.voxel51.com
         run: |
           git clone https://${{ secrets.FIFTYONE_GITHUB_TOKEN }}@github.com/voxel51/fiftyone fiftyone-src --depth 1 --branch develop
           cd fiftyone-src
           python setup.py bdist_wheel
-          pip install --index https://pypi.voxel51.com ./dist/*.whl
+          pip install ./dist/*.whl
       - name: Reinstall fiftyone-brain
         run: |
           pip install --force-reinstall --no-deps downloads/*.whl
