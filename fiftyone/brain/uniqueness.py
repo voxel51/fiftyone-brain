@@ -135,7 +135,9 @@ def _make_data_loader(samples, transforms, batch_size=16):
         image_paths.append(sample.filepath)
         sample_ids.append(sample.id)
 
-    dataset = fout.TorchImageDataset(image_paths, transform=transforms)
+    dataset = fout.TorchImageDataset(
+        image_paths, transform=transforms, force_rgb=True
+    )
     return torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, num_workers=4
     )
