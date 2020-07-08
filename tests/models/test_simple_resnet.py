@@ -31,7 +31,6 @@ import eta.core.learning as etal
 
 import fiftyone.brain as fob
 import fiftyone.zoo as foz
-import fiftyone.core.odm as foo
 
 
 def transpose(x, source, target):
@@ -52,7 +51,6 @@ def check_prediction(actual, expected):
 
 
 def test_simple_resnet():
-    foo.drop_database()
     dataset = foz.load_zoo_dataset("cifar10", split="test")
     view = dataset.view().take(100)
     sample = next(iter(view))

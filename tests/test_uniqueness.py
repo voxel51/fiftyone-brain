@@ -25,13 +25,11 @@ import eta.core.utils as etau
 
 import fiftyone.brain as fob
 import fiftyone.zoo as foz
-import fiftyone.core.odm as foo
 from fiftyone.core.dataset import Dataset
 import fiftyone.types as fot
 
 
 def test_uniqueness():
-    foo.drop_database()
     dataset = foz.load_zoo_dataset("cifar10", split="test")
     assert "uniqueness" not in dataset.get_field_schema()
 
@@ -51,8 +49,6 @@ def test_gray():
     Requires Google Drive Voxel51 credentials to work; see the
     eta/docs/storage_dev_guide.md.
     """
-    foo.drop_database()
-
     with etau.TempDir() as tempdir:
         tmp_zip = os.path.join(tempdir, "data.zip")
         tmp_data = os.path.join(tempdir, "brain_grayscale_test_data")
