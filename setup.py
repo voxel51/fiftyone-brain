@@ -86,10 +86,9 @@ setup(
     classifiers=[
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX :: Linux",
-        "Programming Language :: Python :: 2.7",
         "Programming Language :: Python :: 3",
     ],
     scripts=[],
-    python_requires=">=2.7",
+    python_requires=">=3.5",
     cmdclass={"build": CustomBuild, "bdist_wheel": CustomBdistWheel,},
 )
