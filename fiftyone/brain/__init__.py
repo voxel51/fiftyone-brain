@@ -15,7 +15,6 @@ import eta
 from .hardness import compute_hardness
 from .mistakenness import compute_mistakenness
 from .uniqueness import compute_uniqueness
-from .sample_video_frames import sample_best_video_frames
 
 
 __models_cache__ = os.path.join(

@@ -81,10 +81,6 @@ def sample_best_video_frames(
     # quality frame from each bin. A blowout parameter is used to avoid
     # sampling consecutive frames within a given radius
     #
-    # Performance
-    #
-    # Requires a single pass over the frames of the video
-    #
     parameters = SampleBestVideoFramesParameters.default()
 
     video_metadata = etav.VideoMetadata.build_for(video_path)
