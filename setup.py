@@ -74,7 +74,7 @@ class CustomBdistWheel(bdist_wheel):
 
 setup(
     name="fiftyone-brain",
-    version="0.1.4",
+    version="0.1.5",
     description="FiftyOne Brain",
     author="Voxel51, Inc.",
     author_email="info@voxel51.com",
@@ -86,10 +86,9 @@ setup(
     classifiers=[
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX :: Linux",
-        "Programming Language :: Python :: 2.7",
         "Programming Language :: Python :: 3",
     ],
     scripts=[],
-    python_requires=">=2.7",
+    python_requires=">=3.5",
     cmdclass={"build": CustomBuild, "bdist_wheel": CustomBdistWheel,},
 )
