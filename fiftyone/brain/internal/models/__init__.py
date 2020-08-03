@@ -10,5 +10,5 @@ See https://github.com/voxel51/fiftyone for more information.
 """
 from .simple_resnet import (
     SimpleResnetImageClassifier,
-    SimpleResnetImageClassifierConfig
+    SimpleResnetImageClassifierConfig,
 )

@@ -12,12 +12,12 @@
                 }
             },
             "default_deployment_config_dict": {
-                "type": "fiftyone.brain.models.SimpleResnetImageClassifier",
+                "type": "fiftyone.brain.internal.models.SimpleResnetImageClassifier",
                 "config": {
                     "model_name": "simple_resnet_cifar10",
                     "labels_string": "airplane, automobile, bird, cat, deer, dog, frog, horse, ship, truck",
                     "image_mean": [0.4914, 0.4822, 0.4465],
-                    "image_std": [0.2023, 0.1994, 0.2010]
+                    "image_std": [0.2023, 0.1994, 0.201]
                 }
             },
             "date_created": "2020-05-07 08:25:51"
