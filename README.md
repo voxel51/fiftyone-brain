@@ -6,14 +6,23 @@ The proprietary brains behind [FiftyOne](https://github.com/voxel51/fiftyone).
 
 ## Repository Layout
 
--   `./docs` documentation about the repository and project
--   `./experiments` contains internal-only examples in the form of specific
-    experiments about FiftyOne's value.
--   `./fiftyone` is the actual `fiftyone.brain` python code
--   `./production` contains the work needed to generate production models,
-    code, etc., associated with the brain. It is contained scripts and such for
-    repeatable, versioned model training for uniqueness, for example.
--   `./requirements` is the standard requirements folder for the python project
+-   `docs/` documentation about the repository and project
+
+-   `experiments/` internal-only examples that demonstrate concrete value-add
+    of the FiftyOne Brain
+
+-   `fiftyone/brain/` definition of the `fiftyone.brain` package
+
+    -   `fiftyone/brain/internal/` all propreitary internal code powering the
+        public namespace of the Brain
+
+-   `production/` work needed to generate production models, code, etc.,
+    associated with the Brain. It contains scripts and such for repeatable,
+    versioned model training for uniqueness, for example
+
+-   `requirements/` Python requirements for the project
+
+-   `tests/` tests for the various components of the Brain
 
 ## Installation
 
@@ -29,10 +38,6 @@ and install it:
 ```shell
 bash install.bash
 ```
-
-We strongly recommend that you install in a
-[virtual environment](https://virtualenv.pypa.io/en/stable) to maintain a clean
-workspace.
 
 ### Developer installation
 
