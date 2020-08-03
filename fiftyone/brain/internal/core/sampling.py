@@ -24,14 +24,72 @@ from copy import copy
 
 import numpy as np
 
+from eta.core.config import Config
 import eta.core.data as etad
 import eta.core.image as etai
 import eta.core.utils as etau
 import eta.core.video as etav
 
-import fiftyone.brain.core.image as fobi
-import fiftyone.brain.core.motion as fobm
-import fiftyone.brain.core.quality as fobq
+import fiftyone.brain.internal.core.image as fobi
+import fiftyone.brain.internal.core.motion as fobm
+import fiftyone.brain.internal.core.quality as fobq
+
+
+class SampleBestVideoFramesParameters(Config):
+    """Internal parameters for
+    :meth:`fiftyone.sample_video_frames.sample_best_video_frames`.
+
+    Args:
+        use_motion: (True) whether to choose sample windows whose widths are
+            proportionate to frame motion
+        motion_config: (None) a
+            :class:`fiftyone.brain.internal.core.motion.FrameMotionConfig`
+            describing the motion method to use. Only used when
+            ``use_motion == True``
+        use_quality: (True) whether to use frame quality to inform which frame
+            from each sampling window to select
+        quality_config: (None) a
+            :class:`fiftyone.brain.internal.core.quality.FrameQualityConfig`
+            describing the quality method to use. Only used when
+            ``use_quality == True``
+        blowout: (0.25) a blowout factor in ``(0, 1)`` that defines a region in
+            which subsequent samples cannot be taken. For example, a blowout
+            factor of 0.25 corresponds to a minimum sampling distance of
+            ``0.25 * target_accel``. A blowout factor of 1 or greater would
+            force uniform sampling
+        delta: (None) a multiple of frame quality standard deviation increments
+            that earns equal weight to a one frame deviation from the sampling
+            point recommended by the target acceleration. Setting delta to a
+            small value, say ``1e-5``, will always sample the maximum quality
+            frame within each sampling window. Setting delta to a large value,
+            say ``1e5``, will reduce to uniform sampling at the target rate.
+            The default value is ``1 / target_accel``
+        offset: (None) an optional offset from the beginning of the video to
+            choose the initial sampling window
+        always_sample_first: (False) whether to always sample the first frame
+            of the video
+        always_sample_last: (False) whether to always sample the last frame of
+            the video
+    """
+
+    def __init__(self, d):
+        self.use_motion = self.parse_bool(d, "use_motion", default=True)
+        self.motion_config = self.parse_object(
+            d, "motion_config", fobm.FrameMotionConfig, default=None
+        )
+        self.use_quality = self.parse_bool(d, "use_quality", default=True)
+        self.quality_config = self.parse_object(
+            d, "quality_config", fobq.FrameQualityConfig, default=None
+        )
+        self.blowout = self.parse_number(d, "blowout", default=0.25)
+        self.delta = self.parse_number(d, "delta", default=None)
+        self.offset = self.parse_number(d, "offset", default=None)
+        self.always_sample_first = self.parse_bool(
+            d, "always_sample_first", default=False
+        )
+        self.always_sample_last = self.parse_bool(
+            d, "always_sample_last", default=False
+        )
 
 
 def uniform_sample_frames(
@@ -143,8 +201,8 @@ def adaptive_sample_frames_by_quality(
             frames. Dimensions can be -1, in which case the input aspect ratio
             is preserved
         quality_config (None): a
-            :class:`fiftyone.brain.core.quality.FrameQualityConfig` describing
-            the frame quality method to use
+            :class:`fiftyone.brain.internal.core.quality.FrameQualityConfig`
+            describing the frame quality method to use
 
     Returns:
         a tuple of
@@ -310,8 +368,8 @@ def adaptive_sample_frames_by_motion(
             frames. Dimensions can be -1, in which case the input aspect ratio
             is preserved
         motion_config (None): a
-            :class:`fiftyone.brain.core.motion.FrameMotionConfig` describing
-            the frame motion method to use
+            :class:`fiftyone.brain.internal.core.motion.FrameMotionConfig`
+            describing the frame motion method to use
 
     Returns:
         a tuple of
@@ -413,11 +471,11 @@ def adaptive_sample_frames_by_quality_and_motion(
             frames. Dimensions can be -1, in which case the input aspect ratio
             is preserved
         quality_config (None): a
-            :class:`fiftyone.brain.core.quality.FrameQualityConfig` describing
-            the frame quality method to use
+            :class:`fiftyone.brain.internal.core.quality.FrameQualityConfig`
+            describing the frame quality method to use
         motion_config (None): a
-            :class:`fiftyone.brain.core.motion.FrameMotionConfig` describing
-            the frame motion method to use
+            :class:`fiftyone.brain.internal.core.motion.FrameMotionConfig`
+            describing the frame motion method to use
 
     Returns:
         a tuple of

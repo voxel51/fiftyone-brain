@@ -25,7 +25,7 @@ import eta.core.data as etad
 import eta.core.image as etai
 import eta.core.video as etav
 
-import fiftyone.brain.core.image as fobi
+import fiftyone.brain.internal.core.image as fobi
 
 
 class FrameQualityConfig(Config):
@@ -33,8 +33,8 @@ class FrameQualityConfig(Config):
 
     Attributes:
         method: the frame quality method to use. Can be any value supported by
-            :meth:`fiftyone.brain.core.image.compute_quality`. The default is
-            ``"laplacian-stdev"``
+            :meth:`fiftyone.brain.internal.core.image.compute_quality`. The
+            default is ``"laplacian-stdev"``
         attr_name: the name of the numeric attribute in which to store the
             frame quality values. The default is ``"quality"``
     """

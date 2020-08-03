@@ -21,14 +21,13 @@ from builtins import *
 import logging
 import os
 
-from eta.core.config import Config
 import eta.core.image as etai
 import eta.core.video as etav
 
 import fiftyone as fo
-import fiftyone.brain.core.motion as fobm
-import fiftyone.brain.core.sampling as fobs
-import fiftyone.brain.core.quality as fobq
+import fiftyone.brain.internal.core.motion as fobm
+import fiftyone.brain.internal.core.sampling as fobs
+import fiftyone.brain.internal.core.quality as fobq
 
 
 logger = logging.getLogger(__name__)
@@ -81,7 +80,7 @@ def sample_best_video_frames(
     # quality frame from each bin. A blowout parameter is used to avoid
     # sampling consecutive frames within a given radius
     #
-    parameters = SampleBestVideoFramesParameters.default()
+    parameters = fobs.SampleBestVideoFramesParameters.default()
 
     video_metadata = etav.VideoMetadata.build_for(video_path)
 
@@ -108,60 +107,6 @@ def sample_best_video_frames(
     )
 
     return frames
-
-
-class SampleBestVideoFramesParameters(Config):
-    """Internal parameters for :meth:`sample_best_video_frames`.
-
-    Args:
-        use_motion: (True) whether to choose sample windows whose widths are
-            proportionate to frame motion
-        motion_config: (None) a
-            :class:`fiftyone.brain.core.motion.FrameMotionConfig` describing
-            the motion method to use. Only used when ``use_motion == True``
-        use_quality: (True) whether to use frame quality to inform which frame
-            from each sampling window to select
-        quality_config: (None) a
-            :class:`fiftyone.brain.core.quality.FrameQualityConfig` describing
-            the quality method to use. Only used when ``use_quality == True``
-        blowout: (0.25) a blowout factor in ``(0, 1)`` that defines a region in
-            which subsequent samples cannot be taken. For example, a blowout
-            factor of 0.25 corresponds to a minimum sampling distance of
-            ``0.25 * target_accel``. A blowout factor of 1 or greater would
-            force uniform sampling
-        delta: (None) a multiple of frame quality standard deviation increments
-            that earns equal weight to a one frame deviation from the sampling
-            point recommended by the target acceleration. Setting delta to a
-            small value, say ``1e-5``, will always sample the maximum quality
-            frame within each sampling window. Setting delta to a large value,
-            say ``1e5``, will reduce to uniform sampling at the target rate.
-            The default value is ``1 / target_accel``
-        offset: (None) an optional offset from the beginning of the video to
-            choose the initial sampling window
-        always_sample_first: (False) whether to always sample the first frame
-            of the video
-        always_sample_last: (False) whether to always sample the last frame of
-            the video
-    """
-
-    def __init__(self, d):
-        self.use_motion = self.parse_bool(d, "use_motion", default=True)
-        self.motion_config = self.parse_object(
-            d, "motion_config", fobm.FrameMotionConfig, default=None
-        )
-        self.use_quality = self.parse_bool(d, "use_quality", default=True)
-        self.quality_config = self.parse_object(
-            d, "quality_config", fobq.FrameQualityConfig, default=None
-        )
-        self.blowout = self.parse_number(d, "blowout", default=0.25)
-        self.delta = self.parse_number(d, "delta", default=None)
-        self.offset = self.parse_number(d, "offset", default=None)
-        self.always_sample_first = self.parse_bool(
-            d, "always_sample_first", default=False
-        )
-        self.always_sample_last = self.parse_bool(
-            d, "always_sample_last", default=False
-        )
 
 
 def _compute_target_accel(
