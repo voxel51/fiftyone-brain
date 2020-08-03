@@ -1,1 +1,2 @@
 global-include *
+recursive-exclude fiftyone/brain/internal *.pth
