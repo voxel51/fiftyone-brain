@@ -1,2 +1,4 @@
 global-include *
-recursive-exclude fiftyone/brain/internal *.pth
+
+prune fiftyone/brain/internal/models/cache/
+include fiftyone/brain/internal/models/cache/manifest.json
