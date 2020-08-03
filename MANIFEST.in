@@ -1,1 +1,4 @@
 global-include *
+
+prune fiftyone/brain/internal/models/cache/
+include fiftyone/brain/internal/models/cache/manifest.json

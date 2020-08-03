@@ -23,7 +23,7 @@ from imageio import imsave
 
 import fiftyone as fo
 
-from fiftyone.brain.models.simple_resnet import *
+from fiftyone.brain.internal.models.simple_resnet import *
 
 from preprocess import *
 from config import *
