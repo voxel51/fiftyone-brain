@@ -14,5 +14,5 @@ dist/
 
 *~
 
-/fiftyone/brain/models/cache/**/*
-!/fiftyone/brain/models/cache/manifest.json
+/fiftyone/brain/internal/models/cache/**/*
+!/fiftyone/brain/internal/models/cache/manifest.json

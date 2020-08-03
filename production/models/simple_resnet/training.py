@@ -12,7 +12,7 @@ from itertools import chain
 import numpy as np
 import torch
 
-from fiftyone.brain.models.simple_resnet import *
+from fiftyone.brain.internal.models.simple_resnet import *
 
 from utils import *
 

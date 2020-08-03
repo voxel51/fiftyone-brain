@@ -29,7 +29,7 @@ import random
 import sys
 import time
 
-from fiftyone.brain.models.simple_resnet import *
+from fiftyone.brain.internal.models.simple_resnet import *
 
 from config import *
 from datasets import *
