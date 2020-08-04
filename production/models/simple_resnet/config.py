@@ -7,6 +7,7 @@ Simple configuration setup for these experiments
 """
 import argparse
 
+
 DATA_DIR = "/scratch/jason-data-cache/"
 MODEL_DIR = "/scratch/jason-model-cache/"
 
