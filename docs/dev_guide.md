@@ -7,6 +7,9 @@ We currently follow all of the practices established in
 [ETA](https://github.com/voxel51/eta) for the Python code in this repository,
 so this guide is mostly pointers to the relevant resources there!
 
+> Happy exception: FiftyOne Brain is strictly Python 3 code, so we do not
+> follow the Python 2 compability instructions in ETA!
+
 ## Coding style
 
 -   [Python style guide](https://github.com/voxel51/eta/blob/develop/docs/python_style_guide.md)
