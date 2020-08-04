@@ -23,6 +23,7 @@ import eta.core.utils as etau
 
 import fiftyone as fo
 import fiftyone.zoo as foz
+
 import fiftyone.brain as fob
 
 

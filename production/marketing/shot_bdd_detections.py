@@ -22,6 +22,7 @@ import eta.core.utils as etau
 import eta.core.storage as etas
 
 import fiftyone as fo
+
 import fiftyone.brain as fob
 
 
