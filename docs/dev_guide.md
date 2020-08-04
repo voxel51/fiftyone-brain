@@ -7,6 +7,9 @@ We currently follow all of the practices established in
 [ETA](https://github.com/voxel51/eta) for the Python code in this repository,
 so this guide is mostly pointers to the relevant resources there!
 
+> Happy exception: FiftyOne Brain is strictly Python 3 code, so we do not
+> follow the Python 2 compability instructions in ETA!
+
 ## Coding style
 
 -   [Python style guide](https://github.com/voxel51/eta/blob/develop/docs/python_style_guide.md)
@@ -16,14 +19,16 @@ so this guide is mostly pointers to the relevant resources there!
 
 ## Documentation
 
-All private or internal-facing documentation should be kept out of docstrings,
-as these are visible to end-users of the package. Instead, this information can
-be placed in `#`-style comments or additional triple-quoted string literals:
+All private or internal-facing documentation in the **public namespace** of the
+`fiftyone.brain` package (i.e., `fiftyone.brain.*`) should be kept out of
+docstrings, as these are visible to end-users of the package. Instead, this
+information can be placed in `#`-style comments or additional triple-quoted
+string literals:
 
 ```python
 def func():
     """Public-facing docs."""
-    # a short private note
+    # A short private note
     ...
 
 
@@ -41,26 +46,28 @@ of another string literal to prevent them from being
 
 ## Exposure of methods in top-level brain package
 
-The `fiftyone.brain` package should expose all core user-functionality at the base level.  For example, for hardness, the user should be able to execute calls in the following way:
-```
-# this is good
+The `fiftyone.brain` package should expose all core user-functionality at the
+base level. For example, for hardness, the user should be able to execute calls
+in the following way:
+
+```py
+# Users should be able to do this
 import fiftyone.brain as fob
 ...
 fob.compute_hardness(...)
 
-# this is less good
+# And not have to do this
 import fiftyone.brain.hardness as fobh
 ...
 fobh.compute_hardness(...)
 ```
 
-So, in the `fiftyone.brain` package `__init__.py`, you should import core, public-facing methods:
-```
+So, in `fiftyone/brain/__init__.py`, you should import core, public-facing
+methods:
+
+```py
 from .hardness import compute_hardness
 ```
-
-
-
 
 ## Copyright
 

@@ -5,28 +5,16 @@ Test drivers for uniqueness
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
-# pragma pylint: disable=redefined-builtin
-# pragma pylint: disable=unused-wildcard-import
-# pragma pylint: disable=wildcard-import
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-from builtins import *
-
-# pragma pylint: enable=redefined-builtin
-# pragma pylint: enable=unused-wildcard-import
-# pragma pylint: enable=wildcard-import
-
-import os.path
+import os
 
 import eta.core.storage as etas
 import eta.core.utils as etau
 
-import fiftyone.brain as fob
-import fiftyone.zoo as foz
 from fiftyone.core.dataset import Dataset
 import fiftyone.types as fot
+import fiftyone.zoo as foz
+
+import fiftyone.brain as fob
 
 
 def test_uniqueness():
