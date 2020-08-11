@@ -16,7 +16,7 @@ import eta.core.utils as etau
 
 import fiftyone.core.utils as fou
 
-torch = fou.lazy_import("torch", fou.ensure_torch)
+torch = fou.lazy_import("torch")
 fout = fou.lazy_import("fiftyone.utils.torch")
 
 
@@ -49,6 +49,9 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
     # to dense clusters of related samples.
     #
 
+    # Ensure that `torch` and `torchvision` are installed
+    fou.ensure_torch()
+
     # @todo convert to a parameter with a default, for tuning
     K = 3
 
@@ -59,7 +62,7 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
 
     data_loader = _make_data_loader(samples, model.transforms)
 
-    # embeds will be `num_samples x dim`
+    # Will be `num_samples x dim`
     embeds = None
 
     num_samples = len(samples)
@@ -80,11 +83,11 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
 
     logger.info("Analyzing samples...")
 
-    # first column of dists and indices is self-distance
+    # First column of dists and indices is self-distance
     knn = NearestNeighbors(n_neighbors=K + 1, algorithm="ball_tree").fit(
         embeds
     )
-    dists, indices = knn.kneighbors(embeds)
+    dists, _ = knn.kneighbors(embeds)
 
     #
     # @todo experiment on which method for assessing uniqueness is best
