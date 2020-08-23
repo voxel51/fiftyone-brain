@@ -93,12 +93,12 @@ def _validate(samples, pred_field, label_field):
             if not isinstance(pred_label, fol.Classification):
                 raise ValueError(
                     "Sample '%s' failed validation because its '%s' field is "
-                    "not a %s instance; expected %s"
+                    "not a %s instance; found %s"
                     % (
                         sample.id,
                         pred_field,
-                        pred_label.__class__,
                         fol.Classification,
+                        pred_label.__class__,
                     )
                 )
 
@@ -111,12 +111,12 @@ def _validate(samples, pred_field, label_field):
             if not isinstance(label, fol.Classification):
                 raise ValueError(
                     "Sample '%s' failed validation because its '%s' field is "
-                    "not a %s instance; expected %s"
+                    "not a %s instance; found %s"
                     % (
                         sample.id,
                         label_field,
-                        label.__class__,
                         fol.Classification,
+                        label.__class__,
                     )
                 )
 

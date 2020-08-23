@@ -11,6 +11,7 @@ import os
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
+import eta.core.image as etai
 import eta.core.learning as etal
 
 import fiftyone.core.collections as foc
@@ -121,6 +122,9 @@ def _make_data_loader(samples, transforms, batch_size=16):
         samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
         transforms: a torchvision Transform sequence
         batch_size (16): the int size of the batches in the loader
+
+    Returns:
+        a ``torch.utils.data.DataLoader``
     """
     image_paths = []
     sample_ids = []
@@ -144,6 +148,13 @@ def _validate(samples):
                 raise ValueError(
                     "Sample '%s' failed validation because its source data "
                     "'%s' does not exist on disk"
+                    % (sample.id, sample.filepath)
+                )
+
+            if not etai.is_image_mime_type(sample.filepath):
+                raise ValueError(
+                    "Sample '%s' failed validation because its source data "
+                    "'%s' is not a recognized image format"
                     % (sample.id, sample.filepath)
                 )
 
