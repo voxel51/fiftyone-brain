@@ -63,7 +63,7 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
     data_loader = _make_data_loader(samples, model.transforms)
 
     # Will be `num_samples x dim`
-    embeds = None
+    embeddings = None
 
     num_samples = len(samples)
     logger.info("Computing uniqueness for %d samples...", num_samples)
@@ -73,21 +73,21 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
                 # @todo the existence of model.embed_all is not well engineered
                 vectors = model.embed_all(imgs)
 
-                if embeds is None:
-                    embeds = vectors
+                if embeddings is None:
+                    embeddings = vectors
                 else:
                     # @todo if speed is an issue, fix this...
-                    embeds = np.vstack((embeds, vectors))
+                    embeddings = np.vstack((embeddings, vectors))
 
                 progress.set_iteration(progress.iteration + len(imgs))
 
     logger.info("Analyzing samples...")
 
     # First column of dists and indices is self-distance
-    knn = NearestNeighbors(n_neighbors=K + 1, algorithm="ball_tree").fit(
-        embeds
+    knns = NearestNeighbors(n_neighbors=K + 1, algorithm="ball_tree").fit(
+        embeddings
     )
-    dists, _ = knn.kneighbors(embeds)
+    dists, _ = knns.kneighbors(embeddings)
 
     #
     # @todo experiment on which method for assessing uniqueness is best
@@ -118,6 +118,9 @@ def _make_data_loader(samples, transforms, batch_size=16):
         samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
         transforms: a torchvision Transform sequence
         batch_size (16): the int size of the batches in the loader
+
+    Returns:
+        a ``torch.utils.data.DataLoader``
     """
     image_paths = []
     sample_ids = []
@@ -134,12 +137,6 @@ def _make_data_loader(samples, transforms, batch_size=16):
 
 
 def _validate(samples):
-    """Validates that all samples in the dataset are usable for the uniqueness
-    computation by checking that their file-paths are valid.
-
-    @todo When fiftyone extends support to cloud and non-local data, this
-    validation will need to change.
-    """
     for sample in samples:
         if not os.path.exists(sample.filepath):
             raise ValueError(

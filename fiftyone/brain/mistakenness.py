@@ -71,8 +71,8 @@ def compute_mistakenness(
             label = sample[pred_field]
             check = sample[label_field]
 
-            c = -1 * entropy(_softmax(np.asarray(label.logits)))
-            m = 1 if label.label == check.label else 0
+            c = -1.0 * entropy(_softmax(np.asarray(label.logits)))
+            m = 1.0 if label.label == check.label else 0.0
             mistakenness = exp(m * c)
 
             sample[mistakenness_field] = mistakenness
@@ -82,9 +82,6 @@ def compute_mistakenness(
 
 
 def _validate(samples, pred_field, label_field):
-    """Validates that all samples in the dataset are usable for the
-    mistakenness computation.
-    """
     for sample in samples:
         label = sample[pred_field]
         if label.logits is None:
@@ -102,8 +99,7 @@ def _validate(samples, pred_field, label_field):
 
 
 def _softmax(npa):
-    """Computes softmax on the numpy array."""
-    # @todo Replace with ``scipy.special.softmax`` after upgrading to scipy as
-    #       it is more numerically stable.
+    # @todo replace with ``scipy.special.softmax`` after upgrading to scipy as
+    # it is more numerically stable
     a = np.exp(npa)
     return a / sum(a)

@@ -57,9 +57,6 @@ def compute_hardness(
 
 
 def _validate(samples, label_field):
-    """Validates that all samples in the dataset are usable for the hardness
-    computation.
-    """
     for sample in samples:
         label = sample[label_field]
         if label.logits is None:
@@ -70,8 +67,7 @@ def _validate(samples, label_field):
 
 
 def _softmax(npa):
-    """Computes softmax on the numpy array."""
-    # @todo Replace with ``scipy.special.softmax`` after upgrading to scipy as
-    #       it is more numerically stable.
+    # @todo replace with ``scipy.special.softmax`` after upgrading to scipy as
+    # it is more numerically stable
     a = np.exp(npa)
     return a / sum(a)
