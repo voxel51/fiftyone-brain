@@ -11,10 +11,12 @@ import os
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
+import eta.core.image as etai
 import eta.core.learning as etal
-import eta.core.utils as etau
 
+import fiftyone.core.collections as foc
 import fiftyone.core.utils as fou
+
 
 torch = fou.lazy_import("torch")
 fout = fou.lazy_import("fiftyone.utils.torch")
@@ -35,7 +37,7 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
         uniqueness_field ("uniqueness"): the field name to use to store the
             uniqueness value for each sample
         validate (False): whether to validate that the provided samples have
-            the required fields to be processed
+            the required fields prior to processing them
     """
     #
     # Algorithm
@@ -58,6 +60,7 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
     if validate:
         _validate(samples)
 
+    logger.info("Loading uniqueness model...")
     model = etal.load_default_deployment_model("simple_resnet_cifar10")
 
     data_loader = _make_data_loader(samples, model.transforms)
@@ -65,9 +68,8 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
     # Will be `num_samples x dim`
     embeddings = None
 
-    num_samples = len(samples)
-    logger.info("Computing uniqueness for %d samples...", num_samples)
-    with etau.ProgressBar(len(samples), iters_str="samples") as progress:
+    logger.info("Computing uniqueness...")
+    with fou.ProgressBar(samples) as pb:
         with torch.no_grad():
             for imgs in data_loader:
                 # @todo the existence of model.embed_all is not well engineered
@@ -79,7 +81,7 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
                     # @todo if speed is an issue, fix this...
                     embeddings = np.vstack((embeddings, vectors))
 
-                progress.set_iteration(progress.iteration + len(imgs))
+                pb.set_iteration(pb.iteration + len(imgs))
 
     logger.info("Analyzing samples...")
 
@@ -100,9 +102,11 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
     # Normalize to keep the user on common footing across datasets
     sample_dists /= sample_dists.max()
 
-    for sample, val in zip(samples, sample_dists):
-        sample[uniqueness_field] = val
-        sample.save()
+    logger.info("Saving results...")
+    with fou.ProgressBar() as pb:
+        for sample, val in zip(pb(_optimize(samples)), sample_dists):
+            sample[uniqueness_field] = val
+            sample.save()
 
     logger.info("Uniqueness computation complete")
 
@@ -124,7 +128,7 @@ def _make_data_loader(samples, transforms, batch_size=16):
     """
     image_paths = []
     sample_ids = []
-    for sample in samples:
+    for sample in _optimize(samples):
         image_paths.append(sample.filepath)
         sample_ids.append(sample.id)
 
@@ -137,9 +141,27 @@ def _make_data_loader(samples, transforms, batch_size=16):
 
 
 def _validate(samples):
-    for sample in samples:
-        if not os.path.exists(sample.filepath):
-            raise ValueError(
-                "Sample '%s' failed `compute_uniqueness` validation because it"
-                " does not exist on disk at " % sample.filepath
-            )
+    logger.info("Validating samples...")
+    with fou.ProgressBar() as pb:
+        for sample in pb(_optimize(samples)):
+            if not os.path.exists(sample.filepath):
+                raise ValueError(
+                    "Sample '%s' failed validation because its source data "
+                    "'%s' does not exist on disk"
+                    % (sample.id, sample.filepath)
+                )
+
+            if not etai.is_image_mime_type(sample.filepath):
+                raise ValueError(
+                    "Sample '%s' failed validation because its source data "
+                    "'%s' is not a recognized image format"
+                    % (sample.id, sample.filepath)
+                )
+
+
+def _optimize(samples, fields=None):
+    # Selects only the requested fields (and always the default fields)
+    if isinstance(samples, foc.SampleCollection):
+        return samples.select_fields(fields)
+
+    return samples
