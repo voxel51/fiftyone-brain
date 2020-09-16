@@ -28,7 +28,7 @@ jobs:
           pip --version
       - name: Install dependencies
         run: |
-          pip install --upgrade pip setuptools "wheel<0.35"
+          pip install --upgrade pip setuptools wheel
           pip install pyarmor twine
       - name: Build wheel (Linux)
         run: |
