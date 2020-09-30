@@ -58,23 +58,19 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - name: Clone fiftyone
-        uses: actions/checkout@v1
-        with:
-          repository: voxel51/fiftyone
-          ref: develop
-          path: fiftyone
-          fetch-depth: 1
       - name: Clone fiftyone-brain
         uses: actions/checkout@v1
         with:
           repository: voxel51/fiftyone-brain
           path: fiftyone-brain
           fetch-depth: 1
+      - name: Clone fiftyone
+        run: |
+          git clone git://github.com/voxel51/fiftyone fiftyone-src --branch develop --depth 1
       - name: Check tag
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          python fiftyone/.github/tools/check-setup-version.py fiftyone-brain/setup.py $(echo ${{ github.ref }} | sed 's/refs\/tags\/v//')
+          python fiftyone-src/.github/tools/check-setup-version.py setup.py $(echo ${{ github.ref }} | sed 's/refs\/tags\/v//')
 
   test:
     needs: [build, check]
