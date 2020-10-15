@@ -59,7 +59,7 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness"):
     logger.info("Loading uniqueness model...")
     model = etal.load_default_deployment_model("simple_resnet_cifar10")
 
-    sample = _optimize(samples)
+    samples = _optimize(samples)
 
     logger.info("Preparing data...")
     data_loader = _make_data_loader(samples, model.transforms)

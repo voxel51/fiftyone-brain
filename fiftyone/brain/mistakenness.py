@@ -66,9 +66,11 @@ def compute_mistakenness(
     # correct and $0$ otherwise. Then, mistakenness is computed as $exp(m * c)$
     #
 
+    samples = _optimize(samples, (pred_field, label_field))
+
     logger.info("Computing mistakenness...")
     with fou.ProgressBar() as pb:
-        for sample in pb(_optimize(samples, (pred_field, label_field))):
+        for sample in pb(samples):
             pred_label, label = _get_data(sample, pred_field, label_field)
 
             if isinstance(pred_label, fol.Classifications):

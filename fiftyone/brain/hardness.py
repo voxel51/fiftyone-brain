@@ -25,10 +25,10 @@ def compute_hardness(samples, label_field, hardness_field="hardness"):
     """Adds a hardness field to each sample scoring the difficulty that the
     specified label field observed in classifying the sample.
 
-    Hardness is a measure computed based on model prediction output that
-    summarizes a measure of the uncertainty the model had with the sample.
-    This makes hardness quantitative and can be used to detect things like
-    hard samples, annotation errors during noisy training, and more.
+    Hardness is a measure computed based on model prediction output (through
+    logits) that summarizes a measure of the uncertainty the model had with the
+    sample. This makes hardness quantitative and can be used to detect things
+    like hard samples, annotation errors during noisy training, and more.
 
     Args:
         samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
@@ -43,6 +43,8 @@ def compute_hardness(samples, label_field, hardness_field="hardness"):
     #
     # Hardness is computed directly as the entropy of the logits
     #
+
+    samples = _optimize(samples, label_field)
 
     logger.info("Computing hardness...")
     with fou.ProgressBar() as pb:
