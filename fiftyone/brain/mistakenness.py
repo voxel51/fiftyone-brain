@@ -41,7 +41,7 @@ def compute_mistakenness(
         samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
         pred_field: the name of the predicted
             :class:`fiftyone.core.labels.Classification` or
-            :class:`fiftyone.core.labels.Classifications `label field to use
+            :class:`fiftyone.core.labels.Classifications` label field to use
             from each sample
         label_field ("ground_truth"): the name of the "ground truth"
             :class:`fiftyone.core.labels.Classification` or
