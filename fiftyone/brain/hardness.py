@@ -63,7 +63,7 @@ def _get_data(sample, label_field):
     if not isinstance(label, _ALLOWED_TYPES):
         raise ValueError(
             "Sample '%s' field '%s' is not a %s instance; found %s"
-            % (sample.id, label_field, _ALLOWED_TYPES, label.__class__,)
+            % (sample.id, label_field, _ALLOWED_TYPES, label.__class__)
         )
 
     if label.logits is None:
