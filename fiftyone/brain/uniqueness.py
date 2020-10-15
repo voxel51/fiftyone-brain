@@ -15,6 +15,7 @@ import eta.core.image as etai
 import eta.core.learning as etal
 
 import fiftyone.core.collections as foc
+import fiftyone.core.media as fom
 import fiftyone.core.utils as fou
 
 
@@ -25,7 +26,7 @@ fout = fou.lazy_import("fiftyone.utils.torch")
 logger = logging.getLogger(__name__)
 
 
-def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
+def compute_uniqueness(samples, uniqueness_field="uniqueness"):
     """Adds a uniqueness field to each sample scoring how unique it is with
     respect to the rest of the samples.
 
@@ -36,8 +37,6 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
         samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
         uniqueness_field ("uniqueness"): the field name to use to store the
             uniqueness value for each sample
-        validate (False): whether to validate that the provided samples have
-            the required fields prior to processing them
     """
     #
     # Algorithm
@@ -57,12 +56,12 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
     # @todo convert to a parameter with a default, for tuning
     K = 3
 
-    if validate:
-        _validate(samples)
-
     logger.info("Loading uniqueness model...")
     model = etal.load_default_deployment_model("simple_resnet_cifar10")
 
+    sample = _optimize(samples)
+
+    logger.info("Preparing data...")
     data_loader = _make_data_loader(samples, model.transforms)
 
     # Will be `num_samples x dim`
@@ -104,7 +103,7 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", validate=False):
 
     logger.info("Saving results...")
     with fou.ProgressBar() as pb:
-        for sample, val in zip(pb(_optimize(samples)), sample_dists):
+        for sample, val in zip(pb(samples), sample_dists):
             sample[uniqueness_field] = val
             sample.save()
 
@@ -128,7 +127,9 @@ def _make_data_loader(samples, transforms, batch_size=16):
     """
     image_paths = []
     sample_ids = []
-    for sample in _optimize(samples):
+    for sample in samples:
+        _validate(sample)
+
         image_paths.append(sample.filepath)
         sample_ids.append(sample.id)
 
@@ -140,23 +141,18 @@ def _make_data_loader(samples, transforms, batch_size=16):
     )
 
 
-def _validate(samples):
-    logger.info("Validating samples...")
-    with fou.ProgressBar() as pb:
-        for sample in pb(_optimize(samples)):
-            if not os.path.exists(sample.filepath):
-                raise ValueError(
-                    "Sample '%s' failed validation because its source data "
-                    "'%s' does not exist on disk"
-                    % (sample.id, sample.filepath)
-                )
+def _validate(sample):
+    if not os.path.exists(sample.filepath):
+        raise ValueError(
+            "Sample '%s' source media '%s' does not exist on disk"
+            % (sample.id, sample.filepath)
+        )
 
-            if not etai.is_image_mime_type(sample.filepath):
-                raise ValueError(
-                    "Sample '%s' failed validation because its source data "
-                    "'%s' is not a recognized image format"
-                    % (sample.id, sample.filepath)
-                )
+    if sample.media_type != fom.IMAGE:
+        raise ValueError(
+            "Sample '%s' source media '%s' is not a recognized image format"
+            % (sample.id, sample.filepath)
+        )
 
 
 def _optimize(samples, fields=None):
