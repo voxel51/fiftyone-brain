@@ -13,6 +13,7 @@ jobs:
           - 3.6
           - 3.7
           - 3.8
+          - 3.9
     steps:
       - name: Clone fiftyone-brain
         uses: actions/checkout@v1
@@ -75,12 +76,18 @@ jobs:
   test:
     needs: [build, check]
     runs-on: ubuntu-18.04
+    continue-on-error: ${{ matrix.allow-failure }}
     strategy:
       fail-fast: false
       matrix:
+        allow-failure: [false]
         python-version:
           - 3.6
           - 3.8
+        include:
+          - python-version: 3.9
+            allow-failure: true
+    name: test (${{ matrix.python-version }})
     steps:
       - name: Clone fiftyone-brain
         uses: actions/checkout@v1
