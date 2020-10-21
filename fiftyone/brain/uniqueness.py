@@ -127,8 +127,9 @@ def _compute_patch_embeddings(samples, model, roi_field):
                 patches = torch.squeeze(patches, dim=0)
                 vectors = model.embed_all(patches)
 
-                # Average over image patches
-                embedding = vectors.mean(axis=0)
+                # Aggregate over patches
+                # @todo experiment with mean(), max(), abs().max(), etc
+                embedding = vectors.max(axis=0)
 
                 if embeddings is None:
                     embeddings = embedding
