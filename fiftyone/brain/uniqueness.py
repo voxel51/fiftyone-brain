@@ -7,6 +7,7 @@ Methods that compute insights related to sample uniqueness.
 """
 import logging
 import os
+import warnings
 
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
@@ -186,8 +187,12 @@ def _make_patch_data_loader(samples, transforms, roi_field):
     for sample in _optimize(samples, fields=[roi_field]):
         _validate(sample)
         rois = _parse_rois(sample, roi_field)
+
         if not rois.detections:
             # Use entire image as ROI
+            msg = "Sample found with no ROI; using the entire image..."
+            warnings.warn(msg)
+
             rois = fol.Detections(
                 detections=[fol.Detection(bounding_box=[0, 0, 1, 1])]
             )
