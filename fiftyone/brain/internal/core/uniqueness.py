@@ -6,7 +6,6 @@ Methods that compute insights related to sample uniqueness.
 |
 """
 import logging
-import os
 import warnings
 
 import numpy as np
