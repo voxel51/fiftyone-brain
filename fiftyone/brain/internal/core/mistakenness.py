@@ -30,7 +30,28 @@ def compute_mistakenness(
     label_field="ground_truth",
     mistakenness_field="mistakenness",
 ):
-    """See :mod:`fiftyone.brain` for documentation."""
+    """Adds a mistakenness field to each sample scoring the chance that the
+    specified label field is incorrect.
+
+    Mistakenness is computed based on the prediction output of a model (through
+    logits) provided in the ``pred_field`` field of the sample in conjunction
+    with the reference "ground truth" label in the ``label_field`` field.
+    This makes the measure quantitative and can be used to detect things like
+    annotation errors as well as unusually hard samples.
+
+    Args:
+        samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
+        pred_field: the name of the predicted
+            :class:`fiftyone.core.labels.Classification` or
+            :class:`fiftyone.core.labels.Classifications` label field to use
+            from each sample
+        label_field ("ground_truth"): the name of the "ground truth"
+            :class:`fiftyone.core.labels.Classification` or
+            :class:`fiftyone.core.labels.Classifications` label field that you
+            want to test for a mistake with respect to the prediction output
+        mistakenness_field ("mistakenness"): the field name to use to store the
+            mistakenness value for each sample
+    """
 
     #
     # Algorithm
