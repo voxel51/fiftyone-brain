@@ -178,7 +178,7 @@ def get_field(sample, field_name, allowed_types=None, allow_none=True):
 
     if allowed_types is not None:
         field_type = type(value)
-        if value not in allowed_types:
+        if field_type not in allowed_types:
             raise ValueError(
                 "Sample '%s' field '%s' is not a %s instance; found %s"
                 % (sample.id, field_name, allowed_types, field_type)
