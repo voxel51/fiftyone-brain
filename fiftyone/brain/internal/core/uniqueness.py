@@ -16,12 +16,15 @@ import eta.core.learning as etal
 
 import fiftyone.core.collections as foc
 import fiftyone.core.labels as fol
-import fiftyone.core.media as fom
 import fiftyone.core.utils as fou
 
+import fiftyone.brain.internal.core.utils as fbu
 
-torch = fou.lazy_import("torch")
-fout = fou.lazy_import("fiftyone.utils.torch")
+# Ensure that `torch` and `torchvision` are installed
+fou.ensure_torch()
+
+import torch
+import fiftyone.utils.torch as fout
 
 
 logger = logging.getLogger(__name__)
@@ -36,22 +39,8 @@ _ALLOWED_ROI_FIELD_TYPES = (
 
 
 def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
-    """Adds a uniqueness field to each sample scoring how unique it is with
-    respect to the rest of the samples.
+    """See :mod:`fiftyone.brain` for documentation."""
 
-    This function only uses the pixel data and can therefore process labeled or
-    unlabeled samples.
-
-    Args:
-        samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
-        uniqueness_field ("uniqueness"): the field name to use to store the
-            uniqueness value for each sample
-        roi_field (None): an optional :class:`fiftyone.core.labels.Detection`,
-            :class:`fiftyone.core.labels.Detections`,
-            :class:`fiftyone.core.labels.Polyline`, or
-            :class:`fiftyone.core.labels.Polylines` field defining a region of
-            interest within each image to use to compute uniqueness
-    """
     #
     # Algorithm
     #
@@ -64,8 +53,10 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
     # to dense clusters of related samples.
     #
 
-    # Ensure that `torch` and `torchvision` are installed
-    fou.ensure_torch()
+    if roi_field is not None and isinstance(samples, foc.SampleCollection):
+        fbu.validate_collection_label_fields(
+            samples, [roi_field], _ALLOWED_ROI_FIELD_TYPES
+        )
 
     model = _load_model()
 
@@ -78,7 +69,7 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
 
     logger.info("Saving results...")
     with fou.ProgressBar() as pb:
-        for sample, val in zip(pb(_optimize(samples)), uniqueness):
+        for sample, val in zip(pb(fbu.optimize_samples(samples)), uniqueness):
             sample[uniqueness_field] = val
             sample.save()
 
@@ -169,8 +160,9 @@ def _compute_uniqueness(embeddings):
 
 def _make_data_loader(samples, transforms, batch_size=16):
     image_paths = []
-    for sample in _optimize(samples):
-        _validate(sample)
+    for sample in fbu.optimize_samples(samples):
+        fbu.validate_image(sample)
+
         image_paths.append(sample.filepath)
 
     dataset = fout.TorchImageDataset(
@@ -185,10 +177,10 @@ def _make_data_loader(samples, transforms, batch_size=16):
 def _make_patch_data_loader(samples, transforms, roi_field):
     image_paths = []
     detections = []
-    for sample in _optimize(samples, fields=[roi_field]):
-        _validate(sample)
-        rois = _parse_rois(sample, roi_field)
+    for sample in fbu.optimize_samples(samples, fields=[roi_field]):
+        fbu.validate_image(sample)
 
+        rois = _parse_rois(sample, roi_field)
         if not rois.detections:
             # Use entire image as ROI
             msg = "Sample found with no ROI; using the entire image..."
@@ -233,25 +225,3 @@ def _parse_rois(sample, roi_field):
             set(t.__name__ for t in _ALLOWED_ROI_FIELD_TYPES),
         )
     )
-
-
-def _validate(sample):
-    if not os.path.exists(sample.filepath):
-        raise ValueError(
-            "Sample '%s' source media '%s' does not exist on disk"
-            % (sample.id, sample.filepath)
-        )
-
-    if sample.media_type != fom.IMAGE:
-        raise ValueError(
-            "Sample '%s' source media '%s' is not a recognized image format"
-            % (sample.id, sample.filepath)
-        )
-
-
-def _optimize(samples, fields=None):
-    # Selects only the requested fields (and always the default fields)
-    if isinstance(samples, foc.SampleCollection):
-        return samples.select_fields(fields)
-
-    return samples

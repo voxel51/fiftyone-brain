@@ -1,13 +1,16 @@
 """
-FiftyOne Brain utils.
+Core utilities.
 
 | Copyright 2017-2020, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+import os
+
 import fiftyone.core.collections as foc
 import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
+import fiftyone.core.media as fom
 
 
 def optimize_samples(samples, fields=None):
@@ -36,6 +39,50 @@ def optimize_samples(samples, fields=None):
         return samples.select_fields(fields)
 
     return samples
+
+
+def validate_image(sample):
+    """Validates that the sample's media is an image that exists on disk.
+
+    Args:
+        sample: a :class:`fiftyone.core.sample.Sample`
+
+    Raises:
+        ValueError if the required conditions are not met
+    """
+    if not os.path.exists(sample.filepath):
+        raise ValueError(
+            "Sample '%s' source media '%s' does not exist on disk"
+            % (sample.id, sample.filepath)
+        )
+
+    if sample.media_type != fom.IMAGE:
+        raise ValueError(
+            "Sample '%s' source media '%s' is not a recognized image format"
+            % (sample.id, sample.filepath)
+        )
+
+
+def validate_video(sample):
+    """Validates that the sample's media is a video that exists on disk.
+
+    Args:
+        sample: a :class:`fiftyone.core.sample.Sample`
+
+    Raises:
+        ValueError if the required conditions are not met
+    """
+    if not os.path.exists(sample.filepath):
+        raise ValueError(
+            "Sample '%s' source media '%s' does not exist on disk"
+            % (sample.id, sample.filepath)
+        )
+
+    if sample.media_type != fom.VIDEO:
+        raise ValueError(
+            "Sample '%s' source media '%s' is not a recognized video format"
+            % (sample.id, sample.filepath)
+        )
 
 
 def validate_collection_label_fields(
@@ -98,43 +145,9 @@ def validate_collection_label_fields(
         )
 
 
-def validate_sample_fields(
-    sample, field_names, allowed_types, same_type=False
-):
-    """Validates that the :class:`fiftyone.core.sample.Sample` has fields with
-    the specified :class:`fiftyone.core.labels.Label` types.
-
-    Args:
-        sample: a :class:`fiftyone.core.sample.Sample`
-        field_names: an iterable of field names
-        allowed_types: an iterable of allowed types for the fields
-        same_type (False): whether to enforce that all fields have same type
-
-    Raises:
-        ValueError if the required conditions are not met
-    """
-    label_types = {}
-    for field_name in field_names:
-        field = sample[field_name]
-
-        label_type = type(field)
-        label_types[field_name] = label_type
-
-        if label_type not in allowed_types:
-            raise ValueError(
-                "Sample '%s' field '%s' is not a %s instance; found %s"
-                % (sample.id, field_name, allowed_types, label_type)
-            )
-
-    if same_type and len(set(label_types.values())) > 1:
-        raise ValueError(
-            "Sample '%s' fields %s must have the same type; found %s"
-            % (sample.id, field_names, label_types)
-        )
-
-
-def get_field(sample, field_name, allowed_types=None, allow_none=False):
-    """Gets the given sample field and validates that it is not None.
+def get_field(sample, field_name, allowed_types=None, allow_none=True):
+    """Gets the given sample field and optionally validates their type and
+    value.
 
     Args:
         sample: a :class:`fiftyone.core.sample.Sample`
@@ -142,7 +155,7 @@ def get_field(sample, field_name, allowed_types=None, allow_none=False):
         allowed_types (None): an optional iterable of
             :class:`fiftyone.core.labels.Label` types to enforce that the field
             value has
-        allow_none (False): whether to allow the field to be None
+        allow_none (True): whether to allow the field to be None
 
     Returns:
         the field value
@@ -172,3 +185,48 @@ def get_field(sample, field_name, allowed_types=None, allow_none=False):
             )
 
     return value
+
+
+def get_fields(
+    sample, field_names, allowed_types=None, same_type=False, allow_none=True
+):
+    """Gets the given sample fields and optionally validates their types and
+    values.
+
+    Args:
+        sample: a :class:`fiftyone.core.sample.Sample`
+        field_names: an iterable of field names to get
+        allowed_types (None): an optional iterable of
+            :class:`fiftyone.core.labels.Label` types to enforce that the
+            field values have
+        same_type (False): whether to enforce that all fields have same type
+        allow_none (True): whether to allow the fields to be None
+
+    Returns:
+        a tuple of field values
+
+    Raises:
+        ValueError if a field does not exist or does not meet the specified
+        criteria
+    """
+    label_types = {}
+    values = []
+    for field_name in field_names:
+        value = get_field(
+            sample,
+            field_name,
+            allowed_types=allowed_types,
+            allow_none=allow_none,
+        )
+
+        if same_type:
+            label_types[field_name] = type(value)
+            values.append(value)
+
+    if same_type and len(set(label_types.values())) > 1:
+        raise ValueError(
+            "Sample '%s' fields %s must have the same type; found %s"
+            % (sample.id, field_names, label_types)
+        )
+
+    return tuple(values)

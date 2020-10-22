@@ -27,9 +27,9 @@ def compute_hardness(samples, label_field, hardness_field="hardness"):
         hardness_field ("hardness"): the field name to use to store the
             hardness value for each sample
     """
-    import fiftyone.brain.internal.core.hardness as fobh
+    import fiftyone.brain.internal.core.hardness as fbh
 
-    fobh.compute_hardness(samples, label_field, hardness_field=hardness_field)
+    fbh.compute_hardness(samples, label_field, hardness_field=hardness_field)
 
 
 def compute_mistakenness(
@@ -60,9 +60,9 @@ def compute_mistakenness(
         mistakenness_field ("mistakenness"): the field name to use to store the
             mistakenness value for each sample
     """
-    import fiftyone.brain.internal.core.mistakenness as fobm
+    import fiftyone.brain.internal.core.mistakenness as fbm
 
-    fobm.compute_mistakenness(
+    fbm.compute_mistakenness(
         samples,
         pred_field,
         label_field=label_field,
@@ -87,8 +87,8 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
             :class:`fiftyone.core.labels.Polylines` field defining a region of
             interest within each image to use to compute uniqueness
     """
-    import fiftyone.brain.internal.core.uniqueness as fobu
+    import fiftyone.brain.internal.core.uniqueness as fbu
 
-    fobu.compute_uniqueness(
+    fbu.compute_uniqueness(
         samples, uniqueness_field=uniqueness_field, roi_field=roi_field,
     )
