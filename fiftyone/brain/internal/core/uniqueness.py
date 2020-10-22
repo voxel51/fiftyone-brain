@@ -38,7 +38,22 @@ _ALLOWED_ROI_FIELD_TYPES = (
 
 
 def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
-    """See :mod:`fiftyone.brain` for documentation."""
+    """Adds a uniqueness field to each sample scoring how unique it is with
+    respect to the rest of the samples.
+
+    This function only uses the pixel data and can therefore process labeled or
+    unlabeled samples.
+
+    Args:
+        samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
+        uniqueness_field ("uniqueness"): the field name to use to store the
+            uniqueness value for each sample
+        roi_field (None): an optional :class:`fiftyone.core.labels.Detection`,
+            :class:`fiftyone.core.labels.Detections`,
+            :class:`fiftyone.core.labels.Polyline`, or
+            :class:`fiftyone.core.labels.Polylines` field defining a region of
+            interest within each image to use to compute uniqueness
+    """
 
     #
     # Algorithm
