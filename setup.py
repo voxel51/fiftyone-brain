@@ -9,6 +9,7 @@ Installs `fiftyone-brain`.
 import os
 
 from distutils.command.build import build
+from distutils.util import get_platform
 from setuptools import setup
 from wheel.bdist_wheel import bdist_wheel
 
@@ -71,10 +72,22 @@ class CustomBdistWheel(bdist_wheel):
         build = self.reinitialize_command("build")
         build.pyarmor_platform = pyarmor_platform
 
+    def get_tag(self):
+        # bdist_wheel.get_tag throws an error (as of wheel 0.35) when building a
+        # wheel with a specific ABI tag targeting a different platform, so trick
+        # it into thinking the wheel is being built for the current platform
+        old_plat_name = self.plat_name
+        try:
+            self.plat_name = get_platform()
+            impl, abi_tag, _ = bdist_wheel.get_tag(self)
+        finally:
+            self.plat_name = old_plat_name
+        return impl, abi_tag, self.plat_name
+
 
 setup(
     name="fiftyone-brain",
-    version="0.1.6",
+    version="0.1.9",
     description="FiftyOne Brain",
     author="Voxel51, Inc.",
     author_email="info@voxel51.com",
@@ -89,6 +102,6 @@ setup(
         "Programming Language :: Python :: 3",
     ],
     scripts=[],
-    python_requires=">=3.5",
+    python_requires=">=3.5,<3.9",
     cmdclass={"build": CustomBuild, "bdist_wheel": CustomBdistWheel,},
 )
