@@ -826,8 +826,10 @@ def _select_frames_uniformly(
 
     sample_points = np.arange(offset + 1, total_frame_count + 1, target_accel)
     sample_frames = set(int(round(x)) for x in sample_points)
+
     if always_sample_first:
         sample_frames.add(1)
+
     if always_sample_last:
         sample_frames.add(total_frame_count)
 
@@ -934,11 +936,11 @@ def _select_frames_by_quality_and_motion(
         last_sample = sample_frame_number
 
     # Always sample first frame, if requested
-    if always_sample_first and not frames or frames[0] != 1:
+    if always_sample_first and (not frames or frames[0] != 1):
         frames = [1] + frames
 
     # Always sample last frame, if requested
-    if always_sample_last and not frames or frames[-1] != total_frame_count:
+    if always_sample_last and (not frames or frames[-1] != total_frame_count):
         frames.append(total_frame_count)
 
     return frames, sample_edges
