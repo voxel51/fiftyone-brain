@@ -9,6 +9,7 @@ import logging
 from math import exp
 
 import numpy as np
+from scipy.special import softmax
 from scipy.stats import entropy
 
 import fiftyone.core.collections as foc
@@ -89,7 +90,7 @@ def compute_mistakenness(
             else:
                 m = float(pred_label.label == label.label)
 
-            c = -1.0 * entropy(_softmax(np.asarray(pred_label.logits)))
+            c = -1.0 * entropy(softmax(np.asarray(pred_label.logits)))
             mistakenness = exp(m * c)
 
             sample[mistakenness_field] = mistakenness
@@ -113,10 +114,3 @@ def _get_data(sample, pred_field, label_field):
         )
 
     return pred_label, label
-
-
-def _softmax(npa):
-    # @todo replace with ``scipy.special.softmax`` after upgrading to scipy as
-    # it is more numerically stable
-    a = np.exp(npa)
-    return a / sum(a)

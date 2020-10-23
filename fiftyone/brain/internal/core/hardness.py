@@ -8,6 +8,7 @@ Methods that compute insights related to sample hardness.
 import logging
 
 import numpy as np
+from scipy.special import softmax
 from scipy.stats import entropy
 
 import fiftyone.core.collections as foc
@@ -58,7 +59,7 @@ def compute_hardness(samples, label_field, hardness_field="hardness"):
     with fou.ProgressBar() as pb:
         for sample in pb(samples):
             label = _get_data(sample, label_field)
-            hardness = entropy(_softmax(np.asarray(label.logits)))
+            hardness = entropy(softmax(np.asarray(label.logits)))
             sample[hardness_field] = hardness
             sample.save()
 
@@ -76,10 +77,3 @@ def _get_data(sample, label_field):
         )
 
     return label
-
-
-def _softmax(npa):
-    # @todo replace with ``scipy.special.softmax`` after upgrading to scipy as
-    # it is more numerically stable
-    a = np.exp(npa)
-    return a / sum(a)
