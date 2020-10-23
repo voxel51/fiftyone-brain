@@ -15,6 +15,8 @@ import fiftyone.core.collections as foc
 import fiftyone.core.labels as fol
 import fiftyone.core.utils as fou
 
+import fiftyone.brain.internal.core.utils as fbu
+
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +52,7 @@ def compute_mistakenness(
         mistakenness_field ("mistakenness"): the field name to use to store the
             mistakenness value for each sample
     """
+
     #
     # Algorithm
     #
@@ -66,7 +69,12 @@ def compute_mistakenness(
     # correct and $0$ otherwise. Then, mistakenness is computed as $exp(m * c)$
     #
 
-    samples = _optimize(samples, (pred_field, label_field))
+    if isinstance(samples, foc.SampleCollection):
+        fbu.validate_collection_label_fields(
+            samples, (pred_field, label_field), _ALLOWED_TYPES, same_type=True
+        )
+
+    samples = fbu.optimize_samples(samples, fields=(pred_field, label_field))
 
     logger.info("Computing mistakenness...")
     with fou.ProgressBar() as pb:
@@ -91,47 +99,17 @@ def compute_mistakenness(
 
 
 def _get_data(sample, pred_field, label_field):
-    pred_label = sample[pred_field]
-    label = sample[label_field]
-
-    if not isinstance(pred_label, _ALLOWED_TYPES):
-        raise ValueError(
-            "Sample '%s' field '%s' is not a %s instance; found '%s'"
-            % (
-                sample.id,
-                pred_field,
-                set(t.__name__ for t in _ALLOWED_TYPES),
-                pred_label.__class__.__name__,
-            )
-        )
+    pred_label, label = fbu.get_fields(
+        sample,
+        (pred_field, label_field),
+        allowed_types=_ALLOWED_TYPES,
+        same_type=True,
+        allow_none=False,
+    )
 
     if pred_label.logits is None:
         raise ValueError(
             "Sample '%s' field '%s' has no logits" % (sample.id, pred_field)
-        )
-
-    if not isinstance(label, _ALLOWED_TYPES):
-        raise ValueError(
-            "Sample '%s' field '%s' is not a %s instance; found '%s'"
-            % (
-                sample.id,
-                label_field,
-                set(t.__name__ for t in _ALLOWED_TYPES),
-                label.__class__.__name__,
-            )
-        )
-
-    if type(pred_label) is not type(label):
-        raise ValueError(
-            "Sample '%s' fields '%s' (%s) and '%s' (%s) do not have the same "
-            "type"
-            % (
-                sample.id,
-                pred_field,
-                type(pred_label).__name__,
-                label_field,
-                type(label).__name__,
-            )
         )
 
     return pred_label, label
@@ -142,11 +120,3 @@ def _softmax(npa):
     # it is more numerically stable
     a = np.exp(npa)
     return a / sum(a)
-
-
-def _optimize(samples, fields=None):
-    # Selects only the requested fields (and always the default fields)
-    if isinstance(samples, foc.SampleCollection):
-        return samples.select_fields(fields)
-
-    return samples
