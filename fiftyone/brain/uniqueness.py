@@ -7,14 +7,15 @@ Methods that compute insights related to sample uniqueness.
 """
 import logging
 import os
+import warnings
 
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
-import eta.core.image as etai
 import eta.core.learning as etal
 
 import fiftyone.core.collections as foc
+import fiftyone.core.labels as fol
 import fiftyone.core.media as fom
 import fiftyone.core.utils as fou
 
@@ -26,7 +27,15 @@ fout = fou.lazy_import("fiftyone.utils.torch")
 logger = logging.getLogger(__name__)
 
 
-def compute_uniqueness(samples, uniqueness_field="uniqueness"):
+_ALLOWED_ROI_FIELD_TYPES = (
+    fol.Detection,
+    fol.Detections,
+    fol.Polyline,
+    fol.Polylines,
+)
+
+
+def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
     """Adds a uniqueness field to each sample scoring how unique it is with
     respect to the rest of the samples.
 
@@ -37,15 +46,20 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness"):
         samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
         uniqueness_field ("uniqueness"): the field name to use to store the
             uniqueness value for each sample
+        roi_field (None): an optional :class:`fiftyone.core.labels.Detection`,
+            :class:`fiftyone.core.labels.Detections`,
+            :class:`fiftyone.core.labels.Polyline`, or
+            :class:`fiftyone.core.labels.Polylines` field defining a region of
+            interest within each image to use to compute uniqueness
     """
     #
     # Algorithm
     #
     # Uniqueness is computed based on a classification model.  Each sample is
-    # embedded into a vector space based on the model.  Then, we compute the
-    # knn's (k is a parameter of the uniqueness function).  The uniqueness is
-    # then proportional to these distances.  The intuition is that a sample is
-    # unique when it is far from other samples in the set.  This is different
+    # embedded into a vector space based on the model. Then, we compute the
+    # knn's (k is a parameter of the uniqueness function). The uniqueness is
+    # then proportional to these distances. The intuition is that a sample is
+    # unique when it is far from other samples in the set. This is different
     # than, say, "representativeness" which would stress samples that are core
     # to dense clusters of related samples.
     #
@@ -53,21 +67,35 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness"):
     # Ensure that `torch` and `torchvision` are installed
     fou.ensure_torch()
 
-    # @todo convert to a parameter with a default, for tuning
-    K = 3
+    model = _load_model()
 
+    if roi_field is None:
+        embeddings = _compute_embeddings(samples, model)
+    else:
+        embeddings = _compute_patch_embeddings(samples, model, roi_field)
+
+    uniqueness = _compute_uniqueness(embeddings)
+
+    logger.info("Saving results...")
+    with fou.ProgressBar() as pb:
+        for sample, val in zip(pb(_optimize(samples)), uniqueness):
+            sample[uniqueness_field] = val
+            sample.save()
+
+    logger.info("Uniqueness computation complete")
+
+
+def _load_model():
     logger.info("Loading uniqueness model...")
-    model = etal.load_default_deployment_model("simple_resnet_cifar10")
+    return etal.load_default_deployment_model("simple_resnet_cifar10")
 
-    samples = _optimize(samples)
 
+def _compute_embeddings(samples, model):
     logger.info("Preparing data...")
     data_loader = _make_data_loader(samples, model.transforms)
 
-    # Will be `num_samples x dim`
+    logger.info("Generating embeddings...")
     embeddings = None
-
-    logger.info("Computing uniqueness...")
     with fou.ProgressBar(samples) as pb:
         with torch.no_grad():
             for imgs in data_loader:
@@ -82,7 +110,42 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness"):
 
                 pb.set_iteration(pb.iteration + len(imgs))
 
-    logger.info("Analyzing samples...")
+    # `num_samples x dim` array of embeddings
+    return embeddings
+
+
+def _compute_patch_embeddings(samples, model, roi_field):
+    logger.info("Preparing data...")
+    data_loader = _make_patch_data_loader(samples, model.transforms, roi_field)
+
+    logger.info("Generating embeddings...")
+    embeddings = None
+    with fou.ProgressBar(samples) as pb:
+        with torch.no_grad():
+            for patches in pb(data_loader):
+                # @todo the existence of model.embed_all is not well engineered
+                patches = torch.squeeze(patches, dim=0)
+                vectors = model.embed_all(patches)
+
+                # Aggregate over patches
+                # @todo experiment with mean(), max(), abs().max(), etc
+                embedding = vectors.max(axis=0)
+
+                if embeddings is None:
+                    embeddings = embedding
+                else:
+                    # @todo if speed is an issue, fix this...
+                    embeddings = np.vstack((embeddings, embedding))
+
+    # `num_samples x dim` array of embeddings
+    return embeddings
+
+
+def _compute_uniqueness(embeddings):
+    logger.info("Computing uniqueness...")
+
+    # @todo convert to a parameter with a default, for tuning
+    K = 3
 
     # First column of dists and indices is self-distance
     knns = NearestNeighbors(n_neighbors=K + 1, algorithm="ball_tree").fit(
@@ -101,43 +164,74 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness"):
     # Normalize to keep the user on common footing across datasets
     sample_dists /= sample_dists.max()
 
-    logger.info("Saving results...")
-    with fou.ProgressBar() as pb:
-        for sample, val in zip(pb(samples), sample_dists):
-            sample[uniqueness_field] = val
-            sample.save()
-
-    logger.info("Uniqueness computation complete")
+    return sample_dists
 
 
 def _make_data_loader(samples, transforms, batch_size=16):
-    """Makes a data loader that can be used for getting the dataset off-disk
-    and processed by our model.
-
-    @todo should the class that ultimately wraps the model/weights be required
-    to supply a data loader function like this?
-
-    Args:
-        samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
-        transforms: a torchvision Transform sequence
-        batch_size (16): the int size of the batches in the loader
-
-    Returns:
-        a ``torch.utils.data.DataLoader``
-    """
     image_paths = []
-    sample_ids = []
-    for sample in samples:
+    for sample in _optimize(samples):
         _validate(sample)
-
         image_paths.append(sample.filepath)
-        sample_ids.append(sample.id)
 
     dataset = fout.TorchImageDataset(
         image_paths, transform=transforms, force_rgb=True
     )
+
     return torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, num_workers=4
+    )
+
+
+def _make_patch_data_loader(samples, transforms, roi_field):
+    image_paths = []
+    detections = []
+    for sample in _optimize(samples, fields=[roi_field]):
+        _validate(sample)
+        rois = _parse_rois(sample, roi_field)
+
+        if not rois.detections:
+            # Use entire image as ROI
+            msg = "Sample found with no ROI; using the entire image..."
+            warnings.warn(msg)
+
+            rois = fol.Detections(
+                detections=[fol.Detection(bounding_box=[0, 0, 1, 1])]
+            )
+
+        image_paths.append(sample.filepath)
+        detections.append(rois)
+
+    dataset = fout.TorchImagePatchesDataset(
+        image_paths, detections, transforms, force_rgb=True
+    )
+
+    return torch.utils.data.DataLoader(dataset, batch_size=1, num_workers=4)
+
+
+def _parse_rois(sample, roi_field):
+    label = sample[roi_field]
+
+    if isinstance(label, fol.Detections):
+        return label
+
+    if isinstance(label, fol.Detection):
+        return fol.Detections(detections=[label])
+
+    if isinstance(label, fol.Polyline):
+        return fol.Detections(detections=[label.to_detection()])
+
+    if isinstance(label, fol.Polylines):
+        return label.to_detections()
+
+    raise ValueError(
+        "Sample '%s' field '%s' (%s) is not a valid ROI field; must be a %s "
+        "instance"
+        % (
+            sample.id,
+            roi_field,
+            label.__class__.__name__,
+            set(t.__name__ for t in _ALLOWED_ROI_FIELD_TYPES),
+        )
     )
 
 
