@@ -42,6 +42,8 @@ class SampleBestVideoFramesParameters(Config):
             ``use_motion == True``
         use_quality: (True) whether to use frame quality to inform which frame
             from each sampling window to select
+        quality_factor: (1): a quality factor in ``[0, 1]`` defining the target
+            frame qualities to sample. Only used when ``use_quality == True``
         quality_config: (None) a
             :class:`fiftyone.brain.internal.core.quality.FrameQualityConfig`
             describing the quality method to use. Only used when
@@ -51,13 +53,11 @@ class SampleBestVideoFramesParameters(Config):
             factor of 0.25 corresponds to a minimum sampling distance of
             ``0.25 * target_accel``. A blowout factor of 1 or greater would
             force uniform sampling
-        delta: (None) a multiple of frame quality standard deviation increments
-            that earns equal weight to a one frame deviation from the sampling
-            point recommended by the target acceleration. Setting delta to a
-            small value, say ``1e-5``, will always sample the maximum quality
-            frame within each sampling window. Setting delta to a large value,
-            say ``1e5``, will reduce to uniform sampling at the target rate.
-            The default value is ``1 / target_accel``
+        alpha: (0.9) a frame quality factor in ``(0, 1)`` that determines how
+            much weight to give to frame quality relative to uniform sampling
+            when sampling frames. Setting ``alpha == 1`` corresponds to always
+            selecting the frame with the desired quality, while ``alpha == 0``
+            corresponds to uniform sampling at the target rate
         offset: (None) an optional offset from the beginning of the video to
             choose the initial sampling window
         always_sample_first: (False) whether to always sample the first frame
@@ -72,11 +72,12 @@ class SampleBestVideoFramesParameters(Config):
             d, "motion_config", fobm.FrameMotionConfig, default=None
         )
         self.use_quality = self.parse_bool(d, "use_quality", default=True)
+        self.quality_factor = self.parse_number(d, "quality_factor", default=1)
         self.quality_config = self.parse_object(
             d, "quality_config", fobq.FrameQualityConfig, default=None
         )
         self.blowout = self.parse_number(d, "blowout", default=0.25)
-        self.delta = self.parse_number(d, "delta", default=None)
+        self.alpha = self.parse_number(d, "alpha", default=0.9)
         self.offset = self.parse_number(d, "offset", default=None)
         self.always_sample_first = self.parse_bool(
             d, "always_sample_first", default=False
@@ -89,6 +90,7 @@ class SampleBestVideoFramesParameters(Config):
 def sample_best_video_frames(
     video_path,
     out_frames_dir,
+    quality_factor=1,
     target_num_frames=None,
     target_accel=None,
     target_fps=None,
@@ -98,8 +100,12 @@ def sample_best_video_frames(
     """Adaptively samples the best frames from the input video.
 
     The "best" video frames at a given sampling density are defined as the
-    frames with highest image quality that are most representative of the
-    visual content in the video.
+    frames that are most representative of the visual content of the video.
+
+    The ``quality_factor`` parameter in ``[0, 1]`` defines the desired image
+    quality of the frames to be sampled. A `quality_factor == k` means to
+    sample frames whose quality are in the ``k x 100%`` percentile of quality
+    in their temporal neighborhood of frames.
 
     Provide one of ``target_num_frames``, ``target_accel``, or ``target_fps``
     to perform the sampling.
@@ -107,6 +113,8 @@ def sample_best_video_frames(
     Args:
         video_path: the path to the video to process
         out_frames_dir: a directory to write the sampled frames
+        quality_factor (1): a quality factor in ``[0, 1]`` specifying the
+            target frame qualities to sample
         target_num_frames (None): the target number of frames to sample
         target_accel (None): a desired target acceleration factor to apply when
             sampling frames. For example, a target acceleration of 2x would
@@ -136,6 +144,7 @@ def sample_best_video_frames(
     #
 
     parameters = SampleBestVideoFramesParameters.default()
+    parameters.quality_factor = quality_factor
 
     video_metadata = etav.VideoMetadata.build_for(video_path)
 
@@ -227,11 +236,12 @@ def adaptive_sample_frames_by_quality(
     target_accel,
     video_labels=None,
     blowout=None,
-    delta=None,
+    alpha=0.9,
     offset=None,
     always_sample_first=False,
     always_sample_last=False,
     size=None,
+    quality_factor=1,
     quality_config=None,
 ):
     """Adaptively samples frames from the given video to achieve the specified
@@ -256,13 +266,11 @@ def adaptive_sample_frames_by_quality(
             factor of 0.25 corresponds to a minimum sampling distance of
             ``0.25 * target_accel``. A blowout factor of 1 or greater would
             force uniform sampling
-        delta (None): a multiple of frame quality standard deviation increments
-            that earns equal weight to a one frame deviation from the uniform
-            sampling gap defined by the target acceleration. Setting delta to a
-            small alue, say ``1e-5``, will always sample the maximum quality
-            frame within each sampling window. Setting delta to a large value,
-            say ``1e5``, will reduce to uniform sampling at the target rate.
-            The default value is ``1 / target_accel``
+        alpha: (0.9) a frame quality factor in ``(0, 1)`` that determines how
+            much weight to give to frame quality relative to uniform sampling
+            when sampling frames. Setting ``alpha == 1`` corresponds to always
+            selecting the frame with the desired quality, while ``alpha == 0``
+            corresponds to uniform sampling at the target rate
         offset (None): an optional offset from the beginning of the video to
             set the initial sampling window. By default, there is no offset
         always_sample_first (False): whether to always sample the first frame
@@ -272,6 +280,8 @@ def adaptive_sample_frames_by_quality(
         size (None): a desired output ``(width, height)`` of the sampled
             frames. Dimensions can be -1, in which case the input aspect ratio
             is preserved
+        quality_factor (1): a quality factor in ``[0, 1]`` specifying the
+            target frame qualities to sample
         quality_config (None): a
             :class:`fiftyone.brain.internal.core.quality.FrameQualityConfig`
             describing the frame quality method to use
@@ -291,9 +301,6 @@ def adaptive_sample_frames_by_quality(
 
     if video_labels is None:
         video_labels = etav.VideoLabels()
-
-    if delta is None:
-        delta = 1 / target_accel
 
     if offset is None:
         offset = 0
@@ -360,7 +367,8 @@ def adaptive_sample_frames_by_quality(
                 window_size,
                 lookback_size,
                 target_accel,
-                delta,
+                alpha,
+                quality_factor,
             )
             sample_img = imgs[idx]
 
@@ -495,11 +503,12 @@ def adaptive_sample_frames_by_quality_and_motion(
     target_accel,
     video_labels=None,
     blowout=None,
-    delta=None,
+    alpha=0.9,
     offset=None,
     always_sample_first=False,
     always_sample_last=False,
     size=None,
+    quality_factor=1,
     quality_config=None,
     motion_config=None,
 ):
@@ -526,13 +535,11 @@ def adaptive_sample_frames_by_quality_and_motion(
             factor of 0.25 corresponds to a minimum sampling distance of
             ``0.25 * target_accel``. A blowout factor of 1 or greater would
             force uniform sampling
-        delta (None): a multiple of frame quality standard deviation increments
-            that earns equal weight to a one frame deviation from the uniform
-            sampling gap defined by the target acceleration. Setting delta to a
-            small alue, say ``1e-5``, will always sample the maximum quality
-            frame within each sampling window. Setting delta to a large value,
-            say ``1e5``, will reduce to uniform sampling at the target rate.
-            The default value is ``1 / target_accel``
+        alpha: (0.9) a frame quality factor in ``(0, 1)`` that determines how
+            much weight to give to frame quality relative to uniform sampling
+            when sampling frames. Setting ``alpha == 1`` corresponds to always
+            selecting the frame with the desired quality, while ``alpha == 0``
+            corresponds to uniform sampling at the target rate
         offset (None): an optional offset from the beginning of the video to
             set the initial sampling window. By default, there is no offset
         always_sample_first (False): whether to always sample the first frame
@@ -542,6 +549,8 @@ def adaptive_sample_frames_by_quality_and_motion(
         size (None): a desired output ``(width, height)`` of the sampled
             frames. Dimensions can be -1, in which case the input aspect ratio
             is preserved
+        quality_factor (1): a quality factor in ``[0, 1]`` specifying the
+            target frame qualities to sample
         quality_config (None): a
             :class:`fiftyone.brain.internal.core.quality.FrameQualityConfig`
             describing the frame quality method to use
@@ -562,9 +571,6 @@ def adaptive_sample_frames_by_quality_and_motion(
     # Parse parameters
     #
 
-    if delta is None:
-        delta = 1 / target_accel
-
     if quality_config is None:
         quality_config = fobq.FrameQualityConfig.default()
 
@@ -584,9 +590,10 @@ def adaptive_sample_frames_by_quality_and_motion(
         frame_qualities,
         frame_motions,
         target_accel,
-        delta,
+        alpha,
         blowout,
         offset,
+        quality_factor,
         always_sample_first,
         always_sample_last,
     )
@@ -734,9 +741,10 @@ def _perform_adaptive_sampling(
     use_motion = parameters.use_motion
     motion_config = parameters.motion_config
     use_quality = parameters.use_quality
+    quality_factor = parameters.quality_factor
     quality_config = parameters.quality_config
     blowout = parameters.blowout
-    delta = parameters.delta
+    alpha = parameters.alpha
     always_sample_first = parameters.always_sample_first
     always_sample_last = parameters.always_sample_last
 
@@ -774,11 +782,12 @@ def _perform_adaptive_sampling(
             target_accel,
             video_labels=video_labels,
             blowout=blowout,
-            delta=delta,
+            alpha=alpha,
             offset=offset,
             always_sample_first=always_sample_first,
             always_sample_last=always_sample_last,
             size=size,
+            quality_factor=quality_factor,
             quality_config=quality_config,
         )
     elif use_motion and use_quality:
@@ -789,11 +798,12 @@ def _perform_adaptive_sampling(
             target_accel,
             video_labels=video_labels,
             blowout=blowout,
-            delta=delta,
+            alpha=alpha,
             offset=offset,
             always_sample_first=always_sample_first,
             always_sample_last=always_sample_last,
             size=size,
+            quality_factor=quality_factor,
             quality_config=quality_config,
             motion_config=motion_config,
         )
@@ -882,9 +892,10 @@ def _select_frames_by_quality_and_motion(
     frame_qualities,
     frame_motions,
     target_accel,
-    delta,
+    alpha,
     blowout,
     offset,
+    quality_factor,
     always_sample_first,
     always_sample_last,
 ):
@@ -929,7 +940,8 @@ def _select_frames_by_quality_and_motion(
             window_size,
             lookback_size,
             target_accel,
-            delta,
+            alpha,
+            quality_factor,
         )
 
         frames.append(sample_frame_number)
@@ -953,22 +965,25 @@ def _select_best_frame_in_window(
     window_size,
     lookback_size,
     target_accel,
-    delta,
+    alpha,
+    quality_factor,
 ):
     frame_scores = np.asarray(frame_scores)
     lookback_scores = frame_scores[-lookback_size:]
     window_scores = frame_scores[-window_size:]
     window_size_actual = len(window_scores)
 
-    # +/-1 point for frame metric in increments of `delta` standard deviations
-    # above mean over lookback window
-    fqmean = np.mean(lookback_scores)
-    fqstd = np.std(lookback_scores)
-    scale = delta * fqstd
-    if scale > 0:
-        pos_scores = (window_scores - fqmean) / scale
-    else:
-        pos_scores = 0
+    # +1 point for closeness to `quality_factor`, up to a maximum of
+    # `window_size_actual` points
+    lookback_scores.sort()
+    score_percentile = np.searchsorted(
+        lookback_scores, window_scores, side="right"
+    ) / len(lookback_scores)
+    pos_scores = (
+        window_size_actual
+        * max(quality_factor, 1 - quality_factor)
+        * (1 - np.abs(score_percentile - quality_factor))
+    )
 
     # -1 point for each frame away from non-uniform spacing
     if last_sample is not None:
@@ -979,7 +994,7 @@ def _select_best_frame_in_window(
         neg_scores = 0
 
     # Select frame with maximal score
-    scores = pos_scores - neg_scores
+    scores = alpha * pos_scores - (1 - alpha) * neg_scores
     idx = np.argmax(scores)
     sample_frame_number = frame_number + 1 - window_size_actual + idx
 

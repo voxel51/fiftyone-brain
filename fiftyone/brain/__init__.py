@@ -97,6 +97,7 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
 def sample_best_video_frames(
     video_path,
     out_frames_dir,
+    quality_factor=1,
     target_num_frames=None,
     target_accel=None,
     target_fps=None,
@@ -106,8 +107,12 @@ def sample_best_video_frames(
     """Adaptively samples the best frames from the input video.
 
     The "best" video frames at a given sampling density are defined as the
-    frames with highest image quality that are most representative of the
-    visual content in the video.
+    frames that are most representative of the visual content of the video.
+
+    The ``quality_factor`` parameter in ``[0, 1]`` defines the desired image
+    quality of the frames to be sampled. A `quality_factor == k` means to
+    sample frames whose quality are in the ``k x 100%`` percentile of quality
+    in their temporal neighborhood of frames.
 
     Provide one of ``target_num_frames``, ``target_accel``, or ``target_fps``
     to perform the sampling.
@@ -115,6 +120,8 @@ def sample_best_video_frames(
     Args:
         video_path: the path to the video to process
         out_frames_dir: a directory to write the sampled frames
+        quality_factor (1): a quality factor in ``[0, 1]`` specifying the
+            target frame qualities to sample
         target_num_frames (None): the target number of frames to sample
         target_accel (None): a desired target acceleration factor to apply when
             sampling frames. For example, a target acceleration of 2x would
@@ -139,6 +146,7 @@ def sample_best_video_frames(
     return fbs.sample_best_video_frames(
         video_path,
         out_frames_dir,
+        quality_factor=quality_factor,
         target_num_frames=target_num_frames,
         target_accel=target_accel,
         target_fps=target_fps,
