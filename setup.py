@@ -85,9 +85,29 @@ class CustomBdistWheel(bdist_wheel):
         return impl, abi_tag, self.plat_name
 
 
+with open("README.md", "r") as fh:
+    long_description = fh.read()
+
+
+VERSION = "0.1.10"
+
+
+def get_version():
+    if "RELEASE_VERSION" in os.environ:
+        version = os.environ["RELEASE_VERSION"]
+        if not version.startswith(VERSION):
+            raise ValueError(
+                "Release version doest not match version: %s and %s"
+                % (version, VERSION)
+            )
+        return version
+
+    return VERSION
+
+
 setup(
     name="fiftyone-brain",
-    version="0.1.10",
+    version=get_version(),
     description="FiftyOne Brain",
     author="Voxel51, Inc.",
     author_email="info@voxel51.com",
