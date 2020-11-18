@@ -85,7 +85,7 @@ class CustomBdistWheel(bdist_wheel):
         return impl, abi_tag, self.plat_name
 
 
-with open("README.md", "r") as fh:
+with open("PYPI_README.md", "r") as fh:
     long_description = fh.read()
 
 
