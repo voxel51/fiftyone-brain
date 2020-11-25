@@ -39,8 +39,8 @@ def compute_mistakenness(
     spurious_field="possible_spurious",
     use_logits=True,
 ):
-    """Computes the mistakenness of the label(s) in the specified
-    ``label_field``, scoring the chance that the label(s) are incorrect.
+    """Computes the mistakenness of the labels in the specified
+    ``label_field``, scoring the chance that the labels are incorrect.
 
     Mistakenness is computed based on the predictions in the ``pred_field``,
     through its ``logits`` or ``confidence``. This measure can be used to
