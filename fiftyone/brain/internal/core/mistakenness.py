@@ -149,7 +149,7 @@ def compute_mistakenness(
                         gt_det[mistakenness_field] = mistakenness_class
                         sample_mistakenness.append(mistakenness_class)
 
-                label.detections += missing_detections
+                label.detections += list(missing_detections.values())
 
                 if sample_mistakenness:
                     sample["max_" + mistakenness_field] = np.max(
