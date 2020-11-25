@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 _ALLOWED_TYPES = (fol.Classification, fol.Classifications, fol.Detections)
-_MISSED_DETECTION_THRESHOLD = 0.2
+_MISSED_CONFIDENCE_THRESHOLD = 0.95
 _DETECTION_IOU = 0.5
 _DETECTION_IOU_STR = str(_DETECTION_IOU).replace(".", "_")
 
@@ -71,8 +71,12 @@ def compute_mistakenness(
     # Let us compute a confidence measure based on negative entropy of logits:
     # $c = -entropy(logits)$. This value is large when there is low uncertainty
     # and small when there is high uncertainty. Let us define modulator, $m$,
-    # based on whether or not the answer is correct. $m = 1$ when the label is
-    # correct and $0$ otherwise. Then, mistakenness is computed as $exp(m * c)$
+    # based on whether or not the answer is correct. $m = -1$ when the label is
+    # correct and $1$ otherwise. Then, mistakenness is computed as
+    # $(m * exp(c) + 1) / 2$ so that high confidence correct predictions result
+    # in low mistakenness, high confidence incorrect predictions result in high
+    # mistakenness, and low confidence predictions result in middling
+    # mistakenness.
     #
 
     if isinstance(samples, foc.SampleCollection):
@@ -107,7 +111,8 @@ def compute_mistakenness(
                     gt_id = pred_det[label_field + "_eval"]["matches"][
                         _DETECTION_IOU_STR
                     ]["gt_id"]
-                    if gt_id == -1 and ent < _MISSED_DETECTION_THRESHOLD:
+                    conf = pred_det["confidence"]
+                    if gt_id == -1 and conf > _MISSED_CONFIDENCE_THRESHOLD:
                         pred_det["possible_mistake"] = "missed_detection"
                         possible_mistakes += 1
 
@@ -133,7 +138,9 @@ def compute_mistakenness(
                         gt_det[mistakenness_field] = mistakenness_class
                         sample_mistakenness.append(mistakenness_class)
 
-                sample[mistakenness_field] = np.mean(sample_mistakenness)
+                if sample_mistakenness:
+                    sample[mistakenness_field] = np.mean(sample_mistakenness)
+
                 sample["possible_mistakes"] = possible_mistakes
 
             else:
