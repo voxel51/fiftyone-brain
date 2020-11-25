@@ -35,6 +35,7 @@ def compute_mistakenness(
     pred_field,
     label_field="ground_truth",
     mistakenness_field="mistakenness",
+    use_logits=True,
 ):
     """Adds a mistakenness field to each sample scoring the chance that the
     specified label field is incorrect.
@@ -57,6 +58,9 @@ def compute_mistakenness(
             want to test for a mistake with respect to the prediction output
         mistakenness_field ("mistakenness"): the field name to use to store the
             mistakenness value for each sample
+        use_logits (True): boolean indicating whether to use logits or
+            confidence to compute mistakenness. Logits lead to better results
+            but can be difficult to retrieve
     """
 
     #
@@ -99,7 +103,9 @@ def compute_mistakenness(
     logger.info("Computing mistakenness...")
     with fou.ProgressBar() as pb:
         for sample in pb(samples):
-            pred_label, label = _get_data(sample, pred_field, label_field)
+            pred_label, label = _get_data(
+                sample, pred_field, label_field, use_logits
+            )
 
             if isinstance(pred_label, fol.Detections):
                 possible_spurious = 0
@@ -109,7 +115,6 @@ def compute_mistakenness(
                 pred_map = {}
                 for pred_det in pred_label.detections:
                     pred_map[pred_det.id] = pred_det
-                    ent = entropy(softmax(np.asarray(pred_det["logits"])))
                     gt_id = pred_det[label_field + "_eval"]["matches"][
                         _DETECTION_IOU_STR
                     ]["gt_id"]
@@ -138,12 +143,21 @@ def compute_mistakenness(
                     else:
                         pred_det = pred_map[pred_id]
                         m = float(gt_det["label"] == pred_det["label"])
-                        mistakenness_class = _compute_mistakenness_class(
-                            pred_det["logits"], m
-                        )
-                        mistakenness_loc = _compute_mistakenness_loc(
-                            pred_det["logits"], iou
-                        )
+                        if use_logits:
+                            mistakenness_class = _compute_mistakenness_class(
+                                pred_det["logits"], m
+                            )
+                            mistakenness_loc = _compute_mistakenness_loc(
+                                pred_det["logits"], iou
+                            )
+
+                        else:
+                            mistakenness_class = _compute_mistakenness_class_conf(
+                                pred_det["confidence"], m
+                            )
+                            mistakenness_loc = _compute_mistakenness_loc_conf(
+                                pred_det["confidence"], iou
+                            )
 
                         gt_det[mistakenness_field + "_loc"] = mistakenness_loc
                         gt_det[mistakenness_field] = mistakenness_class
@@ -170,9 +184,17 @@ def compute_mistakenness(
                 else:
                     m = float(pred_label.label == label.label)
 
-                mistakenness = _compute_mistakenness_class(
-                    pred_label.logits, m
-                )
+                if use_logits:
+                    mistakenness = _compute_mistakenness_class(
+                        pred_label.logits, m
+                    )
+
+                else:
+
+                    mistakenness = _compute_mistakenness_class_conf(
+                        pred_label.confidence, m
+                    )
+
                 sample[mistakenness_field] = mistakenness
 
             sample.save()
@@ -205,7 +227,31 @@ def _compute_mistakenness_loc(logits, iou):
     return mistakenness
 
 
-def _get_data(sample, pred_field, label_field):
+def _compute_mistakenness_class_conf(confidence, m):
+    # constrain m to either 1 (incorrect) or -1 (correct)
+    m = m * -2.0 + 1.0
+
+    mistakenness = (m * confidence + 1.0) / 2.0
+
+    return mistakenness
+
+
+def _compute_mistakenness_loc_conf(confidence, iou):
+    # i = 0 for high iou, i = 1 for low iou
+    i = (1.0 / (1.0 - _DETECTION_IOU)) * (1.0 - iou)
+
+    # c = 0 for low confidence, c = 1 for high confidence
+    c = confidence
+
+    # mistakenness = i when c = i, mistakenness = 0.5 if c = 0
+    # mistakenness is higher with lower IoU and closer to 0 or 1 with higher
+    # confidence
+    mistakenness = (c * ((2.0 * i) - 1.0) + 1.0) / 2.0
+
+    return mistakenness
+
+
+def _get_data(sample, pred_field, label_field, use_logits):
     pred_label, label = fbu.get_fields(
         sample,
         (pred_field, label_field),
@@ -214,19 +260,20 @@ def _get_data(sample, pred_field, label_field):
         allow_none=False,
     )
 
-    if isinstance(pred_label, fol.Detections):
-        for det in pred_label.detections:
-            if det.logits is None:
+    if use_logits:
+        if isinstance(pred_label, fol.Detections):
+            for det in pred_label.detections:
+                if det.logits is None:
+                    raise ValueError(
+                        "A detection in Sample '%s' field '%s' has no logits"
+                        % (sample.id, pred_field)
+                    )
+
+        else:
+            if pred_label.logits is None:
                 raise ValueError(
-                    "A detection in Sample '%s' field '%s' has no logits"
+                    "Sample '%s' field '%s' has no logits"
                     % (sample.id, pred_field)
                 )
-
-    else:
-        if pred_label.logits is None:
-            raise ValueError(
-                "Sample '%s' field '%s' has no logits"
-                % (sample.id, pred_field)
-            )
 
     return pred_label, label
