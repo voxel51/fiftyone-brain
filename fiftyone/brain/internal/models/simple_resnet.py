@@ -1,22 +1,17 @@
 """
-Implementation of a simple Resnet that is suitable only for smallish data.
+Implementation of a simple ResNet that is suitable only for smallish data.
 
 The original implementation of this is from David Page's work on fast model
 training with resnets at https://github.com/davidcpage/cifar10-fast.
-
-@todo This code needs to be significantly clean and tightened.  It is here now
-just to get something in the codebase with a model that we can train for use in
-a variety of tests and other things like developing uniqueness.
 
 | Copyright 2017-2020, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
-from os.path import normpath, sep
 from collections import namedtuple
+import os
 
 import numpy as np
-from PIL import Image as PILImage
 import torch
 from torch import nn
 import torchvision
@@ -37,7 +32,7 @@ __device__ = torch.device("cuda:0" if __use_gpu__ else "cpu")
 class SimpleResnetImageClassifierConfig(
     Config, etal.HasDefaultDeploymentConfig
 ):
-    """SimpleResnetImageClassifier configuration settings.
+    """:class:`SimpleResnetImageClassifier` configuration settings.
 
     Attributes:
         model_name: the name of the published model to load.  If this value is
@@ -80,28 +75,29 @@ class SimpleResnetImageClassifierConfig(
             )
 
 
-class SimpleResnetImageClassifier(etal.ImageClassifier):
-    """A simple Resnet implementation.
+# @todo Can we make a more generic bridge to ETA for Torch models that
+# would specify some location or function that defines the graph but is
+# otherwise generic?
 
-    This implementation assumes that the preprocessing transformations have
-    already been applied to the images before they are sent to the prediction
-    and related functions.  If you want these functions to perform the
-    preprocessing for you, then you need to call `toggle_preprocess()` first.
-    Typically, this is not needed when you are working with Torch DataLoaders,
-    for example.
 
-    Current implementation supports single processing of Numpy Arrays and PIL
-    Images (with or without preprocessing) and batch processing of Torch
-    Tensors (already preprocessed).
+class SimpleResnetImageClassifier(
+    etal.ImageClassifier, etal.ExposesFeatures, etal.ExposesProbabilities
+):
+    """A simple ResNet implementation.
 
-    Attributes:
-        config: a :class:`SimpleResnetImageClassifierConfig`
-    """
+    This model exposes embeddings and probabilities for its predictions.
 
-    """
-    @todo Can we make a more generic bridge to ETA for Torch models that would
-    specify some location or function that defines the graph but is otherwise
-    generic?
+    The model requires preprocessing defined by its :meth:`transforms`
+    property. By default, you are responsible for applying this preprocessing
+    prior to performing prediction (usually via a Torch DataLoader).
+
+    Alternatively, you can call :meth:`toggle_preprocess` to set the
+    :meth:`preprocess` property to ``True``. Then any images you supply will
+    have preprocessing applied to them before performing prediction.
+
+    Args:
+        config: a :class:`SimpleResnetImageClassifierConfig` defining the
+            model to load
     """
 
     def __init__(self, config):
@@ -112,16 +108,147 @@ class SimpleResnetImageClassifier(etal.ImageClassifier):
         else:
             self.weights_path = etam.download_model(self.config.model_name)
 
-        self.labels_map = self.config.labels_string.split(", ")
-        self.labels_rev = {v: i for i, v in enumerate(self.labels_map)}
+        self._class_labels = self.config.labels_string.split(",")
+        self._num_classes = len(self._class_labels)
 
         self._transforms = None
         self._model = None
-
-        # This is toggled via toggle_preprocess()
+        self._last_features = None
+        self._last_probs = None
         self._preprocess = False
 
         self._setup_model()
+
+    @property
+    def preprocess(self):
+        """Whether preprocessing will be applied during prediction by the
+        model.
+        """
+        return self._preprocess
+
+    @property
+    def transforms(self):
+        """The ``torchvision.transforms`` that must be applied to each image
+        before prediction.
+        """
+        return self._transforms
+
+    @property
+    def exposes_features(self):
+        return True
+
+    @property
+    def exposes_probabilities(self):
+        return True
+
+    @property
+    def num_classes(self):
+        return self._num_classes
+
+    @property
+    def class_labels(self):
+        return self._class_labels
+
+    @property
+    def features_dim(self):
+        # @todo support getting this information?
+        return None
+
+    def get_features(self):
+        return self._last_features
+
+    def get_probabilities(self):
+        return self._last_probs
+
+    def toggle_preprocess(self, set_to=None):
+        """Toggles the preprocessing state of the model.
+
+        Args:
+            set_to (None): explicitly set preprocessing state to this value
+                rather than toggling
+        """
+        if set_to is not None:
+            self._preprocess = set_to
+        else:
+            self._preprocess = not self._preprocess
+
+    def predict(self, img):
+        """Computes the prediction on a single image.
+
+        If `self.preprocess == True`, the input must be a PIL image.
+
+        Args:
+            img: a PIL image (HWC), a numpy array (HWC) or Torch tensor (CHW)
+
+        Returns:
+            an ``eta.core.data.AttributeContainer``
+        """
+        if isinstance(img, torch.Tensor):
+            imgs = img.unsqueeze(0)
+        else:
+            imgs = [img]
+
+        return self.predict_all(imgs)[0]
+
+    def predict_all(self, imgs):
+        """Computes predictions for the tensor of images.
+
+        If `self.preprocess == True`, the input must be a list of PIL images.
+
+        Args:
+            imgs: a list of PIL or numpy images (HWC), a numpy array of images
+                (NHWC), or a Torch tensor (NCHW)
+
+        Returns:
+            a list of ``eta.core.data.AttributeContainer`` instances
+        """
+        logits = self._predict_all(imgs)
+
+        predictions = np.argmax(logits, axis=1)
+        odds = np.exp(logits)
+        odds /= np.sum(odds, axis=1, keepdims=True)
+        confidences = np.max(odds, axis=1)
+
+        self._last_probs = np.expand_dims(odds, axis=1)
+
+        return self._make_predictions(predictions, confidences)
+
+    def _predict_all(self, imgs):
+        imgs = self._preprocess_batch(imgs)
+
+        if __use_gpu__:
+            imgs = imgs.cuda().half()
+
+        inputs = dict(input=imgs)
+        outputs = self._model(inputs)
+
+        self._last_features = (
+            outputs["flatten"].detach().cpu().numpy()
+        ).astype(np.float32, copy=False)
+
+        return np.float32(outputs["logits"].detach().cpu().numpy())
+
+    def _preprocess_batch(self, imgs):
+        if self._preprocess:
+            return torch.stack([self._transforms(img) for img in imgs])
+
+        if isinstance(imgs, torch.Tensor):
+            return imgs
+
+        # Converts PIL/numpy (HWC) to Torch tensor (CHW)
+        t = torchvision.transforms.ToTensor()
+        return torch.stack([t(img) for img in imgs])
+
+    def _make_predictions(self, predictions, confidences):
+        attributes = []
+        for prediction, confidence in zip(predictions, confidences):
+            attr = etad.CategoricalAttribute(
+                "label", self._class_labels[prediction], confidence=confidence
+            )
+            container = etad.AttributeContainer.from_iterable([attr])
+            attributes.append(container)
+
+        return attributes
 
     def _setup_model(self):
         # Instantiates the model and sets up any preprocessing, etc.
@@ -147,135 +274,12 @@ class SimpleResnetImageClassifier(etal.ImageClassifier):
 
         self._model = model
 
-    @property
-    def transforms(self):
-        return self._transforms
-
-    @property
-    def model(self):
-        return self._model
-
-    def predict(self, img):
-        """Computes the prediction on a single image.
-
-        Args:
-            img: a PIL image, numpy array or Torch tensor (CHW)
-
-        Returns:
-            an ``eta.core.data.AttributeContainer``
-        """
-        if isinstance(img, torch.Tensor):
-            raise NotImplementedError("predict cannot accept torch.Tensor")
-
-        img = self._preprocess_if_needed(img)
-
-        # need to check the shape of img to ensure that it meets the contract,
-        # since the user may have passed in the numpy array directly and it was
-        # not preprocessed
-        if len(img.shape) != 4:
-            if isinstance(img, np.ndarray):
-                img = img[np.newaxis, :]
-            elif isinstance(img, torch.Tensor):
-                img = img.unsqueeze(0)
-
-        return self.predict_all(img)[0]
-
-    def predict_all(self, imgs):
-        """Computes predictions for the tensor of images.
-
-        This method assumes that the images are already preprocessed.
-
-        Args:
-            imgs: a Torch tensor or numpy array of images (NCHW)
-
-        Returns:
-            a list of ``eta.core.data.AttributeContainer`` instances
-        """
-        if isinstance(imgs, np.ndarray):
-            imgs = torch.from_numpy(imgs)
-
-        if __use_gpu__:
-            imgs = imgs.cuda().half()
-
-        inputs = dict(input=imgs)
-        outputs = self._model(inputs)
-        logits = np.float32(outputs["logits"].detach().cpu().numpy())
-        predictions = np.argmax(logits, axis=1)
-        odds = np.exp(logits)
-        confidences = np.max(odds, axis=1) / np.sum(odds, axis=1)
-
-        attributes = []
-        for prediction, confidence in zip(predictions, confidences):
-            attr = etad.CategoricalAttribute(
-                "label", self.labels_map[prediction], confidence=confidence
-            )
-            container = etad.AttributeContainer.from_iterable([attr])
-            attributes.append(container)
-
-        return attributes
-
-    def embed_all(self, imgs):
-        """Embeds the imgs into the model's space.
-
-        Args:
-            imgs: a Torch tensor or numpy array of images (NCHW)
-
-        Returns:
-            a ``num_ims x dim`` array of embeddings
-        """
-
-        #
-        # @todo Should this be an implementation of the get_features?
-        #
-        # unclear if the layer should be flatten or linear
-        #
-
-        imgs = self._preprocess_if_needed(imgs)
-
-        if __use_gpu__:
-            imgs = imgs.cuda().half()
-
-        inputs = dict(input=imgs)
-        outputs = self._model(inputs)
-        return np.float32(outputs["flatten"].detach().cpu().numpy())
-
-    def toggle_preprocess(self, set_to=None):
-        """Toggles the preprocessing boolean.
-
-        Args:
-            set_to (None): force preprocessing to True/False rather than
-                toggling
-        """
-        if set_to:
-            assert isinstance(set_to, bool)
-            self._preprocess = set_to
-        else:
-            self._preprocess = not self._preprocess
-
-    def _preprocess_if_needed(self, img):
-        """Preprocesses the single image through the transforms if needed."""
-        if self._preprocess:
-            print("preprocessing")
-            if isinstance(img, torch.Tensor):
-                return NotImplementedError(
-                    "Cannot preprocess Tensors at this time."
-                )
-            if isinstance(img, np.ndarray):
-                print("preprocessing from ndarray")
-                # CONVERT TO PIL
-                # need to separately process each image
-                if np.max(img) <= 1.00001:
-                    img = img * 255
-                img = PILImage.fromarray(np.uint8(img))
-
-            img = self._transforms(img)
-
-        return img
-
 
 #
-## Utils; should they be moved elsewhere?
+# Utils
 #
+
+
 def path_iter(nested_dict, pfx=()):
     for name, val in nested_dict.items():
         if isinstance(val, dict):
@@ -285,15 +289,17 @@ def path_iter(nested_dict, pfx=()):
 
 
 #
-## Define the network
+# Network definition
 #
+
+
 has_inputs = lambda node: type(node) is tuple
 
 
 def build_graph(net):
     flattened = pipeline(net)
     resolve_input = lambda rel_path, path, idx: (
-        normpath(sep.join((path, "..", rel_path)))
+        os.path.normpath(os.path.sep.join((path, "..", rel_path)))
         if isinstance(rel_path, str)
         else flattened[idx + rel_path][0]
     )
@@ -308,7 +314,7 @@ def build_graph(net):
 
 def pipeline(net):
     return [
-        (sep.join(path), (node if has_inputs(node) else (node, [-1])))
+        (os.path.sep.join(path), (node if has_inputs(node) else (node, [-1])))
         for (path, node) in path_iter(net)
     ]
 

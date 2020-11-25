@@ -104,13 +104,12 @@ def _compute_embeddings(samples, model):
     with fou.ProgressBar(samples) as pb:
         with torch.no_grad():
             for imgs in data_loader:
-                # @todo the existence of model.embed_all is not well engineered
-                vectors = model.embed_all(imgs)
+                _ = model.predict_all(imgs)
+                vectors = model.get_features()
 
                 if embeddings is None:
                     embeddings = vectors
                 else:
-                    # @todo if speed is an issue, fix this...
                     embeddings = np.vstack((embeddings, vectors))
 
                 pb.set_iteration(pb.iteration + len(imgs))
