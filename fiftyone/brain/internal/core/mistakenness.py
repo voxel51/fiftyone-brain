@@ -102,7 +102,8 @@ def compute_mistakenness(
             pred_label, label = _get_data(sample, pred_field, label_field)
 
             if isinstance(pred_label, fol.Detections):
-                possible_mistakes = 0
+                possible_spurious = 0
+                possible_missing = 0
                 sample_mistakenness = []
                 pred_map = {}
                 for pred_det in pred_label.detections:
@@ -113,16 +114,16 @@ def compute_mistakenness(
                     ]["gt_id"]
                     conf = pred_det["confidence"]
                     if gt_id == -1 and conf > _MISSED_CONFIDENCE_THRESHOLD:
-                        pred_det["possible_mistake"] = "missed_detection"
-                        possible_mistakes += 1
+                        pred_det["possible_missing"] = True
+                        possible_missing += 1
 
                 for gt_det in label.detections:
                     matches = gt_det[pred_field + "_eval"]["matches"]
                     pred_id = matches[_DETECTION_IOU_STR]["pred_id"]
                     iou = matches[_DETECTION_IOU_STR]["iou"]
                     if pred_id == -1:
-                        gt_det["possible_mistake"] = "incorrect_annotation"
-                        possible_mistakes += 1
+                        gt_det["possible_spurious"] = True
+                        possible_spurious += 1
 
                     else:
                         pred_det = pred_map[pred_id]
@@ -139,9 +140,10 @@ def compute_mistakenness(
                         sample_mistakenness.append(mistakenness_class)
 
                 if sample_mistakenness:
-                    sample[mistakenness_field] = np.mean(sample_mistakenness)
+                    sample[mistakenness_field] = np.max(sample_mistakenness)
 
-                sample["possible_mistakes"] = possible_mistakes
+                sample["possible_missing"] = possible_missing
+                sample["possible_spurious"] = possible_spurious
 
             else:
                 if isinstance(pred_label, fol.Classifications):
