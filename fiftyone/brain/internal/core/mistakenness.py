@@ -104,6 +104,7 @@ def compute_mistakenness(
             if isinstance(pred_label, fol.Detections):
                 possible_spurious = 0
                 possible_missing = 0
+                missing_detections = {}
                 sample_mistakenness = []
                 pred_map = {}
                 for pred_det in pred_label.detections:
@@ -116,8 +117,17 @@ def compute_mistakenness(
                     if gt_id == -1 and conf > _MISSED_CONFIDENCE_THRESHOLD:
                         pred_det["possible_missing"] = True
                         possible_missing += 1
+                        missing_detections[pred_det.id] = pred_det
 
                 for gt_det in label.detections:
+
+                    # Avoid adding the same predictions again upon multiple
+                    # runs of this method
+                    if "possible_missing" in gt_det:
+                        if gt_det.id in missing_detections:
+                            del missing_detections[gt_det.id]
+                        continue
+
                     matches = gt_det[pred_field + "_eval"]["matches"]
                     pred_id = matches[_DETECTION_IOU_STR]["pred_id"]
                     iou = matches[_DETECTION_IOU_STR]["iou"]
@@ -139,8 +149,12 @@ def compute_mistakenness(
                         gt_det[mistakenness_field] = mistakenness_class
                         sample_mistakenness.append(mistakenness_class)
 
+                label.detections += missing_detections
+
                 if sample_mistakenness:
-                    sample[mistakenness_field] = np.max(sample_mistakenness)
+                    sample["max_" + mistakenness_field] = np.max(
+                        sample_mistakenness
+                    )
 
                 sample["possible_missing"] = possible_missing
                 sample["possible_spurious"] = possible_spurious
