@@ -57,41 +57,42 @@ def compute_mistakenness(
     locate corresponding detections in ``pred_field``. Three types of mistakes
     are identified:
 
-    -   (Mistakes) Detections with a match in ``pred_field`` are assigned a
+    -   **(Mistakes)** Detections with a match in ``pred_field`` are assigned a
         mistakenness value in their ``mistakenness_field``, which captures the
         likelihood that the detection in ``label_field`` is a mistake. Such
         mistakes may be due to either the class label or localization of the
         detection
 
-    -   (Missing) Detections in ``pred_field`` with no matches in
+    -   **(Missing)** Detections in ``pred_field`` with no matches in
         ``label_field`` but which are likely to be correct are *added* to
         ``label_field`` and given a value of ``True`` in their
         ``missing_field`` attribute
 
-    -   (Spurious) Detections in ``label_field`` with no matches in
+    -   **(Spurious)** Detections in ``label_field`` with no matches in
         ``pred_field`` but which are likely to be incorrect are given a value
         of ``True`` in their ``spurious_field`` attribute
 
     These per-detection data are then aggregated at the sample-level as
     follows:
 
-    -   (Mistakes) The ``mistakenness_field`` of each sample is populated with
-        the maximum mistakenness of the detections in ``label_field``
+    -   **(Mistakes)** The ``mistakenness_field`` of each sample is populated
+        with the maximum mistakenness of the detections in ``label_field``
 
-    -   (Missing) The ``missing_field`` of each sample is populated with the
-        number of missing detections that were deemed missing and thus added
-        to ``label_field``
+    -   **(Missing)** The ``missing_field`` of each sample is populated with
+        the number of missing detections that were deemed missing and thus
+        added to ``label_field``
 
-    -   (Spurious) The ``spurious_field`` of each sample is populated with the
-        number of detections in ``label_field`` that were given deemed spurious
+    -   **(Spurious)** The ``spurious_field`` of each sample is populated with
+        the number of detections in ``label_field`` that were given deemed
+        spurious
 
     Args:
         samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
         pred_field: the name of the predicted label field to use from each
             sample. Can be of type
-                :class:`fiftyone.core.labels.Classification`,
-                :class:`fiftyone.core.labels.Classifications`, or
-                :class:`fiftyone.core.labels.Detections`
+            :class:`fiftyone.core.labels.Classification`,
+            :class:`fiftyone.core.labels.Classifications`, or
+            :class:`fiftyone.core.labels.Detections`
         label_field ("ground_truth"): the name of the "ground truth" label
             field that you want to test for mistakes with respect to the
             predictions in ``pred_field``. Must have the same type as
