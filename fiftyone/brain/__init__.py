@@ -29,7 +29,7 @@ def compute_hardness(samples, label_field, hardness_field="hardness"):
     """
     import fiftyone.brain.internal.core.hardness as fbh
 
-    fbh.compute_hardness(samples, label_field, hardness_field=hardness_field)
+    fbh.compute_hardness(samples, label_field, hardness_field)
 
 
 def compute_mistakenness(
@@ -116,11 +116,11 @@ def compute_mistakenness(
     fbm.compute_mistakenness(
         samples,
         pred_field,
-        label_field=label_field,
-        mistakenness_field=mistakenness_field,
-        missing_field=missing_field,
-        spurious_field=spurious_field,
-        use_logits=use_logits,
+        label_field,
+        mistakenness_field,
+        missing_field,
+        spurious_field,
+        use_logits,
     )
 
 
@@ -143,6 +143,4 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
     """
     import fiftyone.brain.internal.core.uniqueness as fbu
 
-    fbu.compute_uniqueness(
-        samples, uniqueness_field=uniqueness_field, roi_field=roi_field,
-    )
+    fbu.compute_uniqueness(samples, uniqueness_field, roi_field)
