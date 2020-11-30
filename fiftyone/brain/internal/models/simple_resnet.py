@@ -19,7 +19,6 @@ import torchvision
 from eta.core.config import Config, ConfigError
 import eta.core.data as etad
 import eta.core.learning as etal
-import eta.core.models as etam
 
 
 # This is a small model with a fixed size, so let cudnn optimize
@@ -29,15 +28,13 @@ __use_gpu__ = torch.cuda.is_available()
 __device__ = torch.device("cuda:0" if __use_gpu__ else "cpu")
 
 
-class SimpleResnetImageClassifierConfig(
-    Config, etal.HasDefaultDeploymentConfig
-):
+class SimpleResnetImageClassifierConfig(Config, etal.HasPublishedModel):
     """:class:`SimpleResnetImageClassifier` configuration settings.
 
     Attributes:
-        model_name: the name of the published model to load.  If this value is
+        model_name: the name of the published model to load. If this value is
             provided, ``model_path`` does not need to be
-        model_path: the path to the model ``.pth`` weights to use.  If this
+        model_path: the path to the model ``.pth`` weights to use. If this
             value is provided, ``model_name`` does not need to be
         labels_string: a comma-separated list of the class-names in the
             classifier, ordered in accordance with the trained model
@@ -48,31 +45,14 @@ class SimpleResnetImageClassifierConfig(
     """
 
     def __init__(self, d):
-        self.model_name = self.parse_string(d, "model_name", default=None)
-        self.model_path = self.parse_string(d, "model_path", default=None)
+        d = self.init(d)
 
-        if self.model_name:
-            d = self.load_default_deployment_params(d, self.model_name)
-
-        self.image_mean = self.parse_array(d, "image_mean", default=None)
-        self.image_std = self.parse_array(d, "image_std", default=None)
+        self.image_mean = self.parse_array(d, "image_mean")
+        self.image_std = self.parse_array(d, "image_std")
 
         self.labels_string = self.parse_string(
             d, "labels_string", default=None
         )
-
-        self._validate()
-
-    def _validate(self):
-        if not self.model_name and not self.model_path:
-            raise ConfigError(
-                "Either `model_name` or `model_path` must be provided"
-            )
-
-        if not self.image_mean or not self.image_std:
-            raise ConfigError(
-                "Both `image_mean` and `image_std` must be provided"
-            )
 
 
 # @todo Can we make a more generic bridge to ETA for Torch models that
@@ -103,10 +83,8 @@ class SimpleResnetImageClassifier(
     def __init__(self, config):
         self.config = config
 
-        if self.config.model_path:
-            self.weights_path = self.config.model_path
-        else:
-            self.weights_path = etam.download_model(self.config.model_name)
+        self.config.download_model_if_necessary()
+        self.weights_path = self.config.model_path
 
         self._class_labels = self.config.labels_string.split(",")
         self._num_classes = len(self._class_labels)
