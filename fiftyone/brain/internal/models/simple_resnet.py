@@ -112,6 +112,10 @@ class SimpleResnetImageClassifier(
         return self._transforms
 
     @property
+    def is_multilabel(self):
+        return False
+
+    @property
     def exposes_features(self):
         return True
 
