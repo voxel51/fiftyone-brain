@@ -97,15 +97,14 @@ def _load_model():
 
 def _compute_embeddings(samples, model):
     logger.info("Preparing data...")
-    data_loader = _make_data_loader(samples, model.transforms)
+    data_loader = _make_data_loader(samples, model)
 
     logger.info("Generating embeddings...")
     embeddings = None
     with fou.ProgressBar(samples) as pb:
-        with torch.no_grad():
+        with model:
             for imgs in data_loader:
-                _ = model.predict_all(imgs)
-                vectors = model.get_features()
+                vectors = model.embed_all(imgs)
 
                 if embeddings is None:
                     embeddings = vectors
@@ -120,26 +119,25 @@ def _compute_embeddings(samples, model):
 
 def _compute_patch_embeddings(samples, model, roi_field):
     logger.info("Preparing data...")
-    data_loader = _make_patch_data_loader(samples, model.transforms, roi_field)
+    data_loader = _make_patch_data_loader(samples, model, roi_field)
 
     logger.info("Generating embeddings...")
     embeddings = None
     with fou.ProgressBar(samples) as pb:
-        with torch.no_grad():
+        with model:
             for patches in pb(data_loader):
-                # @todo the existence of model.embed_all is not well engineered
                 patches = torch.squeeze(patches, dim=0)
-                vectors = model.embed_all(patches)
+                patch_vectors = model.embed_all(patches)
 
                 # Aggregate over patches
                 # @todo experiment with mean(), max(), abs().max(), etc
-                embedding = vectors.max(axis=0)
+                vectors = patch_vectors.max(axis=0)
 
                 if embeddings is None:
-                    embeddings = embedding
+                    embeddings = vectors
                 else:
                     # @todo if speed is an issue, fix this...
-                    embeddings = np.vstack((embeddings, embedding))
+                    embeddings = np.vstack((embeddings, vectors))
 
     # `num_samples x dim` array of embeddings
     return embeddings
@@ -171,7 +169,10 @@ def _compute_uniqueness(embeddings):
     return sample_dists
 
 
-def _make_data_loader(samples, transforms, batch_size=16):
+def _make_data_loader(samples, model, num_workers=4):
+    batch_size = model.batch_size or 1
+    transforms = model.transforms
+
     image_paths = []
     for sample in fbu.optimize_samples(samples):
         fbu.validate_image(sample)
@@ -183,11 +184,13 @@ def _make_data_loader(samples, transforms, batch_size=16):
     )
 
     return torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, num_workers=4
+        dataset, batch_size=batch_size, num_workers=num_workers
     )
 
 
-def _make_patch_data_loader(samples, transforms, roi_field):
+def _make_patch_data_loader(samples, model, roi_field, num_workers=4):
+    transforms = model.transforms
+
     image_paths = []
     detections = []
     for sample in fbu.optimize_samples(samples, fields=[roi_field]):
@@ -210,7 +213,9 @@ def _make_patch_data_loader(samples, transforms, roi_field):
         image_paths, detections, transforms, force_rgb=True
     )
 
-    return torch.utils.data.DataLoader(dataset, batch_size=1, num_workers=4)
+    return torch.utils.data.DataLoader(
+        dataset, batch_size=1, num_workers=num_workers
+    )
 
 
 def _parse_rois(sample, roi_field):
