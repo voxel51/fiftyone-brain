@@ -53,7 +53,7 @@ class CustomBdistWheel(bdist_wheel):
 
         # rewrite platform names - we currently only support 64-bit targets
         if self.plat_name.startswith("linux"):
-            self.plat_name = "linux_x86_64"
+            self.plat_name = "manylinux1_x86_64"
             pyarmor_platform = "linux.x86_64"
         elif self.plat_name.startswith("mac"):
             # unclear what minimum version PyArmor requires, but the .dylib was
@@ -89,7 +89,7 @@ with open("PYPI_README.md", "r") as fh:
     long_description = fh.read()
 
 
-VERSION = "0.1.10"
+VERSION = "0.1.12"
 
 
 def get_version():
@@ -119,6 +119,7 @@ setup(
     classifiers=[
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX :: Linux",
+        "Operating System :: Microsoft :: Windows",
         "Programming Language :: Python :: 3",
     ],
     scripts=[],

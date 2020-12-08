@@ -137,10 +137,20 @@ jobs:
       - name: Install dependencies
         run: |
           pip3 install twine
-      - name: Upload to pypi.voxel51.com
+      - name: Set environment
         env:
-          TWINE_USERNAME: voxel51-ci
-          TWINE_PASSWORD: ${{ secrets.FIFTYONE_GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref }}
+        run: |
+          if [[ $RELEASE_TAG =~ ^refs\/tags\/v.*-rc\..*$ ]]; then
+             echo "TWINE_PASSWORD=${{ secrets.FIFTYONE_TEST_PYPI_TOKEN }}" >> $GITHUB_ENV
+             echo "TWINE_REPOSITORY=testpypi" >> $GITHUB_ENV
+          else
+             echo "TWINE_PASSWORD=${{ secrets.FIFTYONE_PYPI_TOKEN }}" >> $GITHUB_ENV
+             echo "TWINE_REPOSITORY=pypi" >> $GITHUB_ENV
+          fi
+      - name: Upload to pypi
+        env:
+          TWINE_USERNAME: __token__
           TWINE_NON_INTERACTIVE: 1
         run: |
-          python3 -m twine upload --repository-url https://pypi.voxel51.com downloads/wheel-*/*.whl
+          python3 -m twine upload downloads/wheel-*/*.whl
