@@ -24,23 +24,8 @@ logger = logging.getLogger(__name__)
 _ALLOWED_TYPES = (fol.Classification, fol.Classifications)
 
 
-def compute_hardness(samples, label_field, hardness_field="hardness"):
-    """Adds a hardness field to each sample scoring the difficulty that the
-    specified label field observed in classifying the sample.
-
-    Hardness is a measure computed based on model prediction output (through
-    logits) that summarizes a measure of the uncertainty the model had with the
-    sample. This makes hardness quantitative and can be used to detect things
-    like hard samples, annotation errors during noisy training, and more.
-
-    Args:
-        samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
-        label_field: the :class:`fiftyone.core.labels.Classification` or
-            :class:`fiftyone.core.labels.Classifications` field to use from
-            each sample
-        hardness_field ("hardness"): the field name to use to store the
-            hardness value for each sample
-    """
+def compute_hardness(samples, label_field, hardness_field):
+    """See ``fiftyone/brain/__init__.py``."""
 
     #
     # Algorithm
