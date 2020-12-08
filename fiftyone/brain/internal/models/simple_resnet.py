@@ -13,12 +13,13 @@ import os
 
 import numpy as np
 import torch
+from torch import nn
 
 
 def simple_resnet(
     channels=None,
     weight=0.125,
-    pool=torch.nn.MaxPool2d(2),
+    pool=nn.MaxPool2d(2),
     extra_layers=(),
     res_layers=("layer1", "layer3"),
 ):
@@ -28,7 +29,7 @@ def simple_resnet(
         "layer2": 256,
         "layer3": 512,
     }
-    n = {
+    net = {
         "input": (None, []),
         "prep": conv_bn(3, channels["prep"]),
         "layer1": dict(
@@ -40,25 +41,22 @@ def simple_resnet(
         "layer3": dict(
             conv_bn(channels["layer2"], channels["layer3"]), pool=pool
         ),
-        "pool": torch.nn.MaxPool2d(4),
+        "pool": nn.MaxPool2d(4),
         "flatten": Flatten(),
-        "linear": torch.nn.Linear(channels["layer3"], 10, bias=False),
+        "linear": nn.Linear(channels["layer3"], 10, bias=False),
         "logits": Mul(weight),
     }
     for layer in res_layers:
-        n[layer]["residual"] = residual(channels[layer])
+        net[layer]["residual"] = residual(channels[layer])
 
     for layer in extra_layers:
-        n[layer]["extra"] = conv_bn(channels[layer], channels[layer])
+        net[layer]["extra"] = conv_bn(channels[layer], channels[layer])
 
-    # This is a small model with a fixed size, so let cudnn optimize
-    torch.backends.cudnn.benchmark = True
-
-    return Network(n, "input", "logits")
+    return Network(net, input_layer="input", output_layer="logits")
 
 
-class Network(torch.nn.Module):
-    def __init__(self, net, input_layer, output_layer):
+class Network(nn.Module):
+    def __init__(self, net, input_layer=None, output_layer=None):
         super().__init__()
         self.input_layer = input_layer
         self.output_layer = output_layer
@@ -69,19 +67,26 @@ class Network(torch.nn.Module):
     def nodes(self):
         return (node for node, _ in self.graph.values())
 
-    def forward(self, imgs):
-        outputs = {self.input_layer: imgs}
+    def forward(self, inputs):
+        if self.input_layer:
+            outputs = {self.input_layer: inputs}
+        else:
+            outputs = dict(inputs)
+
         for k, (node, ins) in self.graph.items():
             # only compute nodes that are not supplied as inputs.
             if k not in outputs:
                 outputs[k] = node(*[outputs[x] for x in ins])
 
-        return outputs[self.output_layer]
+        if self.output_layer:
+            return outputs[self.output_layer]
+
+        return outputs
 
     def half(self):
         for node in self.nodes():
-            if isinstance(node, torch.nn.Module) and not isinstance(
-                node, torch.nn.BatchNorm2d
+            if isinstance(node, nn.Module) and not isinstance(
+                node, nn.BatchNorm2d
             ):
                 node.half()
 
@@ -182,7 +187,7 @@ class AddWeighted(namedtuple("AddWeighted", ["wx", "wy"])):
         return self.wx * x + self.wy * y
 
 
-class Mul(torch.nn.Module):
+class Mul(nn.Module):
     def __init__(self, weight):
         super().__init__()
         self.weight = weight
@@ -191,17 +196,17 @@ class Mul(torch.nn.Module):
         return x * self.weight
 
 
-class Flatten(torch.nn.Module):
+class Flatten(nn.Module):
     def forward(self, x):
         return x.view(x.size(0), x.size(1))
 
 
-class Concat(torch.nn.Module):
+class Concat(nn.Module):
     def forward(self, *xs):
         return torch.cat(xs, 1)
 
 
-class BatchNorm(torch.nn.BatchNorm2d):
+class BatchNorm(nn.BatchNorm2d):
     def __init__(
         self,
         num_features,
@@ -225,11 +230,11 @@ class BatchNorm(torch.nn.BatchNorm2d):
 
 def conv_bn(c_in, c_out):
     return {
-        "conv": torch.nn.Conv2d(
+        "conv": nn.Conv2d(
             c_in, c_out, kernel_size=3, stride=1, padding=1, bias=False
         ),
         "bn": BatchNorm(c_out),
-        "relu": torch.nn.ReLU(True),
+        "relu": nn.ReLU(True),
     }
 
 
