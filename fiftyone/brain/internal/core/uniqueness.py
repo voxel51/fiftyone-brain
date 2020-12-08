@@ -166,7 +166,7 @@ def _compute_uniqueness(embeddings):
     return sample_dists
 
 
-def _make_data_loader(samples, model, num_workers=4):
+def _make_data_loader(samples, model):
     image_paths = []
     for sample in fbu.optimize_samples(samples):
         fbu.validate_image(sample)
@@ -178,12 +178,10 @@ def _make_data_loader(samples, model, num_workers=4):
     )
 
     batch_size = model.batch_size or 1
-    return torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, num_workers=num_workers
-    )
+    return torch.utils.data.DataLoader(dataset, batch_size=batch_size)
 
 
-def _make_patch_data_loader(samples, model, roi_field, num_workers=4):
+def _make_patch_data_loader(samples, model, roi_field):
     image_paths = []
     detections = []
     for sample in fbu.optimize_samples(samples, fields=[roi_field]):
@@ -206,9 +204,7 @@ def _make_patch_data_loader(samples, model, roi_field, num_workers=4):
         image_paths, detections, model.transforms, force_rgb=True
     )
 
-    return torch.utils.data.DataLoader(
-        dataset, batch_size=1, num_workers=num_workers
-    )
+    return torch.utils.data.DataLoader(dataset, batch_size=1)
 
 
 def _parse_rois(sample, roi_field):
