@@ -1,21 +1,21 @@
 {
     "models": [
         {
-            "base_name": "simple_resnet_cifar10",
-            "base_filename": "simple_resnet_cifar10.pth",
+            "base_name": "simple-resnet-cifar10",
+            "base_filename": "simple-resnet-cifar10.pth",
             "version": "1.0",
-            "description": "Simple internal Resnet classifier implementation trained on CIFAR-10",
+            "description": "Simple ResNet trained on CIFAR-10",
             "manager": {
-                "type": "eta.core.models.ETAModelManager",
+                "type": "fiftyone.core.models.ModelManager",
                 "config": {
                     "google_drive_id": "1SIO9XreK0w1ja4EuhBWcR10CnWxCOsom"
                 }
             },
             "default_deployment_config_dict": {
-                "type": "fiftyone.utils.torch.TorchImageModel",
+                "type": "fiftyone.brain.internal.models.torch.TorchImageModel",
                 "config": {
                     "model_name": "simple_resnet_cifar10",
-                    "entrypoint_fcn": "fiftyone.brain.internal.models.simple_resnet",
+                    "entrypoint_fcn": "fiftyone.brain.internal.models.simple_resnet.simple_resnet",
                     "output_processor_cls": "fiftyone.utils.torch.ClassifierOutputProcessor",
                     "labels_string": "airplane,automobile,bird,cat,deer,dog,frog,horse,ship,truck",
                     "use_half_precision": true,

@@ -11,17 +11,14 @@ import warnings
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
-import eta.core.learning as etal
-
 import fiftyone.core.collections as foc
 import fiftyone.core.labels as fol
 import fiftyone.core.utils as fou
 
 import fiftyone.brain.internal.core.utils as fbu
+import fiftyone.brain.internal.models as fbm
 
-# Ensure that `torch` and `torchvision` are installed
 fou.ensure_torch()
-
 import torch
 import fiftyone.utils.torch as fout
 
@@ -92,7 +89,7 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
 
 def _load_model():
     logger.info("Loading uniqueness model...")
-    return etal.load_default_deployment_model("simple_resnet_cifar10")
+    return fbm.load_model("simple_resnet_cifar10")
 
 
 def _compute_embeddings(samples, model):

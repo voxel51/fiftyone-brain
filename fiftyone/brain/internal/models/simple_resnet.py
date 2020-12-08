@@ -14,17 +14,6 @@ import os
 import numpy as np
 import torch
 
-import eta.core.learning as etal
-
-
-def simple_resnet_cifar10():
-    return etal.load_default_deployment_model("simple_resnet_cifar10")
-
-
-#
-# Network definition
-#
-
 
 def simple_resnet(
     channels=None,
