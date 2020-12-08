@@ -113,6 +113,8 @@ setup(
     author_email="info@voxel51.com",
     url="https://github.com/voxel51/fiftyone-brain",
     license="Freeware (Custom)",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     packages=["fiftyone.brain"],
     include_package_data=True,
     install_requires=["numpy", "scipy>=1.2.0", "scikit-learn"],

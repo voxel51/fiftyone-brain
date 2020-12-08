@@ -30,6 +30,16 @@ jobs:
         run: |
           pip install --upgrade pip setuptools wheel
           pip install pyarmor twine
+      - name: Set environment
+        env:
+          RELEASE_TAG: ${{ github.ref }}
+        run: |
+          if [[ $RELEASE_TAG =~ ^refs\/tags\/v.* ]]; then
+             echo "RELEASE_VERSION=$(echo '${{ github.ref }}' | sed 's/^refs\/tags\/v//')" >> $GITHUB_ENV
+          fi
+      - name: Build wheel
+        run: |
+          python setup.py bdist_wheel
       - name: Build wheel (Linux)
         run: |
           python setup.py bdist_wheel --plat-name linux
