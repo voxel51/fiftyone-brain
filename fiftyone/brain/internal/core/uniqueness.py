@@ -89,7 +89,7 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
 
 def _load_model():
     logger.info("Loading uniqueness model...")
-    return fbm.load_model("simple_resnet_cifar10")
+    return fbm.load_model("simple-resnet-cifar10")
 
 
 def _compute_embeddings(samples, model):
@@ -167,9 +167,6 @@ def _compute_uniqueness(embeddings):
 
 
 def _make_data_loader(samples, model, num_workers=4):
-    batch_size = model.batch_size or 1
-    transforms = model.transforms
-
     image_paths = []
     for sample in fbu.optimize_samples(samples):
         fbu.validate_image(sample)
@@ -177,17 +174,16 @@ def _make_data_loader(samples, model, num_workers=4):
         image_paths.append(sample.filepath)
 
     dataset = fout.TorchImageDataset(
-        image_paths, transform=transforms, force_rgb=True
+        image_paths, transform=model.transforms, force_rgb=True
     )
 
+    batch_size = model.batch_size or 1
     return torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, num_workers=num_workers
     )
 
 
 def _make_patch_data_loader(samples, model, roi_field, num_workers=4):
-    transforms = model.transforms
-
     image_paths = []
     detections = []
     for sample in fbu.optimize_samples(samples, fields=[roi_field]):
@@ -207,7 +203,7 @@ def _make_patch_data_loader(samples, model, roi_field, num_workers=4):
         detections.append(rois)
 
     dataset = fout.TorchImagePatchesDataset(
-        image_paths, detections, transforms, force_rgb=True
+        image_paths, detections, model.transforms, force_rgb=True
     )
 
     return torch.utils.data.DataLoader(
