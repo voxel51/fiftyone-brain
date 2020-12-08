@@ -163,7 +163,9 @@ def _make_data_loader(samples, model):
     )
 
     batch_size = model.batch_size or 1
-    return torch.utils.data.DataLoader(dataset, batch_size=batch_size)
+    return torch.utils.data.DataLoader(
+        dataset, batch_size=batch_size, num_workers=4
+    )
 
 
 def _make_patch_data_loader(samples, model, roi_field):
@@ -189,7 +191,7 @@ def _make_patch_data_loader(samples, model, roi_field):
         image_paths, detections, model.transforms, force_rgb=True
     )
 
-    return torch.utils.data.DataLoader(dataset, batch_size=1)
+    return torch.utils.data.DataLoader(dataset, batch_size=1, num_workers=4)
 
 
 def _parse_rois(sample, roi_field):
