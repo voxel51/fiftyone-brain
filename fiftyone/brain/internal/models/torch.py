@@ -15,9 +15,11 @@ import torch
 class TorchImageModelConfig(fout.TorchImageModelConfig, HasBrainModel):
     """Configuration for running a :class:`TorchImageModel`.
 
+    See :class:`fiftyone.utils.torch.TorchImageModelConfig` for additional
+    parameters.
+
     Args:
-        model_name (None): the name of a zoo model containing a state dict to
-            load
+        model_name (None): the name of the Brain model state dict to load
         model_path (None): the path to a state dict on disk to load
     """
 
