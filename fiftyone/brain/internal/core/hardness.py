@@ -16,8 +16,6 @@ import fiftyone.core.labels as fol
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 
-import fiftyone.brain.internal.core.utils as fbu
-
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +32,10 @@ def compute_hardness(samples, label_field, hardness_field):
     # Hardness is computed directly as the entropy of the logits
     #
 
-    if isinstance(samples, foc.SampleCollection):
-        fov.validate_collection_label_fields(
-            samples, [label_field], _ALLOWED_TYPES
-        )
+    fov.validate_collection(samples)
+    fov.validate_collection_label_fields(samples, label_field, _ALLOWED_TYPES)
 
-    samples = fbu.optimize_samples(samples, fields=[label_field])
+    samples = samples.select_fields(label_field)
 
     logger.info("Computing hardness...")
     with fou.ProgressBar() as pb:

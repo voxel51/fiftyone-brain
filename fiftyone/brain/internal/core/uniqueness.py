@@ -16,7 +16,6 @@ import fiftyone.core.labels as fol
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 
-import fiftyone.brain.internal.core.utils as fbu
 import fiftyone.brain.internal.models as fbm
 
 fou.ensure_torch()
@@ -50,9 +49,11 @@ def compute_uniqueness(samples, uniqueness_field, roi_field):
     # to dense clusters of related samples.
     #
 
-    if roi_field is not None and isinstance(samples, foc.SampleCollection):
+    fov.validate_collection(samples)
+
+    if roi_field is not None:
         fov.validate_collection_label_fields(
-            samples, [roi_field], _ALLOWED_ROI_FIELD_TYPES
+            samples, roi_field, _ALLOWED_ROI_FIELD_TYPES
         )
 
     model = _load_model()
@@ -66,7 +67,7 @@ def compute_uniqueness(samples, uniqueness_field, roi_field):
 
     logger.info("Saving results...")
     with fou.ProgressBar() as pb:
-        for sample, val in zip(pb(fbu.optimize_samples(samples)), uniqueness):
+        for sample, val in zip(pb(samples.select_fields()), uniqueness):
             sample[uniqueness_field] = val
             sample.save()
 
@@ -154,7 +155,7 @@ def _compute_uniqueness(embeddings):
 
 def _make_data_loader(samples, model):
     image_paths = []
-    for sample in fbu.optimize_samples(samples):
+    for sample in samples.select_fields():
         fov.validate_image(sample)
 
         image_paths.append(sample.filepath)
@@ -177,7 +178,7 @@ def _make_data_loader(samples, model):
 def _make_patch_data_loader(samples, model, roi_field):
     image_paths = []
     detections = []
-    for sample in fbu.optimize_samples(samples, fields=[roi_field]):
+    for sample in samples.select_fields(roi_field):
         fov.validate_image(sample)
 
         rois = _parse_rois(sample, roi_field)
