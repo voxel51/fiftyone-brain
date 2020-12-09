@@ -14,6 +14,7 @@ from sklearn.neighbors import NearestNeighbors
 import fiftyone.core.collections as foc
 import fiftyone.core.labels as fol
 import fiftyone.core.utils as fou
+import fiftyone.core.validation as fov
 
 import fiftyone.brain.internal.core.utils as fbu
 import fiftyone.brain.internal.models as fbm
@@ -50,7 +51,7 @@ def compute_uniqueness(samples, uniqueness_field, roi_field):
     #
 
     if roi_field is not None and isinstance(samples, foc.SampleCollection):
-        fbu.validate_collection_label_fields(
+        fov.validate_collection_label_fields(
             samples, [roi_field], _ALLOWED_ROI_FIELD_TYPES
         )
 
@@ -154,7 +155,7 @@ def _compute_uniqueness(embeddings):
 def _make_data_loader(samples, model):
     image_paths = []
     for sample in fbu.optimize_samples(samples):
-        fbu.validate_image(sample)
+        fov.validate_image(sample)
 
         image_paths.append(sample.filepath)
 
@@ -177,7 +178,7 @@ def _make_patch_data_loader(samples, model, roi_field):
     image_paths = []
     detections = []
     for sample in fbu.optimize_samples(samples, fields=[roi_field]):
-        fbu.validate_image(sample)
+        fov.validate_image(sample)
 
         rois = _parse_rois(sample, roi_field)
         if not rois.detections:
