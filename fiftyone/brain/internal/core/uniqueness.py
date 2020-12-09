@@ -11,7 +11,7 @@ import warnings
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
-import fiftyone.core.collections as foc
+import fiftyone as fo
 import fiftyone.core.labels as fol
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
@@ -32,6 +32,7 @@ _ALLOWED_ROI_FIELD_TYPES = (
     fol.Polyline,
     fol.Polylines,
 )
+_DEFAULT_BATCH_SIZE = 16
 
 
 def compute_uniqueness(samples, uniqueness_field, roi_field):
@@ -84,21 +85,16 @@ def _compute_embeddings(samples, model):
     data_loader = _make_data_loader(samples, model)
 
     logger.info("Generating embeddings...")
-    embeddings = None
+    embeddings = []
     with fou.ProgressBar(samples) as pb:
         with model:
             for imgs in data_loader:
-                vectors = model.embed_all(imgs)
-
-                if embeddings is None:
-                    embeddings = vectors
-                else:
-                    embeddings = np.vstack((embeddings, vectors))
+                embeddings_batch = model.embed_all(imgs)
+                embeddings.append(embeddings_batch)
 
                 pb.set_iteration(pb.iteration + len(imgs))
 
-    # `num_samples x dim` array of embeddings
-    return embeddings
+    return np.concatenate(embeddings)
 
 
 def _compute_patch_embeddings(samples, model, roi_field):
@@ -106,25 +102,26 @@ def _compute_patch_embeddings(samples, model, roi_field):
     data_loader = _make_patch_data_loader(samples, model, roi_field)
 
     logger.info("Generating embeddings...")
-    embeddings = None
+    batch_size = fo.config.default_batch_size or _DEFAULT_BATCH_SIZE
+    embeddings = []
     with fou.ProgressBar(samples) as pb:
         with model:
             for patches in pb(data_loader):
                 patches = torch.squeeze(patches, dim=0)
-                patch_vectors = model.embed_all(patches)
+
+                patch_embeddings = []
+                for patch_batch in fou.iter_slices(patches, batch_size):
+                    patch_batch_embeddings = model.embed_all(patch_batch)
+                    patch_embeddings.append(patch_batch_embeddings)
+
+                patch_embeddings = np.concatenate(patch_embeddings)
 
                 # Aggregate over patches
                 # @todo experiment with mean(), max(), abs().max(), etc
-                vectors = patch_vectors.max(axis=0)
+                embedding = patch_embeddings.max(axis=0)
+                embeddings.append(embedding)
 
-                if embeddings is None:
-                    embeddings = vectors
-                else:
-                    # @todo if speed is an issue, fix this...
-                    embeddings = np.vstack((embeddings, vectors))
-
-    # `num_samples x dim` array of embeddings
-    return embeddings
+    return np.stack(embeddings)
 
 
 def _compute_uniqueness(embeddings):
@@ -169,7 +166,7 @@ def _make_data_loader(samples, model):
     # https://stackoverflow.com/q/64772335
     num_workers = 4 if torch.cuda.is_available() else 0
 
-    batch_size = model.batch_size or 1
+    batch_size = fo.config.default_batch_size or _DEFAULT_BATCH_SIZE
     return torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, num_workers=num_workers
     )
@@ -182,7 +179,7 @@ def _make_patch_data_loader(samples, model, roi_field):
         fov.validate_image(sample)
 
         rois = _parse_rois(sample, roi_field)
-        if not rois.detections:
+        if rois is None or not rois.detections:
             # Use entire image as ROI
             msg = "Sample found with no ROI; using the entire image..."
             warnings.warn(msg)
@@ -223,13 +220,4 @@ def _parse_rois(sample, roi_field):
     if isinstance(label, fol.Polylines):
         return label.to_detections()
 
-    raise ValueError(
-        "Sample '%s' field '%s' (%s) is not a valid ROI field; must be a %s "
-        "instance"
-        % (
-            sample.id,
-            roi_field,
-            label.__class__.__name__,
-            set(t.__name__ for t in _ALLOWED_ROI_FIELD_TYPES),
-        )
-    )
+    return None
