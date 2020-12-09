@@ -20,7 +20,6 @@
                     "image_size": [32, 32],
                     "image_mean": [0.4914, 0.4822, 0.4465],
                     "image_std": [0.2023, 0.1994, 0.201],
-                    "batch_size": 16,
                     "embeddings_layer": "flatten",
                     "use_half_precision": true,
                     "cudnn_benchmark": true
