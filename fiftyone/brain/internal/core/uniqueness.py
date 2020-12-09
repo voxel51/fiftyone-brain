@@ -107,8 +107,6 @@ def _compute_patch_embeddings(samples, model, roi_field):
     with fou.ProgressBar(samples) as pb:
         with model:
             for patches in pb(data_loader):
-                patches = torch.squeeze(patches, dim=0)
-
                 patch_embeddings = []
                 for patch_batch in fou.iter_slices(patches, batch_size):
                     patch_batch_embeddings = model.embed_all(patch_batch)
@@ -166,9 +164,14 @@ def _make_data_loader(samples, model):
     # https://stackoverflow.com/q/64772335
     num_workers = 4 if torch.cuda.is_available() else 0
 
+    if model.ragged_batches:
+        kwargs = dict(collate_fn=lambda batch: batch)  # return list
+    else:
+        kwargs = {}
+
     batch_size = fo.config.default_batch_size or _DEFAULT_BATCH_SIZE
     return torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, num_workers=num_workers
+        dataset, batch_size=batch_size, num_workers=num_workers, **kwargs
     )
 
 
@@ -192,7 +195,11 @@ def _make_patch_data_loader(samples, model, roi_field):
         detections.append(rois)
 
     dataset = fout.TorchImagePatchesDataset(
-        image_paths, detections, model.transforms, force_rgb=True
+        image_paths,
+        detections,
+        model.transforms,
+        ragged_batches=model.ragged_batches,
+        force_rgb=True,
     )
 
     # There is a parallelism bug in torch==1.7 on CPU that prevents us from
@@ -201,7 +208,10 @@ def _make_patch_data_loader(samples, model, roi_field):
     num_workers = 4 if torch.cuda.is_available() else 0
 
     return torch.utils.data.DataLoader(
-        dataset, batch_size=1, num_workers=num_workers
+        dataset,
+        batch_size=1,
+        num_workers=num_workers,
+        collate_fn=lambda batch: batch[0],  # return patches directly
     )
 
 
