@@ -68,6 +68,8 @@ jobs:
   test:
     needs: [build]
     runs-on: ubuntu-18.04
+    env:
+      FIFTYONE_DO_NOT_TRACK: true
     strategy:
       fail-fast: false
       matrix:
