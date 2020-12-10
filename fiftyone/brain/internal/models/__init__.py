@@ -180,7 +180,7 @@ def load_model(
     config_dict = deepcopy(model.default_deployment_config_dict)
     model_path = model.get_path_in_dir(_MODELS_DIR)
 
-    return fom.build_model(config_dict, model_path=model_path, **kwargs)
+    return fom.load_model(config_dict, model_path=model_path, **kwargs)
 
 
 def find_model(name):

@@ -60,8 +60,10 @@ def compute_uniqueness(samples, uniqueness_field, roi_field):
     model = _load_model()
 
     if roi_field is None:
+        # @todo use fiftyone.utils.torch.compute_torch_image_embeddings?
         embeddings = _compute_embeddings(samples, model)
     else:
+        # @todo use fiftyone.utils.torch.compute_torch_image_patch_embeddings?
         embeddings = _compute_patch_embeddings(samples, model, roi_field)
 
     uniqueness = _compute_uniqueness(embeddings)
@@ -77,7 +79,13 @@ def compute_uniqueness(samples, uniqueness_field, roi_field):
 
 def _load_model():
     logger.info("Loading uniqueness model...")
-    return fbm.load_model("simple-resnet-cifar10")
+    model = fbm.load_model("simple-resnet-cifar10")
+    if model.ragged_batches:
+        raise ValueError(
+            "This method does not support models with ragged batches"
+        )
+
+    return model
 
 
 def _compute_embeddings(samples, model):
@@ -159,19 +167,10 @@ def _make_data_loader(samples, model):
         image_paths, transform=model.transforms, force_rgb=True
     )
 
-    # There is a parallelism bug in torch==1.7 on CPU that prevents us from
-    # using `num_workers > 0`
-    # https://stackoverflow.com/q/64772335
-    num_workers = 4 if torch.cuda.is_available() else 0
-
-    if model.ragged_batches:
-        kwargs = dict(collate_fn=lambda batch: batch)  # return list
-    else:
-        kwargs = {}
-
     batch_size = fo.config.default_batch_size or _DEFAULT_BATCH_SIZE
+    num_workers = fout.recommend_num_workers()
     return torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, num_workers=num_workers, **kwargs
+        dataset, batch_size=batch_size, num_workers=num_workers
     )
 
 
@@ -195,18 +194,10 @@ def _make_patch_data_loader(samples, model, roi_field):
         detections.append(rois)
 
     dataset = fout.TorchImagePatchesDataset(
-        image_paths,
-        detections,
-        model.transforms,
-        ragged_batches=model.ragged_batches,
-        force_rgb=True,
+        image_paths, detections, model.transforms, force_rgb=True
     )
 
-    # There is a parallelism bug in torch==1.7 on CPU that prevents us from
-    # using `num_workers > 0`
-    # https://stackoverflow.com/q/64772335
-    num_workers = 4 if torch.cuda.is_available() else 0
-
+    num_workers = fout.recommend_num_workers()
     return torch.utils.data.DataLoader(
         dataset,
         batch_size=1,
