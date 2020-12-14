@@ -102,8 +102,8 @@ jobs:
           git clone https://${{ secrets.FIFTYONE_GITHUB_TOKEN }}@github.com/voxel51/fiftyone fiftyone-src --depth 1 --branch colab
           cd fiftyone-src
           python setup.py bdist_wheel
+          pip install --pre --extra-index-url https://test.pypi.org/simple/ voxel51-eta[storage] fiftyone-db
           pip install ./dist/*.whl
-          pip install --pre --extra-index-url https://test.pypi.org/simple/ voxel51-eta[storage]
       - name: Set up ETA credentials
         env:
           FIFTYONE_GOOGLE_CREDENTIALS: ${{ secrets.FIFTYONE_GOOGLE_CREDENTIALS }}
