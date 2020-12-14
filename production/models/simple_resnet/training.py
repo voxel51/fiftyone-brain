@@ -117,6 +117,7 @@ def opt_step(update, param_schedule, step_number, weights, opt_state):
     for w, v in zip(weights, opt_state):
         if w.requires_grad:
             update(w.data, w.grad.data, v, **param_values)
+
     return {
         "update": update,
         "param_schedule": param_schedule,
@@ -149,6 +150,7 @@ def reduce(batches, state, steps):
             if updates:
                 for k, v in updates.items():
                     state[k] = v
+
     return state
 
 
@@ -156,6 +158,7 @@ def forward(training_mode):
     def step(batch, state):
         if not batch:
             return
+
         model = (
             state[MODEL]
             if training_mode or (VALID_MODEL not in state)
@@ -163,6 +166,7 @@ def forward(training_mode):
         )
         if model.training != training_mode:  # without the guard it's slow!
             model.train(training_mode)
+
         return {OUTPUT: state[LOSS](model(batch))}
 
     return step
@@ -173,9 +177,11 @@ def backward(dtype=None):
         state[MODEL].zero_grad()
         if not batch:
             return
+
         loss = state[OUTPUT][LOSS]
         if dtype is not None:
             loss = loss.to(dtype)
+
         loss.sum().backward()
 
     return step
@@ -184,6 +190,7 @@ def backward(dtype=None):
 def opt_steps(batch, state):
     if not batch:
         return
+
     return {OPTS: [opt_step(**opt) for opt in state[OPTS]]}
 
 

@@ -1,299 +1,106 @@
 """
-Implementation of a simple Resnet that is suitable only for smallish data.
+Implementation of a simple ResNet that is suitable only for smallish data.
 
 The original implementation of this is from David Page's work on fast model
 training with resnets at https://github.com/davidcpage/cifar10-fast.
-
-@todo This code needs to be significantly clean and tightened.  It is here now
-just to get something in the codebase with a model that we can train for use in
-a variety of tests and other things like developing uniqueness.
 
 | Copyright 2017-2020, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
-from os.path import normpath, sep
 from collections import namedtuple
+import os
 
 import numpy as np
-from PIL import Image as PILImage
 import torch
 from torch import nn
-import torchvision
-
-from eta.core.config import Config, ConfigError
-import eta.core.data as etad
-import eta.core.learning as etal
-import eta.core.models as etam
 
 
-# This is a small model with a fixed size, so let cudnn optimize
-torch.backends.cudnn.benchmark = True
-
-__use_gpu__ = torch.cuda.is_available()
-__device__ = torch.device("cuda:0" if __use_gpu__ else "cpu")
-
-
-class SimpleResnetImageClassifierConfig(
-    Config, etal.HasDefaultDeploymentConfig
+def simple_resnet(
+    channels=None,
+    weight=0.125,
+    pool=nn.MaxPool2d(2),
+    extra_layers=(),
+    res_layers=("layer1", "layer3"),
 ):
-    """SimpleResnetImageClassifier configuration settings.
+    channels = channels or {
+        "prep": 64,
+        "layer1": 128,
+        "layer2": 256,
+        "layer3": 512,
+    }
+    net = {
+        "input": (None, []),
+        "prep": conv_bn(3, channels["prep"]),
+        "layer1": dict(
+            conv_bn(channels["prep"], channels["layer1"]), pool=pool
+        ),
+        "layer2": dict(
+            conv_bn(channels["layer1"], channels["layer2"]), pool=pool
+        ),
+        "layer3": dict(
+            conv_bn(channels["layer2"], channels["layer3"]), pool=pool
+        ),
+        "pool": nn.MaxPool2d(4),
+        "flatten": Flatten(),
+        "linear": nn.Linear(channels["layer3"], 10, bias=False),
+        "logits": Mul(weight),
+    }
+    for layer in res_layers:
+        net[layer]["residual"] = residual(channels[layer])
 
-    Attributes:
-        model_name: the name of the published model to load.  If this value is
-            provided, ``model_path`` does not need to be
-        model_path: the path to the model ``.pth`` weights to use.  If this
-            value is provided, ``model_name`` does not need to be
-        labels_string: a comma-separated list of the class-names in the
-            classifier, ordered in accordance with the trained model
-        image_mean: a 3-array of mean values in ``[0, 1]`` for preprocessing
-            the input
-        image_std: a 3-array of std values in ``[0, 1]`` for preprocessing the
-            input
-    """
+    for layer in extra_layers:
+        net[layer]["extra"] = conv_bn(channels[layer], channels[layer])
 
-    def __init__(self, d):
-        self.model_name = self.parse_string(d, "model_name", default=None)
-        self.model_path = self.parse_string(d, "model_path", default=None)
-
-        if self.model_name:
-            d = self.load_default_deployment_params(d, self.model_name)
-
-        self.image_mean = self.parse_array(d, "image_mean", default=None)
-        self.image_std = self.parse_array(d, "image_std", default=None)
-
-        self.labels_string = self.parse_string(
-            d, "labels_string", default=None
-        )
-
-        self._validate()
-
-    def _validate(self):
-        if not self.model_name and not self.model_path:
-            raise ConfigError(
-                "Either `model_name` or `model_path` must be provided"
-            )
-
-        if not self.image_mean or not self.image_std:
-            raise ConfigError(
-                "Both `image_mean` and `image_std` must be provided"
-            )
+    return Network(net, input_layer="input", output_layer="logits")
 
 
-class SimpleResnetImageClassifier(etal.ImageClassifier):
-    """A simple Resnet implementation.
+class Network(nn.Module):
+    def __init__(self, net, input_layer=None, output_layer=None):
+        super().__init__()
+        self.input_layer = input_layer
+        self.output_layer = output_layer
+        self.graph = build_graph(net)
+        for path, (val, _) in self.graph.items():
+            setattr(self, path.replace("/", "_"), val)
 
-    This implementation assumes that the preprocessing transformations have
-    already been applied to the images before they are sent to the prediction
-    and related functions.  If you want these functions to perform the
-    preprocessing for you, then you need to call `toggle_preprocess()` first.
-    Typically, this is not needed when you are working with Torch DataLoaders,
-    for example.
+    def nodes(self):
+        return (node for node, _ in self.graph.values())
 
-    Current implementation supports single processing of Numpy Arrays and PIL
-    Images (with or without preprocessing) and batch processing of Torch
-    Tensors (already preprocessed).
-
-    Attributes:
-        config: a :class:`SimpleResnetImageClassifierConfig`
-    """
-
-    """
-    @todo Can we make a more generic bridge to ETA for Torch models that would
-    specify some location or function that defines the graph but is otherwise
-    generic?
-    """
-
-    def __init__(self, config):
-        self.config = config
-
-        if self.config.model_path:
-            self.weights_path = self.config.model_path
+    def forward(self, inputs):
+        if self.input_layer:
+            outputs = {self.input_layer: inputs}
         else:
-            self.weights_path = etam.download_model(self.config.model_name)
+            outputs = dict(inputs)
 
-        self.labels_map = self.config.labels_string.split(", ")
-        self.labels_rev = {v: i for i, v in enumerate(self.labels_map)}
+        for k, (node, ins) in self.graph.items():
+            # only compute nodes that are not supplied as inputs.
+            if k not in outputs:
+                outputs[k] = node(*[outputs[x] for x in ins])
 
-        self._transforms = None
-        self._model = None
+        if self.output_layer:
+            return outputs[self.output_layer]
 
-        # This is toggled via toggle_preprocess()
-        self._preprocess = False
+        return outputs
 
-        self._setup_model()
+    def half(self):
+        for node in self.nodes():
+            if isinstance(node, nn.Module) and not isinstance(
+                node, nn.BatchNorm2d
+            ):
+                node.half()
 
-    def _setup_model(self):
-        # Instantiates the model and sets up any preprocessing, etc.
-        self._transforms = torchvision.transforms.Compose(
-            [
-                torchvision.transforms.Resize([32, 32]),
-                torchvision.transforms.ToTensor(),
-                torchvision.transforms.Normalize(
-                    self.config.image_mean, self.config.image_std
-                ),
-            ]
-        )
-
-        # Load the model
-        model = Network(simple_resnet()).to(__device__)
-        if __use_gpu__:
-            model = model.half()
-
-        model.load_state_dict(
-            torch.load(self.weights_path, map_location=__device__)
-        )
-        model.train(False)
-
-        self._model = model
-
-    @property
-    def transforms(self):
-        return self._transforms
-
-    @property
-    def model(self):
-        return self._model
-
-    def predict(self, img):
-        """Computes the prediction on a single image.
-
-        Args:
-            img: a PIL image, numpy array or Torch tensor (CHW)
-
-        Returns:
-            an ``eta.core.data.AttributeContainer``
-        """
-        if isinstance(img, torch.Tensor):
-            raise NotImplementedError("predict cannot accept torch.Tensor")
-
-        img = self._preprocess_if_needed(img)
-
-        # need to check the shape of img to ensure that it meets the contract,
-        # since the user may have passed in the numpy array directly and it was
-        # not preprocessed
-        if len(img.shape) != 4:
-            if isinstance(img, np.ndarray):
-                img = img[np.newaxis, :]
-            elif isinstance(img, torch.Tensor):
-                img = img.unsqueeze(0)
-
-        return self.predict_all(img)[0]
-
-    def predict_all(self, imgs):
-        """Computes predictions for the tensor of images.
-
-        This method assumes that the images are already preprocessed.
-
-        Args:
-            imgs: a Torch tensor or numpy array of images (NCHW)
-
-        Returns:
-            a list of ``eta.core.data.AttributeContainer`` instances
-        """
-        if isinstance(imgs, np.ndarray):
-            imgs = torch.from_numpy(imgs)
-
-        if __use_gpu__:
-            imgs = imgs.cuda().half()
-
-        inputs = dict(input=imgs)
-        outputs = self._model(inputs)
-        logits = np.float32(outputs["logits"].detach().cpu().numpy())
-        predictions = np.argmax(logits, axis=1)
-        odds = np.exp(logits)
-        confidences = np.max(odds, axis=1) / np.sum(odds, axis=1)
-
-        attributes = []
-        for prediction, confidence in zip(predictions, confidences):
-            attr = etad.CategoricalAttribute(
-                "label", self.labels_map[prediction], confidence=confidence
-            )
-            container = etad.AttributeContainer.from_iterable([attr])
-            attributes.append(container)
-
-        return attributes
-
-    def embed_all(self, imgs):
-        """Embeds the imgs into the model's space.
-
-        Args:
-            imgs: a Torch tensor or numpy array of images (NCHW)
-
-        Returns:
-            a ``num_ims x dim`` array of embeddings
-        """
-
-        #
-        # @todo Should this be an implementation of the get_features?
-        #
-        # unclear if the layer should be flatten or linear
-        #
-
-        imgs = self._preprocess_if_needed(imgs)
-
-        if __use_gpu__:
-            imgs = imgs.cuda().half()
-
-        inputs = dict(input=imgs)
-        outputs = self._model(inputs)
-        return np.float32(outputs["flatten"].detach().cpu().numpy())
-
-    def toggle_preprocess(self, set_to=None):
-        """Toggles the preprocessing boolean.
-
-        Args:
-            set_to (None): force preprocessing to True/False rather than
-                toggling
-        """
-        if set_to:
-            assert isinstance(set_to, bool)
-            self._preprocess = set_to
-        else:
-            self._preprocess = not self._preprocess
-
-    def _preprocess_if_needed(self, img):
-        """Preprocesses the single image through the transforms if needed."""
-        if self._preprocess:
-            print("preprocessing")
-            if isinstance(img, torch.Tensor):
-                return NotImplementedError(
-                    "Cannot preprocess Tensors at this time."
-                )
-            if isinstance(img, np.ndarray):
-                print("preprocessing from ndarray")
-                # CONVERT TO PIL
-                # need to separately process each image
-                if np.max(img) <= 1.00001:
-                    img = img * 255
-                img = PILImage.fromarray(np.uint8(img))
-
-            img = self._transforms(img)
-
-        return img
+        return self
 
 
-#
-## Utils; should they be moved elsewhere?
-#
-def path_iter(nested_dict, pfx=()):
-    for name, val in nested_dict.items():
-        if isinstance(val, dict):
-            yield from path_iter(val, (*pfx, name))
-        else:
-            yield ((*pfx, name), val)
-
-
-#
-## Define the network
-#
-has_inputs = lambda node: type(node) is tuple
+def has_inputs(node):
+    return type(node) is tuple
 
 
 def build_graph(net):
     flattened = pipeline(net)
     resolve_input = lambda rel_path, path, idx: (
-        normpath(sep.join((path, "..", rel_path)))
+        os.path.normpath(os.path.sep.join((path, "..", rel_path)))
         if isinstance(rel_path, str)
         else flattened[idx + rel_path][0]
     )
@@ -308,38 +115,9 @@ def build_graph(net):
 
 def pipeline(net):
     return [
-        (sep.join(path), (node if has_inputs(node) else (node, [-1])))
+        (os.path.sep.join(path), (node if has_inputs(node) else (node, [-1])))
         for (path, node) in path_iter(net)
     ]
-
-
-class Network(nn.Module):
-    def __init__(self, net):
-        super().__init__()
-        self.graph = build_graph(net)
-        for path, (val, _) in self.graph.items():
-            setattr(self, path.replace("/", "_"), val)
-
-    def nodes(self):
-        return (node for node, _ in self.graph.values())
-
-    def forward(self, inputs):
-        outputs = dict(inputs)
-        for k, (node, ins) in self.graph.items():
-            # only compute nodes that are not supplied as inputs.
-            if k not in outputs:
-                outputs[k] = node(*[outputs[x] for x in ins])
-
-        return outputs
-
-    def half(self):
-        for node in self.nodes():
-            if isinstance(node, nn.Module) and not isinstance(
-                node, nn.BatchNorm2d
-            ):
-                node.half()
-
-        return self
 
 
 class Crop(namedtuple("Crop", ("h", "w"))):
@@ -469,43 +247,12 @@ def residual(c):
     }
 
 
-def simple_resnet(
-    channels=None,
-    weight=0.125,
-    pool=nn.MaxPool2d(2),
-    extra_layers=(),
-    res_layers=("layer1", "layer3"),
-):
-    channels = channels or {
-        "prep": 64,
-        "layer1": 128,
-        "layer2": 256,
-        "layer3": 512,
-    }
-    n = {
-        "input": (None, []),
-        "prep": conv_bn(3, channels["prep"]),
-        "layer1": dict(
-            conv_bn(channels["prep"], channels["layer1"]), pool=pool
-        ),
-        "layer2": dict(
-            conv_bn(channels["layer1"], channels["layer2"]), pool=pool
-        ),
-        "layer3": dict(
-            conv_bn(channels["layer2"], channels["layer3"]), pool=pool
-        ),
-        "pool": nn.MaxPool2d(4),
-        "flatten": Flatten(),
-        "linear": nn.Linear(channels["layer3"], 10, bias=False),
-        "logits": Mul(weight),
-    }
-    for layer in res_layers:
-        n[layer]["residual"] = residual(channels[layer])
-
-    for layer in extra_layers:
-        n[layer]["extra"] = conv_bn(channels[layer], channels[layer])
-
-    return n
+def path_iter(nested_dict, pfx=()):
+    for name, val in nested_dict.items():
+        if isinstance(val, dict):
+            yield from path_iter(val, (*pfx, name))
+        else:
+            yield ((*pfx, name), val)
 
 
 MODEL = "model"

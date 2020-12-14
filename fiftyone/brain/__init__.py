@@ -20,7 +20,7 @@ def compute_hardness(samples, label_field, hardness_field="hardness"):
     like hard samples, annotation errors during noisy training, and more.
 
     Args:
-        samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
+        samples: a :class:`fiftyone.core.collections.SampleCollection`
         label_field: the :class:`fiftyone.core.labels.Classification` or
             :class:`fiftyone.core.labels.Classifications` field to use from
             each sample
@@ -89,7 +89,7 @@ def compute_mistakenness(
         spurious
 
     Args:
-        samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
+        samples: a :class:`fiftyone.core.collections.SampleCollection`
         pred_field: the name of the predicted label field to use from each
             sample. Can be of type
             :class:`fiftyone.core.labels.Classification`,
@@ -132,7 +132,7 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
     unlabeled samples.
 
     Args:
-        samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
+        samples: a :class:`fiftyone.core.collections.SampleCollection`
         uniqueness_field ("uniqueness"): the field name to use to store the
             uniqueness value for each sample
         roi_field (None): an optional :class:`fiftyone.core.labels.Detection`,

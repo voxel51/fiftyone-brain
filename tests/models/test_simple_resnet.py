@@ -1,105 +1,93 @@
 """
-Test drivers for the simple_resnet code.
+Tests for :mod:`fiftyone.brain.internal.models.simple_resnet`.
 
 | Copyright 2017-2020, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
-import pytest
-
 import imageio
 from PIL import Image
+import pytest
 import torch
 import torchvision
 
-import eta.core.data as etad
 import eta.core.image as etai
-import eta.core.learning as etal
 
+import fiftyone as fo
 import fiftyone.zoo as foz
 
-import fiftyone.brain as fob
+import fiftyone.brain.internal.models as fbm
 
 
-def transpose(x, source, target):
-    """Simple transpose function for Tensors."""
+def _transpose(x, source, target):
     return x.permute([source.index(d) for d in target])
 
 
-def check_prediction(actual, expected):
-    """Compare two eta.core.data.CategoricalAttribute instances."""
-    assert isinstance(actual, etad.CategoricalAttribute)
-    assert isinstance(expected, etad.CategoricalAttribute)
-    actual = actual.serialize()
-    expected = expected.serialize()
-    for k in actual:
-        if k == "confidence":
-            continue
-        assert actual[k] == expected[k], k
+def _check_prediction(actual, expected):
+    assert isinstance(actual, fo.Classification)
+    assert isinstance(expected, fo.Classification)
+    assert actual.label == expected.label
 
 
 def test_simple_resnet():
-    dataset = foz.load_zoo_dataset("cifar10", split="test")
-    view = dataset.view().take(100)
-    sample = next(iter(view))
+    dataset = foz.load_zoo_dataset(
+        "cifar10",
+        split="test",
+        dataset_name=fo.get_default_dataset_name(),
+        shuffle=True,
+        max_samples=1,
+    )
+
+    sample = dataset.first()
     filepath = sample.filepath
     print("Working on image at %s" % filepath)
 
-    im_pil = Image.open(filepath)
-    print("im_pil is type %s" % type(im_pil))
+    img_pil = Image.open(filepath)
+    print("img_pil is type %s" % type(img_pil))
 
-    im_numpy = imageio.imread(filepath)
-    print("im_numpy is type %s" % type(im_numpy))
-    print(im_numpy.shape)
+    img_numpy = imageio.imread(filepath)
+    print("img_numpy is type %s" % type(img_numpy))
+    print(img_numpy.shape)
 
-    im_torch = torch.from_numpy(im_numpy)
-    im_torch = transpose(im_torch, "HWC", "CHW")
-    print("im_torch is type %s" % type(im_torch))
-    print(im_torch.shape)
-    assert tuple(reversed(im_torch.shape)) == im_numpy.shape
+    img_torch = torch.from_numpy(img_numpy)
+    img_torch = _transpose(img_torch, "HWC", "CHW")
+    print("img_torch is type %s" % type(img_torch))
+    print(img_torch.shape)
+    assert tuple(reversed(img_torch.shape)) == img_numpy.shape
 
-    im_eta = etai.read(filepath)
-    print("im_eta is type %s" % type(im_eta))
-    print(im_eta.shape)
-    assert tuple(im_eta.shape) == im_numpy.shape
+    img_eta = etai.read(filepath)
+    print("img_eta is type %s" % type(img_eta))
+    print(img_eta.shape)
+    assert tuple(img_eta.shape) == img_numpy.shape
 
-    im_et2 = im_eta / 255
-    print("im_et2 is type %s" % type(im_et2))
-    print(im_et2.shape)
-    assert tuple(im_et2.shape) == im_numpy.shape
+    model = fbm.load_model("simple-resnet-cifar10")
 
-    model = etal.load_default_deployment_model("simple_resnet_cifar10")
+    with model:
+        print("PIL")
+        p_pil = model.predict(img_pil)
+        print(p_pil)
 
-    model.toggle_preprocess()
+        print("IMAGEIO")
+        p_numpy = model.predict(img_numpy)
+        print(p_numpy)
+        _check_prediction(p_numpy, p_pil)
 
-    print("PIL")
-    p = model.predict(im_pil)
-    print(p[0])
-    p_pil = p[0]
+        print("ETA")
+        p_eta = model.predict(img_eta)
+        print(p_eta)
+        _check_prediction(p_eta, p_pil)
 
-    print("IMAGEIO")
-    p = model.predict(im_numpy)
-    print(p[0])
-    check_prediction(p[0], p_pil)
+        print("PIL (manual preprocessing)")
+        img_tensor = model.transforms(img_pil)
+        p_pil2 = model.predict(img_tensor)
+        print(p_pil2)
+        _check_prediction(p_pil2, p_pil)
 
-    print("TORCH")
-    with pytest.raises(NotImplementedError):
-        p = model.predict(im_torch)
-        print(p[0])
-    print("successfully raised error on torch image")
-
-    print("ETA")
-    p = model.predict(im_eta)
-    print(p[0])
-    check_prediction(p[0], p_pil)
-
-    print("ET2")
-    p = model.predict(im_et2)
-    print(p[0])
-    check_prediction(p[0], p_pil)
-
-    # @todo logging a need to understand why the predictions on the ETA images are
-    # different than those on the other formats. -- just by a confidence level
+        print("IMAGEIO (manual preprocessing)")
+        img_tensor = model.transforms(img_numpy)
+        p_numpy2 = model.predict(img_tensor)
+        print(p_numpy2)
+        _check_prediction(p_numpy2, p_numpy)
 
 
 if __name__ == "__main__":
