@@ -95,12 +95,13 @@ def _compute_embeddings(samples, model):
     logger.info("Generating embeddings...")
     embeddings = []
     with fou.ProgressBar(samples) as pb:
-        with model:
-            for imgs in data_loader:
-                embeddings_batch = model.embed_all(imgs)
-                embeddings.append(embeddings_batch)
+        with fou.SetAttributes(model, preprocess=False):
+            with model:
+                for imgs in data_loader:
+                    embeddings_batch = model.embed_all(imgs)
+                    embeddings.append(embeddings_batch)
 
-                pb.set_iteration(pb.iteration + len(imgs))
+                    pb.set_iteration(pb.iteration + len(imgs))
 
     return np.concatenate(embeddings)
 
@@ -113,19 +114,20 @@ def _compute_patch_embeddings(samples, model, roi_field):
     batch_size = fo.config.default_batch_size or _DEFAULT_BATCH_SIZE
     embeddings = []
     with fou.ProgressBar(samples) as pb:
-        with model:
-            for patches in pb(data_loader):
-                patch_embeddings = []
-                for patch_batch in fou.iter_slices(patches, batch_size):
-                    patch_batch_embeddings = model.embed_all(patch_batch)
-                    patch_embeddings.append(patch_batch_embeddings)
+        with fou.SetAttributes(model, preprocess=False):
+            with model:
+                for patches in pb(data_loader):
+                    patch_embeddings = []
+                    for patch_batch in fou.iter_slices(patches, batch_size):
+                        patch_batch_embeddings = model.embed_all(patch_batch)
+                        patch_embeddings.append(patch_batch_embeddings)
 
-                patch_embeddings = np.concatenate(patch_embeddings)
+                    patch_embeddings = np.concatenate(patch_embeddings)
 
-                # Aggregate over patches
-                # @todo experiment with mean(), max(), abs().max(), etc
-                embedding = patch_embeddings.max(axis=0)
-                embeddings.append(embedding)
+                    # Aggregate over patches
+                    # @todo experiment with mean(), max(), abs().max(), etc
+                    embedding = patch_embeddings.max(axis=0)
+                    embeddings.append(embedding)
 
     return np.stack(embeddings)
 
