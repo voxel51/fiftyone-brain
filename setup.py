@@ -125,6 +125,6 @@ setup(
         "Programming Language :: Python :: 3",
     ],
     scripts=[],
-    python_requires=">=3.5,<3.9",
+    python_requires=">=3.5",
     cmdclass={"build": CustomBuild, "bdist_wheel": CustomBdistWheel,},
 )
