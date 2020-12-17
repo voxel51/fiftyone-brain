@@ -13,6 +13,7 @@ jobs:
           - 3.6
           - 3.7
           - 3.8
+          - 3.9
     steps:
       - name: Clone fiftyone-brain
         uses: actions/checkout@v1
@@ -30,6 +31,16 @@ jobs:
         run: |
           pip install --upgrade pip setuptools wheel
           pip install pyarmor twine
+      - name: Set environment
+        env:
+          RELEASE_TAG: ${{ github.ref }}
+        run: |
+          if [[ $RELEASE_TAG =~ ^refs\/tags\/v.* ]]; then
+             echo "RELEASE_VERSION=$(echo '${{ github.ref }}' | sed 's/^refs\/tags\/v//')" >> $GITHUB_ENV
+          fi
+      - name: Build wheel
+        run: |
+          python setup.py bdist_wheel
       - name: Build wheel (Linux)
         run: |
           python setup.py bdist_wheel --plat-name linux
@@ -55,32 +66,17 @@ jobs:
           name: wheel-windows-${{ matrix.python-version }}
           path: dist/*win*.whl
 
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone fiftyone-brain
-        uses: actions/checkout@v1
-        with:
-          repository: voxel51/fiftyone-brain
-          path: fiftyone-brain
-          fetch-depth: 1
-      - name: Clone fiftyone
-        run: |
-          git clone git://github.com/voxel51/fiftyone fiftyone-src --branch develop --depth 1
-      - name: Check tag
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          python fiftyone-src/.github/tools/check-setup-version.py setup.py $(echo ${{ github.ref }} | sed 's/refs\/tags\/v//')
-
   test:
-    needs: [build, check]
+    needs: [build]
     runs-on: ubuntu-18.04
+    env:
+      FIFTYONE_DO_NOT_TRACK: true
     strategy:
       fail-fast: false
       matrix:
         python-version:
           - 3.6
-          - 3.8
+          - 3.9
     steps:
       - name: Clone fiftyone-brain
         uses: actions/checkout@v1
@@ -98,18 +94,16 @@ jobs:
         with:
           name: wheel-linux-${{ matrix.python-version }}
           path: downloads
+      - name: Reinstall fiftyone-brain
+        run: |
+          pip install --force-reinstall --no-deps downloads/*.whl
       - name: Install fiftyone
-        env:
-          PIP_INDEX_URL: https://voxel51-ci:${{ secrets.FIFTYONE_GITHUB_TOKEN }}@pypi.voxel51.com
         run: |
           git clone https://${{ secrets.FIFTYONE_GITHUB_TOKEN }}@github.com/voxel51/fiftyone fiftyone-src --depth 1 --branch develop
           cd fiftyone-src
           python setup.py bdist_wheel
+          pip install --pre --extra-index-url https://test.pypi.org/simple/ voxel51-eta[storage] fiftyone-db
           pip install ./dist/*.whl
-          pip install voxel51-eta[storage]
-      - name: Reinstall fiftyone-brain
-        run: |
-          pip install --force-reinstall --no-deps downloads/*.whl
       - name: Set up ETA credentials
         env:
           FIFTYONE_GOOGLE_CREDENTIALS: ${{ secrets.FIFTYONE_GOOGLE_CREDENTIALS }}
@@ -126,7 +120,7 @@ jobs:
           pytest --verbose tests/
 
   publish:
-    needs: [build, check, test]
+    needs: [build, test]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-18.04
     steps:
@@ -137,10 +131,20 @@ jobs:
       - name: Install dependencies
         run: |
           pip3 install twine
-      - name: Upload to pypi.voxel51.com
+      - name: Set environment
         env:
-          TWINE_USERNAME: voxel51-ci
-          TWINE_PASSWORD: ${{ secrets.FIFTYONE_GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref }}
+        run: |
+          if [[ $RELEASE_TAG =~ ^refs\/tags\/v.*-rc\..*$ ]]; then
+             echo "TWINE_PASSWORD=${{ secrets.FIFTYONE_TEST_PYPI_TOKEN }}" >> $GITHUB_ENV
+             echo "TWINE_REPOSITORY=testpypi" >> $GITHUB_ENV
+          else
+             echo "TWINE_PASSWORD=${{ secrets.FIFTYONE_PYPI_TOKEN }}" >> $GITHUB_ENV
+             echo "TWINE_REPOSITORY=pypi" >> $GITHUB_ENV
+          fi
+      - name: Upload to pypi
+        env:
+          TWINE_USERNAME: __token__
           TWINE_NON_INTERACTIVE: 1
         run: |
-          python3 -m twine upload --repository-url https://pypi.voxel51.com downloads/wheel-*/*.whl
+          python3 -m twine upload downloads/wheel-*/*.whl

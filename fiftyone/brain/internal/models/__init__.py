@@ -137,7 +137,7 @@ def load_model(
     download_if_necessary=True,
     install_requirements=False,
     error_level=0,
-    **kwargs,
+    **kwargs
 ):
     """Loads the model of the given name.
 
