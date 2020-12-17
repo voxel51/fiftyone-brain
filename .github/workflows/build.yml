@@ -99,7 +99,7 @@ jobs:
           pip install --force-reinstall --no-deps downloads/*.whl
       - name: Install fiftyone
         run: |
-          git clone https://${{ secrets.FIFTYONE_GITHUB_TOKEN }}@github.com/voxel51/fiftyone fiftyone-src --depth 1 --branch colab
+          git clone https://${{ secrets.FIFTYONE_GITHUB_TOKEN }}@github.com/voxel51/fiftyone fiftyone-src --depth 1 --branch develop
           cd fiftyone-src
           python setup.py bdist_wheel
           pip install --pre --extra-index-url https://test.pypi.org/simple/ voxel51-eta[storage] fiftyone-db
