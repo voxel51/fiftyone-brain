@@ -10,8 +10,7 @@ import os
 import eta.core.storage as etas
 import eta.core.utils as etau
 
-from fiftyone.core.dataset import Dataset
-import fiftyone.types as fot
+import fiftyone as fo
 import fiftyone.zoo as foz
 
 import fiftyone.brain as fob
@@ -24,18 +23,14 @@ def test_uniqueness():
     view = dataset.view().take(100)
     fob.compute_uniqueness(view)
 
-    print(dataset.summary())
+    print(dataset)
     assert "uniqueness" in dataset.get_field_schema()
 
 
 def test_gray():
     """Test default support for handling grayscale images.
 
-    Uses a test data zip at this location:
-    https://drive.google.com/file/d/1ECeNnLmKQCHxlVdRqGefV5eXOD_OkmWx/view?usp=sharing
-
-    Requires Google Drive Voxel51 credentials to work; see the
-    eta/docs/storage_dev_guide.md.
+    Requires Voxel51 Google Drive credentials to download the test data.
     """
     with etau.TempDir() as tempdir:
         tmp_zip = os.path.join(tempdir, "data.zip")
@@ -44,11 +39,11 @@ def test_gray():
         client.download("1ECeNnLmKQCHxlVdRqGefV5eXOD_OkmWx", tmp_zip)
         etau.extract_zip(tmp_zip, delete_zip=True)
 
-        dataset = Dataset.from_dir(tmp_data, fot.ImageDirectory)
+        dataset = fo.Dataset.from_dir(tmp_data, fo.types.ImageDirectory)
 
         fob.compute_uniqueness(dataset)
 
-        print(dataset.summary())
+        print(dataset)
 
 
 if __name__ == "__main__":
