@@ -14,6 +14,7 @@ import torchvision
 import eta.core.image as etai
 
 import fiftyone as fo
+import fiftyone.core.utils as fou
 import fiftyone.zoo as foz
 
 import fiftyone.brain.internal.models as fbm
@@ -78,16 +79,18 @@ def test_simple_resnet():
         _check_prediction(p_eta, p_pil)
 
         print("PIL (manual preprocessing)")
-        img_tensor = model.transforms(img_pil)
-        p_pil2 = model.predict(img_tensor)
-        print(p_pil2)
-        _check_prediction(p_pil2, p_pil)
+        with fou.SetAttributes(model, preprocess=False):
+            img_tensor = model.transforms(img_pil)
+            p_pil2 = model.predict(img_tensor)
+            print(p_pil2)
+            _check_prediction(p_pil2, p_pil)
 
         print("IMAGEIO (manual preprocessing)")
-        img_tensor = model.transforms(img_numpy)
-        p_numpy2 = model.predict(img_tensor)
-        print(p_numpy2)
-        _check_prediction(p_numpy2, p_numpy)
+        with fou.SetAttributes(model, preprocess=False):
+            img_tensor = model.transforms(img_numpy)
+            p_numpy2 = model.predict(img_tensor)
+            print(p_numpy2)
+            _check_prediction(p_numpy2, p_numpy)
 
 
 if __name__ == "__main__":
