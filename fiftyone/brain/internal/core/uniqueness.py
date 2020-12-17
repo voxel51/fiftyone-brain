@@ -11,17 +11,14 @@ import warnings
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
-import eta.core.learning as etal
-
-import fiftyone.core.collections as foc
+import fiftyone as fo
 import fiftyone.core.labels as fol
 import fiftyone.core.utils as fou
+import fiftyone.core.validation as fov
 
-import fiftyone.brain.internal.core.utils as fbu
+import fiftyone.brain.internal.models as fbm
 
-# Ensure that `torch` and `torchvision` are installed
 fou.ensure_torch()
-
 import torch
 import fiftyone.utils.torch as fout
 
@@ -35,6 +32,7 @@ _ALLOWED_ROI_FIELD_TYPES = (
     fol.Polyline,
     fol.Polylines,
 )
+_DEFAULT_BATCH_SIZE = 16
 
 
 def compute_uniqueness(samples, uniqueness_field, roi_field):
@@ -52,23 +50,27 @@ def compute_uniqueness(samples, uniqueness_field, roi_field):
     # to dense clusters of related samples.
     #
 
-    if roi_field is not None and isinstance(samples, foc.SampleCollection):
-        fbu.validate_collection_label_fields(
-            samples, [roi_field], _ALLOWED_ROI_FIELD_TYPES
+    fov.validate_collection(samples)
+
+    if roi_field is not None:
+        fov.validate_collection_label_fields(
+            samples, roi_field, _ALLOWED_ROI_FIELD_TYPES
         )
 
     model = _load_model()
 
     if roi_field is None:
+        # @todo use fiftyone.utils.torch.compute_torch_image_embeddings?
         embeddings = _compute_embeddings(samples, model)
     else:
+        # @todo use fiftyone.utils.torch.compute_torch_image_patch_embeddings?
         embeddings = _compute_patch_embeddings(samples, model, roi_field)
 
     uniqueness = _compute_uniqueness(embeddings)
 
     logger.info("Saving results...")
     with fou.ProgressBar() as pb:
-        for sample, val in zip(pb(fbu.optimize_samples(samples)), uniqueness):
+        for sample, val in zip(pb(samples.select_fields()), uniqueness):
             sample[uniqueness_field] = val
             sample.save()
 
@@ -77,58 +79,57 @@ def compute_uniqueness(samples, uniqueness_field, roi_field):
 
 def _load_model():
     logger.info("Loading uniqueness model...")
-    return etal.load_default_deployment_model("simple_resnet_cifar10")
+    model = fbm.load_model("simple-resnet-cifar10")
+    if model.ragged_batches:
+        raise ValueError(
+            "This method does not support models with ragged batches"
+        )
+
+    return model
 
 
 def _compute_embeddings(samples, model):
     logger.info("Preparing data...")
-    data_loader = _make_data_loader(samples, model.transforms)
+    data_loader = _make_data_loader(samples, model)
 
     logger.info("Generating embeddings...")
-    embeddings = None
+    embeddings = []
     with fou.ProgressBar(samples) as pb:
-        with torch.no_grad():
-            for imgs in data_loader:
-                # @todo the existence of model.embed_all is not well engineered
-                vectors = model.embed_all(imgs)
+        with fou.SetAttributes(model, preprocess=False):
+            with model:
+                for imgs in data_loader:
+                    embeddings_batch = model.embed_all(imgs)
+                    embeddings.append(embeddings_batch)
 
-                if embeddings is None:
-                    embeddings = vectors
-                else:
-                    # @todo if speed is an issue, fix this...
-                    embeddings = np.vstack((embeddings, vectors))
+                    pb.set_iteration(pb.iteration + len(imgs))
 
-                pb.set_iteration(pb.iteration + len(imgs))
-
-    # `num_samples x dim` array of embeddings
-    return embeddings
+    return np.concatenate(embeddings)
 
 
 def _compute_patch_embeddings(samples, model, roi_field):
     logger.info("Preparing data...")
-    data_loader = _make_patch_data_loader(samples, model.transforms, roi_field)
+    data_loader = _make_patch_data_loader(samples, model, roi_field)
 
     logger.info("Generating embeddings...")
-    embeddings = None
+    batch_size = fo.config.default_batch_size or _DEFAULT_BATCH_SIZE
+    embeddings = []
     with fou.ProgressBar(samples) as pb:
-        with torch.no_grad():
-            for patches in pb(data_loader):
-                # @todo the existence of model.embed_all is not well engineered
-                patches = torch.squeeze(patches, dim=0)
-                vectors = model.embed_all(patches)
+        with fou.SetAttributes(model, preprocess=False):
+            with model:
+                for patches in pb(data_loader):
+                    patch_embeddings = []
+                    for patch_batch in fou.iter_slices(patches, batch_size):
+                        patch_batch_embeddings = model.embed_all(patch_batch)
+                        patch_embeddings.append(patch_batch_embeddings)
 
-                # Aggregate over patches
-                # @todo experiment with mean(), max(), abs().max(), etc
-                embedding = vectors.max(axis=0)
+                    patch_embeddings = np.concatenate(patch_embeddings)
 
-                if embeddings is None:
-                    embeddings = embedding
-                else:
-                    # @todo if speed is an issue, fix this...
-                    embeddings = np.vstack((embeddings, embedding))
+                    # Aggregate over patches
+                    # @todo experiment with mean(), max(), abs().max(), etc
+                    embedding = patch_embeddings.max(axis=0)
+                    embeddings.append(embedding)
 
-    # `num_samples x dim` array of embeddings
-    return embeddings
+    return np.stack(embeddings)
 
 
 def _compute_uniqueness(embeddings):
@@ -157,30 +158,32 @@ def _compute_uniqueness(embeddings):
     return sample_dists
 
 
-def _make_data_loader(samples, transforms, batch_size=16):
+def _make_data_loader(samples, model):
     image_paths = []
-    for sample in fbu.optimize_samples(samples):
-        fbu.validate_image(sample)
+    for sample in samples.select_fields():
+        fov.validate_image(sample)
 
         image_paths.append(sample.filepath)
 
     dataset = fout.TorchImageDataset(
-        image_paths, transform=transforms, force_rgb=True
+        image_paths, transform=model.transforms, force_rgb=True
     )
 
+    batch_size = fo.config.default_batch_size or _DEFAULT_BATCH_SIZE
+    num_workers = fout.recommend_num_workers()
     return torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, num_workers=4
+        dataset, batch_size=batch_size, num_workers=num_workers
     )
 
 
-def _make_patch_data_loader(samples, transforms, roi_field):
+def _make_patch_data_loader(samples, model, roi_field):
     image_paths = []
     detections = []
-    for sample in fbu.optimize_samples(samples, fields=[roi_field]):
-        fbu.validate_image(sample)
+    for sample in samples.select_fields(roi_field):
+        fov.validate_image(sample)
 
         rois = _parse_rois(sample, roi_field)
-        if not rois.detections:
+        if rois is None or not rois.detections:
             # Use entire image as ROI
             msg = "Sample found with no ROI; using the entire image..."
             warnings.warn(msg)
@@ -193,10 +196,16 @@ def _make_patch_data_loader(samples, transforms, roi_field):
         detections.append(rois)
 
     dataset = fout.TorchImagePatchesDataset(
-        image_paths, detections, transforms, force_rgb=True
+        image_paths, detections, model.transforms, force_rgb=True
     )
 
-    return torch.utils.data.DataLoader(dataset, batch_size=1, num_workers=4)
+    num_workers = fout.recommend_num_workers()
+    return torch.utils.data.DataLoader(
+        dataset,
+        batch_size=1,
+        num_workers=num_workers,
+        collate_fn=lambda batch: batch[0],  # return patches directly
+    )
 
 
 def _parse_rois(sample, roi_field):
@@ -214,13 +223,4 @@ def _parse_rois(sample, roi_field):
     if isinstance(label, fol.Polylines):
         return label.to_detections()
 
-    raise ValueError(
-        "Sample '%s' field '%s' (%s) is not a valid ROI field; must be a %s "
-        "instance"
-        % (
-            sample.id,
-            roi_field,
-            label.__class__.__name__,
-            set(t.__name__ for t in _ALLOWED_ROI_FIELD_TYPES),
-        )
-    )
+    return None

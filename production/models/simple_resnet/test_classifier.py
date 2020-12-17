@@ -110,12 +110,12 @@ def main(config):
 
     # load the model using the model path config
     assert config.model_path
-    model = Network(simple_resnet()).to(device).half()
+    model = simple_resnet().to(device).half()
     model.load_state_dict(torch.load(config.model_path))
 
     print("Model loaded.")
 
-    model.train(False)  # == model.eval()
+    model.train(False)
 
     # I need to get my datasets into a format where I'll have the ids available
     # as well during the data loading
@@ -135,9 +135,7 @@ def main(config):
     class_total = list(0.0 for i in range(10))
     with torch.no_grad():
         for images, labels, ids in valid_batches.dataloader:
-            inputs = dict(input=images.cuda().half())
-            outputs = model(inputs)
-            y = outputs["logits"]
+            y = model(images.cuda().half())
             _, predicted = torch.max(y, 1)
             total += labels.size(0)
             labels_gpu = labels.cuda().half()

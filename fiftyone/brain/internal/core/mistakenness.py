@@ -15,10 +15,9 @@ from scipy.stats import entropy
 import fiftyone.core.collections as foc
 import fiftyone.core.labels as fol
 import fiftyone.core.utils as fou
+import fiftyone.core.validation as fov
 
 import fiftyone.utils.eval as foue
-
-import fiftyone.brain.internal.core.utils as fbu
 
 
 logger = logging.getLogger(__name__)
@@ -64,12 +63,12 @@ def compute_mistakenness(
     # detections.
     #
 
-    if isinstance(samples, foc.SampleCollection):
-        fbu.validate_collection_label_fields(
-            samples, (pred_field, label_field), _ALLOWED_TYPES, same_type=True
-        )
+    fov.validate_collection(samples)
+    fov.validate_collection_label_fields(
+        samples, (pred_field, label_field), _ALLOWED_TYPES, same_type=True
+    )
 
-    samples = fbu.optimize_samples(samples, fields=(pred_field, label_field))
+    samples = samples.select_fields((pred_field, label_field))
 
     if samples and isinstance(next(iter(samples))[pred_field], fol.Detections):
         foue.evaluate_detections(
@@ -228,7 +227,7 @@ def _compute_mistakenness_loc_conf(confidence, iou):
 
 
 def _get_data(sample, pred_field, label_field, use_logits):
-    pred_label, label = fbu.get_fields(
+    pred_label, label = fov.get_fields(
         sample,
         (pred_field, label_field),
         allowed_types=_ALLOWED_TYPES,
