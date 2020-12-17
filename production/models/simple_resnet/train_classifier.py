@@ -114,7 +114,7 @@ def main(config):
 
     inuse_N = start_N
 
-    model = Network(simple_resnet()).to(device).half()
+    model = simple_resnet().to(device).half()
     logs, state = Table(), {MODEL: model, LOSS: x_ent_loss}
 
     valid_batches = DataLoader(
@@ -135,7 +135,7 @@ def main(config):
         print(f"beginning next round of training, using {inuse_N} samples")
 
         if config.cold_start:
-            model = Network(simple_resnet()).to(device).half()
+            model = simple_resnet().to(device).half()
             logs, state = Table(), {MODEL: model, LOSS: x_ent_loss}
 
         train_batches = DataLoader(
@@ -178,7 +178,7 @@ def main(config):
             .describe()
         )
 
-        model.train(False)  # == model.eval()
+        model.train(False)
 
         # record scores for this iteration
         iteration_stats = {}
@@ -191,9 +191,7 @@ def main(config):
         with torch.no_grad():
             for data in valid_batches.dataloader:
                 images, labels = data
-                inputs = dict(input=images.cuda().half())
-                outputs = model(inputs)
-                y = outputs["logits"]
+                y = model(images.cuda().half())
                 _, predicted = torch.max(y, 1)
                 total += labels.size(0)
                 labels_gpu = labels.cuda().half()

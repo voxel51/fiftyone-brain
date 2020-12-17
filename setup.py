@@ -53,7 +53,7 @@ class CustomBdistWheel(bdist_wheel):
 
         # rewrite platform names - we currently only support 64-bit targets
         if self.plat_name.startswith("linux"):
-            self.plat_name = "linux_x86_64"
+            self.plat_name = "manylinux1_x86_64"
             pyarmor_platform = "linux.x86_64"
         elif self.plat_name.startswith("mac"):
             # unclear what minimum version PyArmor requires, but the .dylib was
@@ -85,23 +85,46 @@ class CustomBdistWheel(bdist_wheel):
         return impl, abi_tag, self.plat_name
 
 
+with open("PYPI_README.md", "r") as fh:
+    long_description = fh.read()
+
+
+VERSION = "0.1.12"
+
+
+def get_version():
+    if "RELEASE_VERSION" in os.environ:
+        version = os.environ["RELEASE_VERSION"]
+        if not version.startswith(VERSION):
+            raise ValueError(
+                "Release version doest not match version: %s and %s"
+                % (version, VERSION)
+            )
+        return version
+
+    return VERSION
+
+
 setup(
     name="fiftyone-brain",
-    version="0.1.11",
+    version=get_version(),
     description="FiftyOne Brain",
     author="Voxel51, Inc.",
     author_email="info@voxel51.com",
     url="https://github.com/voxel51/fiftyone-brain",
-    license="",
+    license="Freeware (Custom)",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     packages=["fiftyone.brain"],
     include_package_data=True,
     install_requires=["numpy", "scipy>=1.2.0", "scikit-image", "scikit-learn"],
     classifiers=[
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX :: Linux",
+        "Operating System :: Microsoft :: Windows",
         "Programming Language :: Python :: 3",
     ],
     scripts=[],
-    python_requires=">=3.5,<3.9",
+    python_requires=">=3.6",
     cmdclass={"build": CustomBuild, "bdist_wheel": CustomBdistWheel,},
 )

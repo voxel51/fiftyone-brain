@@ -2,11 +2,9 @@
 
 flickrapi==2.4.0
 imageio==2.8.0
-ipython==5.8.0;python_version<"3"
-ipython==7.8.0;python_version>="3"
-pandas==1.0.3
+ipython==7.19.0
+pandas==1.1.5
 pre-commit==2.0.1
-pylint==1.9.4;python_version<"3"
-pylint==2.3.1;python_version>="3"
-pyarmor==6.1.0
+pylint==2.3.1
+pyarmor==6.5.5
 twine>=3

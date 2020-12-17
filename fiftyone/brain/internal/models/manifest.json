@@ -1,0 +1,31 @@
+{
+    "models": [
+        {
+            "base_name": "simple-resnet-cifar10",
+            "base_filename": "simple-resnet-cifar10.pth",
+            "version": "1.0",
+            "description": "Simple ResNet trained on CIFAR-10",
+            "manager": {
+                "type": "fiftyone.core.models.ModelManager",
+                "config": {
+                    "google_drive_id": "1SIO9XreK0w1ja4EuhBWcR10CnWxCOsom"
+                }
+            },
+            "default_deployment_config_dict": {
+                "type": "fiftyone.brain.internal.models.torch.TorchImageModel",
+                "config": {
+                    "entrypoint_fcn": "fiftyone.brain.internal.models.simple_resnet.simple_resnet",
+                    "output_processor_cls": "fiftyone.utils.torch.ClassifierOutputProcessor",
+                    "labels_string": "airplane,automobile,bird,cat,deer,dog,frog,horse,ship,truck",
+                    "image_size": [32, 32],
+                    "image_mean": [0.4914, 0.4822, 0.4465],
+                    "image_std": [0.2023, 0.1994, 0.201],
+                    "embeddings_layer": "flatten",
+                    "use_half_precision": true,
+                    "cudnn_benchmark": true
+                }
+            },
+            "date_created": "2020-05-07 08:25:51"
+        }
+    ]
+}

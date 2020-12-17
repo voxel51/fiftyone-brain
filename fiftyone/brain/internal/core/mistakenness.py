@@ -15,10 +15,9 @@ from scipy.stats import entropy
 import fiftyone.core.collections as foc
 import fiftyone.core.labels as fol
 import fiftyone.core.utils as fou
+import fiftyone.core.validation as fov
 
 import fiftyone.utils.eval as foue
-
-import fiftyone.brain.internal.core.utils as fbu
 
 
 logger = logging.getLogger(__name__)
@@ -33,81 +32,13 @@ _DETECTION_IOU_STR = str(_DETECTION_IOU).replace(".", "_")
 def compute_mistakenness(
     samples,
     pred_field,
-    label_field="ground_truth",
-    mistakenness_field="mistakenness",
-    missing_field="possible_missing",
-    spurious_field="possible_spurious",
-    use_logits=True,
+    label_field,
+    mistakenness_field,
+    missing_field,
+    spurious_field,
+    use_logits,
 ):
-    """Computes the mistakenness of the labels in the specified
-    ``label_field``, scoring the chance that the labels are incorrect.
-
-    Mistakenness is computed based on the predictions in the ``pred_field``,
-    through its ``logits`` or ``confidence``. This measure can be used to
-    detect things like annotation errors and unusually hard samples.
-
-    This method supports both classifications and detections.
-
-    For classifications, a ``mistakenness_field`` field is populated on each
-    sample that quantifies the likelihood that the label in the ``label_field``
-    of that sample is incorrect.
-
-    For detections, the mistakenness of each detection in ``label_field`` is
-    computed, using :meth:`fiftyone.utils.evaluation.evaluate_detections` to
-    locate corresponding detections in ``pred_field``. Three types of mistakes
-    are identified:
-
-    -   (Mistakes) Detections with a match in ``pred_field`` are assigned a
-        mistakenness value in their ``mistakenness_field``, which captures the
-        likelihood that the detection in ``label_field`` is a mistake. Such
-        mistakes may be due to either the class label or localization of the
-        detection
-
-    -   (Missing) Detections in ``pred_field`` with no matches in
-        ``label_field`` but which are likely to be correct are *added* to
-        ``label_field`` and given a value of ``True`` in their
-        ``missing_field`` attribute
-
-    -   (Spurious) Detections in ``label_field`` with no matches in
-        ``pred_field`` but which are likely to be incorrect are given a value
-        of ``True`` in their ``spurious_field`` attribute
-
-    These per-detection data are then aggregated at the sample-level as
-    follows:
-
-    -   (Mistakes) The ``mistakenness_field`` of each sample is populated with
-        the maximum mistakenness of the detections in ``label_field``
-
-    -   (Missing) The ``missing_field`` of each sample is populated with the
-        number of missing detections that were deemed missing and thus added
-        to ``label_field``
-
-    -   (Spurious) The ``spurious_field`` of each sample is populated with the
-        number of detections in ``label_field`` that were given deemed spurious
-
-    Args:
-        samples: an iterable of :class:`fiftyone.core.sample.Sample` instances
-        pred_field: the name of the predicted label field to use from each
-            sample. Can be of type
-                :class:`fiftyone.core.labels.Classification`,
-                :class:`fiftyone.core.labels.Classifications`, or
-                :class:`fiftyone.core.labels.Detections`
-        label_field ("ground_truth"): the name of the "ground truth" label
-            field that you want to test for mistakes with respect to the
-            predictions in ``pred_field``. Must have the same type as
-            ``pred_field``
-        mistakenness_field ("mistakenness"): the field name to use to store the
-            mistakenness value for each sample
-        missing_field ("possible_missing): the field in which to store
-            per-sample counts of potential missing detections. Only applicable
-            for :class:`fiftyone.core.labels.Detections` labels
-        spurious_field ("possible_spurious): the field in which to store
-            per-sample counts of potential spurious detections. Only applicable
-            for :class:`fiftyone.core.labels.Detections` labels
-        use_logits (True): whether to use logits (True) or confidence (False)
-            to compute mistakenness. Logits typically yield better results,
-            when they are available
-    """
+    """See ``fiftyone/brain/__init__.py``."""
 
     #
     # Algorithm
@@ -132,12 +63,12 @@ def compute_mistakenness(
     # detections.
     #
 
-    if isinstance(samples, foc.SampleCollection):
-        fbu.validate_collection_label_fields(
-            samples, (pred_field, label_field), _ALLOWED_TYPES, same_type=True
-        )
+    fov.validate_collection(samples)
+    fov.validate_collection_label_fields(
+        samples, (pred_field, label_field), _ALLOWED_TYPES, same_type=True
+    )
 
-    samples = fbu.optimize_samples(samples, fields=(pred_field, label_field))
+    samples = samples.select_fields((pred_field, label_field))
 
     if samples and isinstance(next(iter(samples))[pred_field], fol.Detections):
         foue.evaluate_detections(
@@ -296,7 +227,7 @@ def _compute_mistakenness_loc_conf(confidence, iou):
 
 
 def _get_data(sample, pred_field, label_field, use_logits):
-    pred_label, label = fbu.get_fields(
+    pred_label, label = fov.get_fields(
         sample,
         (pred_field, label_field),
         allowed_types=_ALLOWED_TYPES,

@@ -29,6 +29,56 @@ import fiftyone.brain.internal.core.quality as fobq
 logger = logging.getLogger(__name__)
 
 
+def sample_best_video_frames(
+    video_path,
+    out_frames_dir,
+    quality_factor=1,
+    target_num_frames=None,
+    target_accel=None,
+    target_fps=None,
+    size=None,
+    max_size=None,
+):
+    """See ``fiftyone/brain/__init__.py``."""
+
+    #
+    # Algorithm
+    #
+    # Divides the video into bins of equal motion, and samples the highest
+    # quality frame from each bin. A blowout parameter is used to avoid
+    # sampling consecutive frames within a given radius
+    #
+
+    parameters = SampleBestVideoFramesParameters.default()
+    parameters.quality_factor = quality_factor
+
+    video_metadata = etav.VideoMetadata.build_for(video_path)
+
+    # Compute target acceleration
+    target_accel = _compute_target_accel(
+        video_metadata, target_num_frames, target_accel, target_fps
+    )
+
+    # Compute output frame size
+    size = _compute_output_frame_size(video_metadata, size, max_size)
+
+    # Sample frames
+    logger.info(
+        "Performing adaptive sampling with target acceleration %g",
+        target_accel,
+    )
+    output_patt = os.path.join(
+        out_frames_dir,
+        fo.config.default_sequence_idx + fo.config.default_image_ext,
+    )
+    video_labels = etav.VideoLabels()  # currently used internally only
+    frames = _perform_adaptive_sampling(
+        video_path, video_labels, target_accel, output_patt, size, parameters
+    )
+
+    return frames
+
+
 class SampleBestVideoFramesParameters(Config):
     """Internal parameters for
     :meth:`fiftyone.sample_video_frames.sample_best_video_frames`.
@@ -85,92 +135,6 @@ class SampleBestVideoFramesParameters(Config):
         self.always_sample_last = self.parse_bool(
             d, "always_sample_last", default=False
         )
-
-
-def sample_best_video_frames(
-    video_path,
-    out_frames_dir,
-    quality_factor=1,
-    target_num_frames=None,
-    target_accel=None,
-    target_fps=None,
-    size=None,
-    max_size=None,
-):
-    """Adaptively samples the best frames from the input video.
-
-    The "best" video frames at a given sampling density are defined as the
-    frames that are most representative of the visual content of the video.
-
-    The ``quality_factor`` parameter in ``[0, 1]`` defines the desired image
-    quality of the frames to be sampled. A `quality_factor == k` means to
-    sample frames whose quality are in the ``k x 100%`` percentile of quality
-    in their temporal neighborhood of frames.
-
-    Provide one of ``target_num_frames``, ``target_accel``, or ``target_fps``
-    to perform the sampling.
-
-    Args:
-        video_path: the path to the video to process
-        out_frames_dir: a directory to write the sampled frames
-        quality_factor (1): a quality factor in ``[0, 1]`` specifying the
-            target frame qualities to sample
-        target_num_frames (None): the target number of frames to sample
-        target_accel (None): a desired target acceleration factor to apply when
-            sampling frames. For example, a target acceleration of 2x would
-            correspond to sampling every other frame, on average
-        target_fps (None): a desired target sampling rate, which must be less
-            than the frame rate of the input video
-        size (None): a desired output ``(width, height)`` for the sampled
-            frames. Dimensions can be -1, in which case the input aspect ratio
-            is preserved. By default, the input frame size is maintained
-        max_size (None): a maximum ``(width, height)`` allowed for the sampled
-            frames. Frames are resized as necessary to meet this limit, and
-            ``size`` is decreased (aspect-preserving) if necessary to satisfy
-            this constraint. Dimensions can be -1, in which case no limit is
-            applied to them. By default, no maximum frame size is imposed
-
-    Returns:
-        a dict mapping frame numbers to the paths to the sampled frames in
-        ``out_frames_dir``
-    """
-
-    #
-    # Algorithm
-    #
-    # Divides the video into bins of equal motion, and samples the highest
-    # quality frame from each bin. A blowout parameter is used to avoid
-    # sampling consecutive frames within a given radius
-    #
-
-    parameters = SampleBestVideoFramesParameters.default()
-    parameters.quality_factor = quality_factor
-
-    video_metadata = etav.VideoMetadata.build_for(video_path)
-
-    # Compute target acceleration
-    target_accel = _compute_target_accel(
-        video_metadata, target_num_frames, target_accel, target_fps
-    )
-
-    # Compute output frame size
-    size = _compute_output_frame_size(video_metadata, size, max_size)
-
-    # Sample frames
-    logger.info(
-        "Performing adaptive sampling with target acceleration %g",
-        target_accel,
-    )
-    output_patt = os.path.join(
-        out_frames_dir,
-        fo.config.default_sequence_idx + fo.config.default_image_ext,
-    )
-    video_labels = etav.VideoLabels()  # currently used internally only
-    frames = _perform_adaptive_sampling(
-        video_path, video_labels, target_accel, output_patt, size, parameters
-    )
-
-    return frames
 
 
 def uniform_sample_frames(
