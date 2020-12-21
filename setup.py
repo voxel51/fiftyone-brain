@@ -89,7 +89,7 @@ with open("PYPI_README.md", "r") as fh:
     long_description = fh.read()
 
 
-VERSION = "0.1.12"
+VERSION = "0.2.0"
 
 
 def get_version():
