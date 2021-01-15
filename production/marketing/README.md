@@ -18,4 +18,4 @@ experiment details with proprietary information that only exists in the brain.
 
 ## Copyright
 
-Copyright 2017-2020, Voxel51, Inc.<br> voxel51.com
+Copyright 2017-2021, Voxel51, Inc.<br> voxel51.com

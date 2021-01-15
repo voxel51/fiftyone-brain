@@ -12,5 +12,5 @@ This code does not explicitly use eta or theta because it is intended as somethi
 
 ## Copyright
 
-Copyright 2017-2020, Voxel51, Inc.<br>
+Copyright 2017-2021, Voxel51, Inc.<br>
 voxel51.com
