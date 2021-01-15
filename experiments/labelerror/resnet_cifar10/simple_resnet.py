@@ -4,7 +4,7 @@ Definition and Implementation of a Simple Resnet and Supporting Functions
 Original Implementation of this is from David Page's work on fast model
 training with resnets.  <https://github.com/davidcpage/cifar10-fast/>
 
-| Copyright 2017-2020, Voxel51, Inc.
+| Copyright 2017-2021, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
