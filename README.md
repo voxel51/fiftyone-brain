@@ -2,8 +2,6 @@
 
 The proprietary brains behind [FiftyOne](https://github.com/voxel51/fiftyone).
 
-<img src="https://user-images.githubusercontent.com/3719547/74191434-8fe4f500-4c21-11ea-8d73-555edfce0854.png" alt="voxel51-logo.png" width="40%"/>
-
 ## Repository Layout
 
 -   `docs/` documentation about the repository and project
@@ -57,7 +55,3 @@ to get started.
 ```shell
 pip uninstall fiftyone-brain
 ```
-
-## Copyright
-
-Copyright 2017-2021, Voxel51, Inc.<br> voxel51.com

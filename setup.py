@@ -88,6 +88,9 @@ class CustomBdistWheel(bdist_wheel):
 with open("PYPI_README.md", "r") as fh:
     long_description = fh.read()
 
+with open("LICENSE", "r") as fh:
+    long_description += "\n## License\n\n" + fh.read()
+
 
 VERSION = "0.2.0"
 
@@ -119,10 +122,23 @@ setup(
     include_package_data=True,
     install_requires=["numpy", "scipy>=1.2.0", "scikit-learn"],
     classifiers=[
+        "Development Status :: 4 - Beta",
+        "Intended Audience :: Developers",
+        "Intended Audience :: Science/Research",
+        "License :: Freeware:",
+        "Topic :: Scientific/Engineering :: Artificial Intelligence",
+        "Topic :: Scientific/Engineering :: Image Processing",
+        "Topic :: Scientific/Engineering :: Image Recognition",
+        "Topic :: Scientific/Engineering :: Information Analysis",
+        "Topic :: Scientific/Engineering :: Visualization",
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX :: Linux",
         "Operating System :: Microsoft :: Windows",
         "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
     ],
     scripts=[],
     python_requires=">=3.6",
