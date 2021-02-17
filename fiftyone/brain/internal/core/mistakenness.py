@@ -37,6 +37,7 @@ def compute_mistakenness(
     missing_field,
     spurious_field,
     use_logits,
+    copy_missing,
 ):
     """See ``fiftyone/brain/__init__.py``."""
 
@@ -70,12 +71,17 @@ def compute_mistakenness(
 
     samples = samples.select_fields((pred_field, label_field))
 
+    eval_key = "fob_mist_eval"
+
+    if eval_key in samples.list_evaluations():
+        eval_key += "_"
+
     if samples and isinstance(next(iter(samples))[pred_field], fol.Detections):
         foue.evaluate_detections(
             samples,
             pred_field,
             label_field,
-            save_sample_fields=False,
+            eval_key=eval_key,
             classwise=False,
             iou=_DETECTION_IOU,
         )
@@ -87,6 +93,7 @@ def compute_mistakenness(
                 sample, pred_field, label_field, use_logits
             )
 
+            # Detection and Detections mistakenness
             if isinstance(pred_label, fol.Detections):
                 possible_spurious = 0
                 possible_missing = 0
@@ -95,32 +102,32 @@ def compute_mistakenness(
                 pred_map = {}
                 for pred_det in pred_label.detections:
                     pred_map[pred_det.id] = pred_det
-                    gt_id = pred_det[label_field + "_eval"]["matches"][
-                        _DETECTION_IOU_STR
-                    ]["gt_id"]
+                    gt_id = pred_det[eval_key + "_id"]
                     conf = pred_det.confidence
-                    if gt_id == -1 and conf > _MISSED_CONFIDENCE_THRESHOLD:
+                    if gt_id == "" and conf > _MISSED_CONFIDENCE_THRESHOLD:
+                        # Unmached FP with high conf are missing
                         pred_det[missing_field] = True
                         possible_missing += 1
                         missing_detections[pred_det.id] = pred_det
 
                 for gt_det in label.detections:
-                    # Avoid adding the same predictions again upon multiple
-                    # runs of this method
-                    if gt_det.has_field(missing_field):
+                    # Avoid adding the same unmatched FP predictions to gt
+                    # again upon multiple runs of this method
+                    if copy_missing and gt_det.has_field(missing_field):
                         if gt_det.id in missing_detections:
                             del missing_detections[gt_det.id]
 
                         continue
 
-                    matches = gt_det[pred_field + "_eval"]["matches"]
-                    pred_id = matches[_DETECTION_IOU_STR]["pred_id"]
-                    iou = matches[_DETECTION_IOU_STR]["iou"]
-                    if pred_id == -1:
+                    pred_id = gt_det[eval_key + "_id"]
+                    iou = gt_det[eval_key + "_iou"]
+                    if pred_id == "":
+                        # FN may be spurious
                         gt_det[spurious_field] = True
                         possible_spurious += 1
 
                     else:
+                        # For matched FP, compute mistakenness
                         pred_det = pred_map[pred_id]
                         m = float(gt_det.label == pred_det.label)
                         if use_logits:
@@ -142,7 +149,8 @@ def compute_mistakenness(
                         gt_det[mistakenness_field] = mistakenness_class
                         sample_mistakenness.append(mistakenness_class)
 
-                label.detections += list(missing_detections.values())
+                if copy_missing:
+                    label.detections += list(missing_detections.values())
 
                 if sample_mistakenness:
                     sample[mistakenness_field] = np.max(sample_mistakenness)
@@ -151,6 +159,7 @@ def compute_mistakenness(
                 sample[spurious_field] = possible_spurious
 
             else:
+                # Classification and Classifications mistakennes
                 if isinstance(pred_label, fol.Classifications):
                     # For multilabel problems, all labels must match
                     pred_labels = set(
@@ -174,6 +183,7 @@ def compute_mistakenness(
 
             sample.save()
 
+    samples.delete_evaluation(eval_key)
     logger.info("Mistakenness computation complete")
 
 

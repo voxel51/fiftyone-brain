@@ -40,6 +40,7 @@ def compute_mistakenness(
     missing_field="possible_missing",
     spurious_field="possible_spurious",
     use_logits=True,
+    copy_missing=False,
 ):
     """Computes the mistakenness of the labels in the specified
     ``label_field``, scoring the chance that the labels are incorrect.
@@ -110,6 +111,9 @@ def compute_mistakenness(
         use_logits (True): whether to use logits (True) or confidence (False)
             to compute mistakenness. Logits typically yield better results,
             when they are available
+        copy_missing (False): whether to copy predicted detections that were
+            missed over to the ground truth field. Only applicable
+            for :class:`fiftyone.core.labels.Detections` labels
     """
     import fiftyone.brain.internal.core.mistakenness as fbm
 
@@ -121,6 +125,7 @@ def compute_mistakenness(
         missing_field,
         spurious_field,
         use_logits,
+        copy_missing,
     )
 
 
