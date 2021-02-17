@@ -512,6 +512,8 @@ class MistakennessEvaluation(Evaluation):
                     "%s.detections.%s"
                     % (eval_info.pred_field, eval_info.config.missing_field),
                     "%s.detections.%s"
+                    % (eval_info.gt_field, eval_info.config.spurious_field),
+                    "%s.detections.%s"
                     % (
                         eval_info.gt_field,
                         eval_info.config.mistakenness_field,
