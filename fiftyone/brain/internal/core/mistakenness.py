@@ -68,7 +68,7 @@ def compute_mistakenness(
 
     samples = samples.select_fields((pred_field, label_field))
 
-    if samples and isinstance(next(iter(samples))[pred_field], fol.Detections):
+    if samples and isinstance(samples.first()[pred_field], fol.Detections):
         eval_key = _make_eval_key(samples)
         foue.evaluate_detections(
             samples,
@@ -123,20 +123,12 @@ def compute_mistakenness(
                         # For matched FP, compute mistakenness
                         pred_det = pred_map[pred_id]
                         m = float(gt_det.label == pred_det.label)
-                        if use_logits:
-                            mistakenness_class = _compute_mistakenness_class(
-                                pred_det.logits, m
-                            )
-                            mistakenness_loc = _compute_mistakenness_loc(
-                                pred_det.logits, iou
-                            )
-                        else:
-                            mistakenness_class = _compute_mistakenness_class_conf(
-                                pred_det.confidence, m
-                            )
-                            mistakenness_loc = _compute_mistakenness_loc_conf(
-                                pred_det.confidence, iou
-                            )
+                        mistakenness_class = _compute_mistakenness_class_conf(
+                            pred_det.confidence, m
+                        )
+                        mistakenness_loc = _compute_mistakenness_loc_conf(
+                            pred_det.confidence, iou
+                        )
 
                         gt_det[mistakenness_field + "_loc"] = mistakenness_loc
                         gt_det[mistakenness_field] = mistakenness_class
@@ -257,12 +249,6 @@ def _get_data(sample, pred_field, label_field, use_logits):
                 raise ValueError(
                     "Detection '%s' in Sample '%s' field '%s' has no "
                     "confidence" % (det.id, sample.id, pred_field)
-                )
-
-            if use_logits and det.logits is None:
-                raise ValueError(
-                    "Detection '%s' in Sample '%s' field '%s' has no "
-                    "logits" % (det.id, sample.id, pred_field)
                 )
 
     elif use_logits:
