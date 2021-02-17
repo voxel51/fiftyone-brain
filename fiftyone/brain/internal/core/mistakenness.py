@@ -12,7 +12,6 @@ import numpy as np
 from scipy.special import softmax
 from scipy.stats import entropy
 
-import fiftyone.core.collections as foc
 import fiftyone.core.labels as fol
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
@@ -26,7 +25,6 @@ logger = logging.getLogger(__name__)
 _ALLOWED_TYPES = (fol.Classification, fol.Classifications, fol.Detections)
 _MISSED_CONFIDENCE_THRESHOLD = 0.95
 _DETECTION_IOU = 0.5
-_DETECTION_IOU_STR = str(_DETECTION_IOU).replace(".", "_")
 
 
 def compute_mistakenness(
@@ -71,14 +69,17 @@ def compute_mistakenness(
     samples = samples.select_fields((pred_field, label_field))
 
     if samples and isinstance(next(iter(samples))[pred_field], fol.Detections):
+        eval_key = _make_eval_key(samples)
         foue.evaluate_detections(
             samples,
             pred_field,
-            label_field,
-            save_sample_fields=False,
+            gt_field=label_field,
+            eval_key=eval_key,
             classwise=False,
             iou=_DETECTION_IOU,
         )
+    else:
+        eval_key = None
 
     logger.info("Computing mistakenness...")
     with fou.ProgressBar() as pb:
@@ -95,32 +96,31 @@ def compute_mistakenness(
                 pred_map = {}
                 for pred_det in pred_label.detections:
                     pred_map[pred_det.id] = pred_det
-                    gt_id = pred_det[label_field + "_eval"]["matches"][
-                        _DETECTION_IOU_STR
-                    ]["gt_id"]
+                    gt_id = pred_det[eval_key + "_id"]
                     conf = pred_det.confidence
-                    if gt_id == -1 and conf > _MISSED_CONFIDENCE_THRESHOLD:
+                    if not gt_id and conf > _MISSED_CONFIDENCE_THRESHOLD:
+                        # Unmached FP with high conf are missing
                         pred_det[missing_field] = True
                         possible_missing += 1
                         missing_detections[pred_det.id] = pred_det
 
                 for gt_det in label.detections:
-                    # Avoid adding the same predictions again upon multiple
-                    # runs of this method
+                    # Avoid adding the same unmatched FP predictions to gt
+                    # again upon multiple runs of this method
                     if gt_det.has_field(missing_field):
                         if gt_det.id in missing_detections:
                             del missing_detections[gt_det.id]
 
                         continue
 
-                    matches = gt_det[pred_field + "_eval"]["matches"]
-                    pred_id = matches[_DETECTION_IOU_STR]["pred_id"]
-                    iou = matches[_DETECTION_IOU_STR]["iou"]
-                    if pred_id == -1:
+                    pred_id = gt_det[eval_key + "_id"]
+                    iou = gt_det[eval_key + "_iou"]
+                    if not pred_id:
+                        # FN may be spurious
                         gt_det[spurious_field] = True
                         possible_spurious += 1
-
                     else:
+                        # For matched FP, compute mistakenness
                         pred_det = pred_map[pred_id]
                         m = float(gt_det.label == pred_det.label)
                         if use_logits:
@@ -149,7 +149,6 @@ def compute_mistakenness(
 
                 sample[missing_field] = possible_missing
                 sample[spurious_field] = possible_spurious
-
             else:
                 if isinstance(pred_label, fol.Classifications):
                     # For multilabel problems, all labels must match
@@ -174,7 +173,23 @@ def compute_mistakenness(
 
             sample.save()
 
+    if eval_key is not None:
+        samples.delete_evaluation(eval_key)
+
     logger.info("Mistakenness computation complete")
+
+
+def _make_eval_key(samples):
+    existing_eval_keys = samples.list_evaluations()
+    eval_key = "mistakenness"
+    if eval_key not in existing_eval_keys:
+        return eval_key
+
+    idx = 2
+    while eval_key + str(idx) in existing_eval_keys:
+        idx += 1
+
+    return eval_key + str(idx)
 
 
 def _compute_mistakenness_class(logits, m):
