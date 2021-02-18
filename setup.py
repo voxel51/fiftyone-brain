@@ -92,7 +92,7 @@ with open("LICENSE", "r") as fh:
     long_description += "\n## License\n\n" + fh.read()
 
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 
 def get_version():
@@ -125,7 +125,7 @@ setup(
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
         "Intended Audience :: Science/Research",
-        "License :: Freeware:",
+        "License :: Freeware",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
         "Topic :: Scientific/Engineering :: Image Processing",
         "Topic :: Scientific/Engineering :: Image Recognition",

@@ -12,7 +12,6 @@ import numpy as np
 from scipy.special import softmax
 from scipy.stats import entropy
 
-import fiftyone.core.collections as foc
 import fiftyone.core.labels as fol
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
@@ -36,7 +35,6 @@ logger = logging.getLogger(__name__)
 _ALLOWED_TYPES = (fol.Classification, fol.Classifications, fol.Detections)
 _MISSED_CONFIDENCE_THRESHOLD = 0.95
 _DETECTION_IOU = 0.5
-_DETECTION_IOU_STR = str(_DETECTION_IOU).replace(".", "_")
 
 
 def compute_mistakenness(
@@ -127,6 +125,8 @@ def compute_mistakenness(
             classwise=False,
             iou=_DETECTION_IOU,
         )
+    else:
+        eval_key = None
 
     logger.info("Computing mistakenness...")
     with fou.ProgressBar() as pb:
@@ -168,7 +168,21 @@ def compute_mistakenness(
 
     samples.delete_evaluation(det_eval_key)
     save_evaluation_info(samples, eval_info)
+
     logger.info("Mistakenness computation complete")
+
+
+def _make_eval_key(samples):
+    existing_eval_keys = samples.list_evaluations()
+    eval_key = "mistakenness"
+    if eval_key not in existing_eval_keys:
+        return eval_key
+
+    idx = 2
+    while eval_key + str(idx) in existing_eval_keys:
+        idx += 1
+
+    return eval_key + str(idx)
 
 
 def _compute_mistakenness_class(logits, m):
@@ -236,12 +250,6 @@ def _get_data(sample, pred_field, label_field, use_logits):
                 raise ValueError(
                     "Detection '%s' in Sample '%s' field '%s' has no "
                     "confidence" % (det.id, sample.id, pred_field)
-                )
-
-            if use_logits and det.logits is None:
-                raise ValueError(
-                    "Detection '%s' in Sample '%s' field '%s' has no "
-                    "logits" % (det.id, sample.id, pred_field)
                 )
 
     elif use_logits:
