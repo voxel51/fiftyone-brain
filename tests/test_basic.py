@@ -16,10 +16,10 @@ def test_uniqueness():
     dataset = foz.load_zoo_dataset("quickstart").clone()
 
     fob.compute_uniqueness(dataset)
+    print(dataset.list_brain_keys())
     print(dataset.get_brain_info("uniqueness"))
     print(dataset.bounds("uniqueness"))
 
-    print(dataset.list_brain_keys())
     dataset.delete_brain_results()
     print(dataset)
 
@@ -27,9 +27,13 @@ def test_uniqueness():
 def test_detection_mistakenness():
     dataset = foz.load_zoo_dataset("quickstart").clone()
 
-    fob.compute_mistakenness(dataset, "predictions")
+    fob.compute_mistakenness(
+        dataset, "predictions", label_field="ground_truth", copy_missing=True
+    )
     print(dataset.list_brain_keys())
     print(dataset.get_brain_info("mistakenness"))
+
+    # should be non-trivial
     print(dataset.bounds("mistakenness"))
     print(dataset.bounds("possible_missing"))
     print(dataset.bounds("possible_spurious"))
@@ -37,9 +41,17 @@ def test_detection_mistakenness():
     print(dataset.bounds("ground_truth.detections.mistakenness_loc"))
     print(dataset.count_values("ground_truth.detections.possible_spurious"))
     print(dataset.count_values("predictions.detections.possible_missing"))
+    print(dataset.count_values("ground_truth.detections.possible_missing"))
 
     dataset.delete_brain_results()
     print(dataset)
+
+    # should be None
+    print(dataset.bounds("ground_truth.detections.mistakenness"))
+    print(dataset.bounds("ground_truth.detections.mistakenness_loc"))
+    print(dataset.count_values("ground_truth.detections.possible_spurious"))
+    print(dataset.count_values("predictions.detections.possible_missing"))
+    print(dataset.count_values("ground_truth.detections.possible_missing"))
 
 
 def test_classification_mistakenness_confidence():
@@ -56,8 +68,8 @@ def test_classification_mistakenness_confidence():
 
     fob.compute_mistakenness(test_view, "resnet50", label_field="alexnet")
     print(dataset.list_brain_keys())
-    print(dataset.bounds("mistakenness"))
     print(dataset.load_brain_view("mistakenness"))
+    print(dataset.bounds("mistakenness"))
 
     dataset.delete_brain_results()
     print(dataset)
@@ -79,8 +91,8 @@ def test_classification_mistakenness_logits():
         test_view, "resnet50", label_field="alexnet", use_logits=True
     )
     print(dataset.list_brain_keys())
-    print(dataset.bounds("mistakenness"))
     print(dataset.load_brain_view("mistakenness"))
+    print(dataset.bounds("mistakenness"))
 
     dataset.delete_brain_results()
     print(dataset)
@@ -95,8 +107,8 @@ def test_hardness():
     fob.compute_hardness(test_view, "alexnet")
     print(dataset.list_brain_keys())
     print(dataset.get_brain_info("hardness"))
-    print(dataset.bounds("hardness"))
     print(dataset.load_brain_view("hardness"))
+    print(dataset.bounds("hardness"))
 
     dataset.delete_brain_results()
     print(dataset)
