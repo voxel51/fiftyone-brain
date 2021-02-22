@@ -41,8 +41,7 @@ def compute_hardness(samples, label_field, hardness_field):
     config = HardnessConfig(label_field, hardness_field)
     brain_key = hardness_field
     brain_method = config.build()
-    brain_method.validate_run(samples, brain_key)
-    brain_info = fob.BrainInfo(brain_key, config=config)
+    brain_method.register_run(samples, brain_key)
 
     samples = samples.select_fields(label_field)
 
@@ -53,8 +52,6 @@ def compute_hardness(samples, label_field, hardness_field):
             hardness = entropy(softmax(np.asarray(label.logits)))
             sample[hardness_field] = hardness
             sample.save()
-
-    fob.save_brain_info(samples, brain_info)
 
 
 class HardnessConfig(fob.BrainMethodConfig):

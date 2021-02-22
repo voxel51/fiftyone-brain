@@ -66,8 +66,7 @@ def compute_uniqueness(samples, uniqueness_field, roi_field):
     config = UniquenessConfig(uniqueness_field, roi_field)
     brain_key = uniqueness_field
     brain_method = config.build()
-    brain_method.validate_run(samples, brain_key)
-    brain_info = fob.BrainInfo(brain_key, config=config)
+    brain_method.register_run(samples, brain_key)
 
     model = _load_model()
 
@@ -80,8 +79,6 @@ def compute_uniqueness(samples, uniqueness_field, roi_field):
 
     samples._add_field_if_necessary(uniqueness_field, fof.FloatField)
     samples.set_values(uniqueness_field, uniqueness)
-
-    fob.save_brain_info(samples, brain_info)
 
 
 class UniquenessConfig(fob.BrainMethodConfig):

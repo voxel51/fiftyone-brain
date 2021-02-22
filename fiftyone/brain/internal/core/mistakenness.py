@@ -84,8 +84,7 @@ def compute_mistakenness(
 
     brain_key = mistakenness_field
     brain_method = config.build()
-    brain_method.validate_run(samples, brain_key)
-    brain_info = fob.BrainInfo(brain_key, config=config)
+    brain_method.register_run(samples, brain_key)
 
     if is_detections:
         eval_key = _make_eval_key(samples, brain_key)
@@ -147,8 +146,6 @@ def compute_mistakenness(
 
     if eval_key is not None:
         samples.delete_evaluation(eval_key)
-
-    fob.save_brain_info(samples, brain_info)
 
 
 class MistakennessMethodConfig(fob.BrainMethodConfig):
