@@ -19,6 +19,11 @@ def compute_hardness(samples, label_field, hardness_field="hardness"):
     sample. This makes hardness quantitative and can be used to detect things
     like hard samples, annotation errors during noisy training, and more.
 
+    .. note::
+
+        Runs of this method can be referenced later via brain key
+        ``hardness_field``.
+
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
         label_field: the :class:`fiftyone.core.labels.Classification` or
@@ -94,6 +99,11 @@ def compute_mistakenness(
         the number of detections in ``label_field`` that were given deemed
         spurious.
 
+    .. note::
+
+        Runs of this method can be referenced later via brain key
+        ``mistakenness_field``.
+
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
         pred_field: the name of the predicted label field to use from each
@@ -140,6 +150,11 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
 
     This function only uses the pixel data and can therefore process labeled or
     unlabeled samples.
+
+    .. note::
+
+        Runs of this method can be referenced later via brain key
+        ``uniqueness_field``.
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
