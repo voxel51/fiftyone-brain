@@ -68,6 +68,7 @@ def compute_mistakenness(
 
     is_detections = samples._is_label_field(pred_field, fol.Detections)
     if is_detections:
+        eval_key = _make_eval_key(samples, mistakenness_field)
         config = DetectionMistakennessConfig(
             pred_field,
             label_field,
@@ -76,8 +77,10 @@ def compute_mistakenness(
             spurious_field,
             use_logits,
             copy_missing,
+            eval_key,
         )
     else:
+        eval_key = None
         config = ClassificationMistakennessConfig(
             pred_field, label_field, mistakenness_field, use_logits
         )
@@ -87,7 +90,6 @@ def compute_mistakenness(
     brain_method.register_run(samples, brain_key)
 
     if is_detections:
-        eval_key = _make_eval_key(samples, brain_key)
         samples.evaluate_detections(
             pred_field,
             gt_field=label_field,
@@ -95,8 +97,6 @@ def compute_mistakenness(
             classwise=False,
             iou=_DETECTION_IOU,
         )
-    else:
-        eval_key = None
 
     pred_field, processing_frames = samples._handle_frame_field(pred_field)
     label_field, _ = samples._handle_frame_field(label_field)
@@ -233,6 +233,7 @@ class DetectionMistakennessConfig(MistakennessMethodConfig):
         spurious_field,
         use_logits,
         copy_missing,
+        eval_key,
         **kwargs
     ):
         super().__init__(pred_field, label_field, mistakenness_field, **kwargs)
@@ -240,6 +241,7 @@ class DetectionMistakennessConfig(MistakennessMethodConfig):
         self.spurious_field = spurious_field
         self.use_logits = use_logits
         self.copy_missing = copy_missing
+        self.eval_key = eval_key
 
 
 class DetectionMistakenness(MistakennessMethod):
@@ -348,6 +350,7 @@ class DetectionMistakenness(MistakennessMethod):
         return fields
 
     def cleanup(self, samples, brain_key):
+        eval_key = self.config.eval_key
         mistakenness_field = self.config.mistakenness_field
         missing_field = self.config.missing_field
         spurious_field = self.config.spurious_field
@@ -380,6 +383,9 @@ class DetectionMistakenness(MistakennessMethod):
             samples._dataset.delete_frame_fields(fields, error_level=1)
         else:
             samples._dataset.delete_sample_fields(fields, error_level=1)
+
+        if eval_key in samples.list_evaluations():
+            samples.delete_evaluation(eval_key)
 
     def _validate_run(self, samples, brain_key, existing_info):
         super()._validate_run(samples, brain_key, existing_info)
