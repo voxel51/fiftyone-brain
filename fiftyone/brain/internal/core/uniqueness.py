@@ -102,7 +102,7 @@ class Uniqueness(fob.BrainMethod):
 
     def cleanup(self, samples, brain_key):
         uniqueness_field = self.config.uniqueness_field
-        samples._dataset.delete_sample_fields(uniqueness_field)
+        samples._dataset.delete_sample_fields(uniqueness_field, error_level=1)
 
     def _validate_run(self, samples, brain_key, existing_info):
         self._validate_fields_match(

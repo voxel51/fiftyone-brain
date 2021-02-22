@@ -214,9 +214,13 @@ class ClassificationMistakenness(MistakennessMethod):
 
     def cleanup(self, samples, brain_key):
         mistakenness_field = self.config.mistakenness_field
-        samples._dataset.delete_sample_fields(mistakenness_field)
+        samples._dataset.delete_sample_fields(
+            mistakenness_field, error_level=1
+        )
         if samples._is_frame_field(self.config.pred_field):
-            samples._dataset.delete_frame_fields(mistakenness_field)
+            samples._dataset.delete_frame_fields(
+                mistakenness_field, error_level=1
+            )
 
 
 class DetectionMistakennessConfig(MistakennessMethodConfig):
@@ -370,11 +374,12 @@ class DetectionMistakenness(MistakennessMethod):
 
         if is_frame_field:
             samples._dataset.delete_sample_fields(
-                [mistakenness_field, spurious_field, missing_field]
+                [mistakenness_field, spurious_field, missing_field],
+                error_level=1,
             )
-            samples._dataset.delete_frame_fields(fields)
+            samples._dataset.delete_frame_fields(fields, error_level=1)
         else:
-            samples._dataset.delete_sample_fields(fields)
+            samples._dataset.delete_sample_fields(fields, error_level=1)
 
     def _validate_run(self, samples, brain_key, existing_info):
         super()._validate_run(samples, brain_key, existing_info)

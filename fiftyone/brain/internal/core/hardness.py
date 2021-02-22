@@ -71,7 +71,7 @@ class Hardness(fob.BrainMethod):
 
     def cleanup(self, samples, brain_key):
         hardness_field = self.config.hardness_field
-        samples._dataset.delete_sample_fields(hardness_field)
+        samples._dataset.delete_sample_fields(hardness_field, error_level=1)
 
     def _validate_run(self, samples, brain_key, existing_info):
         self._validate_fields_match(brain_key, "hardness_field", existing_info)
