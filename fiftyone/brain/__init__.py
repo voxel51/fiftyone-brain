@@ -46,8 +46,9 @@ def compute_mistakenness(
     ``label_field``, scoring the chance that the labels are incorrect.
 
     Mistakenness is computed based on the predictions in the ``pred_field``,
-    through its ``logits`` or ``confidence``. This measure can be used to
-    detect things like annotation errors and unusually hard samples.
+    through either its ``confidence`` or ``logits`` attributes. This measure
+    can be used to detect things like annotation errors and unusually hard
+    samples.
 
     This method supports both classifications and detections.
 
@@ -56,38 +57,42 @@ def compute_mistakenness(
     of that sample is incorrect.
 
     For detections, the mistakenness of each detection in ``label_field`` is
-    computed, using :meth:`fiftyone.utils.evaluation.evaluate_detections` to
+    computed, using
+    :meth:`fiftyone.core.collections.SampleCollection.evaluate_detections` to
     locate corresponding detections in ``pred_field``. Three types of mistakes
     are identified:
 
-    -   **(Mistakes)** Detections with a match in ``pred_field`` are assigned a
-        mistakenness value in their ``mistakenness_field``, which captures the
-        likelihood that the detection in ``label_field`` is a mistake. Such
-        mistakes may be due to either the class label or localization of the
-        detection
+    -   **(Mistakes)** Detections in ``label_field`` with a match in
+        ``pred_field`` are assigned a mistakenness value in their
+        ``mistakenness_field`` that captures the likelihood that the class
+        label of the detection in ``label_field`` is a mistake. A
+        ``mistakenness_field + "_loc"`` field is also populated that captures
+        the likelihood that the detection in ``label_field`` is a mistake due
+        to its localization (bounding box).
 
     -   **(Missing)** Detections in ``pred_field`` with no matches in
-        ``label_field`` but which are likely to be correct are *added* to
-        ``label_field`` and given a value of ``True`` in their
-        ``missing_field`` attribute
+        ``label_field`` but which are likely to be correct will have their
+        ``missing_field`` attribute set to True. In addition, if
+        ``copy_missing`` is True, copies of these detections are *added* to the
+        ground truth detections ``label_field``.
 
     -   **(Spurious)** Detections in ``label_field`` with no matches in
-        ``pred_field`` but which are likely to be incorrect are given a value
-        of ``True`` in their ``spurious_field`` attribute
+        ``pred_field`` but which are likely to be incorrect will have their
+        ``spurious_field`` attribute set to True.
 
-    These per-detection data are then aggregated at the sample-level as
-    follows:
+    In addition, for detections only, the following sample-level fields are
+    populated:
 
     -   **(Mistakes)** The ``mistakenness_field`` of each sample is populated
         with the maximum mistakenness of the detections in ``label_field``
 
     -   **(Missing)** The ``missing_field`` of each sample is populated with
-        the number of missing detections that were deemed missing and thus
-        added to ``label_field``
+        the number of missing detections that were deemed missing from
+        ``label_field``.
 
     -   **(Spurious)** The ``spurious_field`` of each sample is populated with
         the number of detections in ``label_field`` that were given deemed
-        spurious
+        spurious.
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
@@ -112,8 +117,8 @@ def compute_mistakenness(
             to compute mistakenness. Logits typically yield better results,
             when they are available
         copy_missing (False): whether to copy predicted detections that were
-            deemed to be likely missing annotations into ``label_field``. Only
-            applicable for :class:`fiftyone.core.labels.Detections` labels
+            deemed to be missing into ``label_field``. Only applicable for
+            :class:`fiftyone.core.labels.Detections` labels
     """
     import fiftyone.brain.internal.core.mistakenness as fbm
 
