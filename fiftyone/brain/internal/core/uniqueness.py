@@ -12,7 +12,10 @@ import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
 import fiftyone as fo
+import fiftyone.core.brain as fob
+import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
+import fiftyone.core.media as fom
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 
@@ -57,24 +60,57 @@ def compute_uniqueness(samples, uniqueness_field, roi_field):
             samples, roi_field, _ALLOWED_ROI_FIELD_TYPES
         )
 
+    if samples.media_type == fom.VIDEO:
+        raise ValueError("Uniqueness does not yet support video collections")
+
+    config = UniquenessConfig(uniqueness_field, roi_field)
+    brain_key = uniqueness_field
+    brain_method = config.build()
+    brain_method.validate_run(samples, brain_key)
+    brain_info = fob.BrainInfo(brain_key, config=config)
+
     model = _load_model()
 
     if roi_field is None:
-        # @todo use fiftyone.utils.torch.compute_torch_image_embeddings?
         embeddings = _compute_embeddings(samples, model)
     else:
-        # @todo use fiftyone.utils.torch.compute_torch_image_patch_embeddings?
         embeddings = _compute_patch_embeddings(samples, model, roi_field)
 
     uniqueness = _compute_uniqueness(embeddings)
 
-    logger.info("Saving results...")
-    with fou.ProgressBar() as pb:
-        for sample, val in zip(pb(samples.select_fields()), uniqueness):
-            sample[uniqueness_field] = val
-            sample.save()
+    samples._add_field_if_necessary(uniqueness_field, fof.FloatField)
+    samples.set_values(uniqueness_field, uniqueness)
 
-    logger.info("Uniqueness computation complete")
+    fob.save_brain_info(samples, brain_info)
+
+
+class UniquenessConfig(fob.BrainMethodConfig):
+    def __init__(self, uniqueness_field, roi_field, **kwargs):
+        super().__init__(**kwargs)
+        self.uniqueness_field = uniqueness_field
+        self.roi_field = roi_field
+
+    @property
+    def method(self):
+        return "uniqueness"
+
+
+class Uniqueness(fob.BrainMethod):
+    def get_fields(self, samples, brain_key):
+        fields = [self.config.uniqueness_field]
+        if self.config.roi_field:
+            fields.append(self.config.roi_field)
+
+        return fields
+
+    def cleanup(self, samples, brain_key):
+        uniqueness_field = self.config.uniqueness_field
+        samples._dataset.delete_sample_fields(uniqueness_field)
+
+    def _validate_run(self, samples, brain_key, existing_info):
+        self._validate_fields_match(
+            brain_key, "uniqueness_field", existing_info
+        )
 
 
 def _load_model():
@@ -162,7 +198,6 @@ def _make_data_loader(samples, model):
     image_paths = []
     for sample in samples.select_fields():
         fov.validate_image(sample)
-
         image_paths.append(sample.filepath)
 
     dataset = fout.TorchImageDataset(
