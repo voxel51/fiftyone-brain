@@ -16,11 +16,11 @@ def test_uniqueness():
     dataset = foz.load_zoo_dataset("quickstart").clone()
 
     fob.compute_uniqueness(dataset)
-    print(dataset.list_brain_keys())
+    print(dataset.list_brain_runs())
     print(dataset.get_brain_info("uniqueness"))
     print(dataset.bounds("uniqueness"))
 
-    dataset.delete_brain_results()
+    dataset.delete_brain_runs()
     print(dataset)
 
 
@@ -30,7 +30,7 @@ def test_detection_mistakenness():
     fob.compute_mistakenness(
         dataset, "predictions", label_field="ground_truth", copy_missing=True
     )
-    print(dataset.list_brain_keys())
+    print(dataset.list_brain_runs())
     print(dataset.get_brain_info("mistakenness"))
 
     # should be non-trivial
@@ -43,7 +43,7 @@ def test_detection_mistakenness():
     print(dataset.count_values("predictions.detections.possible_missing"))
     print(dataset.count_values("ground_truth.detections.possible_missing"))
 
-    dataset.delete_brain_results()
+    dataset.delete_brain_runs()
     print(dataset)
 
     # should be None
@@ -67,11 +67,11 @@ def test_classification_mistakenness_confidence():
     test_view.apply_model(model, "resnet50")
 
     fob.compute_mistakenness(test_view, "resnet50", label_field="alexnet")
-    print(dataset.list_brain_keys())
+    print(dataset.list_brain_runs())
     print(dataset.load_brain_view("mistakenness"))
     print(dataset.bounds("mistakenness"))
 
-    dataset.delete_brain_results()
+    dataset.delete_brain_runs()
     print(dataset)
 
 
@@ -90,11 +90,11 @@ def test_classification_mistakenness_logits():
     fob.compute_mistakenness(
         test_view, "resnet50", label_field="alexnet", use_logits=True
     )
-    print(dataset.list_brain_keys())
+    print(dataset.list_brain_runs())
     print(dataset.load_brain_view("mistakenness"))
     print(dataset.bounds("mistakenness"))
 
-    dataset.delete_brain_results()
+    dataset.delete_brain_runs()
     print(dataset)
 
 
@@ -105,12 +105,12 @@ def test_hardness():
     test_view.apply_model(model, "alexnet", store_logits=True)
 
     fob.compute_hardness(test_view, "alexnet")
-    print(dataset.list_brain_keys())
+    print(dataset.list_brain_runs())
     print(dataset.get_brain_info("hardness"))
     print(dataset.load_brain_view("hardness"))
     print(dataset.bounds("hardness"))
 
-    dataset.delete_brain_results()
+    dataset.delete_brain_runs()
     print(dataset)
 
 
