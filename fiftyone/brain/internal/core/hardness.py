@@ -53,6 +53,8 @@ def compute_hardness(samples, label_field, hardness_field):
             sample[hardness_field] = hardness
             sample.save()
 
+    logger.info("Hardness computation complete")
+
 
 class HardnessConfig(fob.BrainMethodConfig):
     def __init__(self, label_field, hardness_field, **kwargs):

@@ -147,6 +147,8 @@ def compute_mistakenness(
     if eval_key is not None:
         samples.delete_evaluation(eval_key)
 
+    logger.info("Mistakenness computation complete")
+
 
 class MistakennessMethodConfig(fob.BrainMethodConfig):
     def __init__(self, pred_field, label_field, mistakenness_field, **kwargs):

@@ -80,6 +80,8 @@ def compute_uniqueness(samples, uniqueness_field, roi_field):
     samples._add_field_if_necessary(uniqueness_field, fof.FloatField)
     samples.set_values(uniqueness_field, uniqueness)
 
+    logger.info("Uniqueness computation complete")
+
 
 class UniquenessConfig(fob.BrainMethodConfig):
     def __init__(self, uniqueness_field, roi_field, **kwargs):
