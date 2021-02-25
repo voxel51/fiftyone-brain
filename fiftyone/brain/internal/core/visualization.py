@@ -169,10 +169,10 @@ class VisualizationResults(fob.BrainResults):
 
     def plot(
         self,
-        session=None,
         field=None,
         labels=None,
         classes=None,
+        session=None,
         marker_size=None,
         cmap=None,
         ax=None,
@@ -180,17 +180,20 @@ class VisualizationResults(fob.BrainResults):
         block=False,
         **kwargs,
     ):
-        """Generates a 2D or 3D scatterplot of the visualization results.
+        """Generates a scatterplot of the visualization results.
+
+        This method supports 2D or 3D visualizations, but interactive point
+        selection is only aviailable in 2D.
 
         Args:
-            session (None): a :class:`fiftyone.core.session.Session` object to
-                link with this plot
             field (None): a sample field or ``embedded.field.name`` to use to
                 color the points. Can be numeric or strings
             labels (None): a list of numeric or string values to use to color
                 the points
             classes (None): an optional list of classes whose points to plot.
                 Only applicable when ``labels`` contains strings
+            session (None): a :class:`fiftyone.core.session.Session` object to
+                link with the interactive plot. Only supported in 2D
             marker_size (None): the marker size to use
             cmap (None): a colormap recognized by ``matplotlib``
             ax (None): an optional matplotlib axis to plot in
@@ -201,12 +204,15 @@ class VisualizationResults(fob.BrainResults):
             **kwargs: optional keyword arguments for matplotlib's ``scatter()``
 
         Returns:
-            a :class:`PointSelector`
+            a :class:`PointSelector` if this is a 2D visualization, else None
         """
         if self.config.num_dims not in {2, 3}:
             raise ValueError(
                 "This method only supports 2D or 3D visualization"
             )
+
+        if session is not None and self.config.num_dims != 2:
+            logger.warning("Interactive selection is only supported in 2D")
 
         if field is not None:
             labels = self._samples.values(field)
@@ -233,6 +239,10 @@ class VisualizationResults(fob.BrainResults):
             figsize=figsize,
             **kwargs,
         )
+
+        if self.config.num_dims != 2:
+            plt.show(block=block)
+            return None
 
         sample_ids = None
         object_ids = None
@@ -321,7 +331,11 @@ class Visualization(fob.BrainMethod):
         raise NotImplementedError("subclass must implement visualize()")
 
     def get_fields(self, samples, brain_key):
-        return []
+        fields = []
+        if self.config.patches_field is not None:
+            fields.append(self.config.patches_field)
+
+        return fields
 
     def cleanup(self, samples, brain_key):
         pass
@@ -357,8 +371,7 @@ class TSNEVisualizationConfig(VisualizationConfig):
         max_iters (1000): the maximum number of iterations to run. Should be at
             least 250
         seed (None): a random seed
-        verbose (0): logging verbosity level. See ``sklearn.manifold.TSNE`` for
-            meaning
+        verbose (False): whether to log progress
     """
 
     def __init__(
@@ -372,7 +385,7 @@ class TSNEVisualizationConfig(VisualizationConfig):
         learning_rate=200.0,
         max_iters=1000,
         seed=None,
-        verbose=0,
+        verbose=False,
         **kwargs,
     ):
         super().__init__(
@@ -413,6 +426,8 @@ class TSNEVisualization(Visualization):
 
         embeddings = embeddings.astype(np.float32, copy=False)
 
+        verbose = 2 if self.config.verbose else 0
+
         _tsne = skm.TSNE(
             n_components=self.config.num_dims,
             perplexity=self.config.perplexity,
@@ -421,7 +436,7 @@ class TSNEVisualization(Visualization):
             init="pca",  # "random" or "pca"
             n_iter=self.config.max_iters,
             random_state=self.config.seed,
-            verbose=self.config.verbose,
+            verbose=verbose,
         )
         return _tsne.fit_transform(embeddings)
 
@@ -448,7 +463,7 @@ class UMAPVisualizationConfig(VisualizationConfig):
             optimise more accurately with regard to local structure. Typical
             values are in ``[0.001, 0.5]``
         seed (None): a random seed
-        verbose (False): logging verbosity level
+        verbose (False): whether to log progress
     """
 
     def __init__(
