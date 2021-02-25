@@ -167,10 +167,10 @@ class VisualizationResults(fob.BrainResults):
 
     def plot(
         self,
-        session=None,
         field=None,
         labels=None,
         classes=None,
+        session=None,
         marker_size=None,
         cmap=None,
         ax=None,
@@ -178,17 +178,20 @@ class VisualizationResults(fob.BrainResults):
         block=False,
         **kwargs,
     ):
-        """Generates a 2D or 3D scatterplot of the visualization results.
+        """Generates a scatterplot of the visualization results.
+
+        This method supports 2D or 3D visualizations, but interactive point
+        selection is only aviailable in 2D.
 
         Args:
-            session (None): a :class:`fiftyone.core.session.Session` object to
-                link with this plot
             field (None): a sample field or ``embedded.field.name`` to use to
                 color the points. Can be numeric or strings
             labels (None): a list of numeric or string values to use to color
                 the points
             classes (None): an optional list of classes whose points to plot.
                 Only applicable when ``labels`` contains strings
+            session (None): a :class:`fiftyone.core.session.Session` object to
+                link with the interactive plot. Only supported in 2D
             marker_size (None): the marker size to use
             cmap (None): a colormap recognized by ``matplotlib``
             ax (None): an optional matplotlib axis to plot in
@@ -199,12 +202,15 @@ class VisualizationResults(fob.BrainResults):
             **kwargs: optional keyword arguments for matplotlib's ``scatter()``
 
         Returns:
-            a :class:`PointSelector`
+            a :class:`PointSelector` if this is a 2D visualization, else None
         """
         if self.config.num_dims not in {2, 3}:
             raise ValueError(
                 "This method only supports 2D or 3D visualization"
             )
+
+        if session is not None and self.config.num_dims != 2:
+            logger.warning("Interactive selection is only supported in 2D")
 
         if field is not None:
             labels = self._samples.values(field)
@@ -231,6 +237,10 @@ class VisualizationResults(fob.BrainResults):
             figsize=figsize,
             **kwargs,
         )
+
+        if self.config.num_dims != 2:
+            plt.show(block=block)
+            return None
 
         sample_ids = None
         object_ids = None
