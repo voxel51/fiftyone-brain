@@ -343,8 +343,7 @@ class TSNEVisualizationConfig(VisualizationConfig):
         max_iters (1000): the maximum number of iterations to run. Should be at
             least 250
         seed (None): a random seed
-        verbose (0): logging verbosity level. See ``sklearn.manifold.TSNE`` for
-            meaning
+        verbose (False): whether to log progress
     """
 
     def __init__(
@@ -358,7 +357,7 @@ class TSNEVisualizationConfig(VisualizationConfig):
         learning_rate=200.0,
         max_iters=1000,
         seed=None,
-        verbose=0,
+        verbose=False,
         **kwargs,
     ):
         super().__init__(
@@ -399,6 +398,8 @@ class TSNEVisualization(Visualization):
 
         embeddings = embeddings.astype(np.float32, copy=False)
 
+        verbose = 2 if self.config.verbose else 0
+
         _tsne = skm.TSNE(
             n_components=self.config.num_dims,
             perplexity=self.config.perplexity,
@@ -407,7 +408,7 @@ class TSNEVisualization(Visualization):
             init="pca",  # "random" or "pca"
             n_iter=self.config.max_iters,
             random_state=self.config.seed,
-            verbose=self.config.verbose,
+            verbose=verbose,
         )
         return _tsne.fit_transform(embeddings)
 
@@ -434,7 +435,7 @@ class UMAPVisualizationConfig(VisualizationConfig):
             optimise more accurately with regard to local structure. Typical
             values are in ``[0.001, 0.5]``
         seed (None): a random seed
-        verbose (False): logging verbosity level
+        verbose (False): whether to log progress
     """
 
     def __init__(
