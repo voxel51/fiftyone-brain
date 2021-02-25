@@ -16,6 +16,7 @@ from mpl_toolkits.mplot3d import Axes3D  # pylint: disable=unused-import
 import sklearn.decomposition as skd
 import sklearn.manifold as skm
 
+import eta.core.serial as etas
 import eta.core.utils as etau
 
 import fiftyone.core.brain as fob
@@ -144,10 +145,7 @@ def compute_visualization(
     points = brain_method.fit(embeddings)
 
     results = VisualizationResults(samples, embeddings, points, config)
-
-    if brain_key is not None:
-        # @todo save results
-        pass
+    brain_method.save_run_results(samples, brain_key, results)
 
     return results
 
@@ -267,6 +265,22 @@ class VisualizationResults(fob.BrainResults):
         plt.show(block=block)
 
         return selector
+
+    # pylint: disable=no-member
+    @classmethod
+    def load_run_results(cls, samples, key):
+        results = super().load_run_results(samples, key)
+        view = cls.load_run_view(samples, key)
+        results.samples = view
+        return results
+
+    # pylint: disable=no-member
+    @classmethod
+    def _from_dict(cls, d):
+        embeddings = etas.deserialize_numpy_array(d["embeddings"])
+        points = etas.deserialize_numpy_array(d["points"])
+        config = VisualizationConfig.from_dict(d["config"])
+        return cls(None, embeddings, points, config)
 
 
 class VisualizationConfig(fob.BrainMethodConfig):
