@@ -1,5 +1,5 @@
 """
-Plotting utilities.
+Point selection utilities.
 
 | Copyright 2017-2021, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -7,7 +7,6 @@ Plotting utilities.
 """
 import numpy as np
 
-import matplotlib.pyplot as plt
 from matplotlib.widgets import LassoSelector
 from matplotlib.path import Path
 
@@ -19,9 +18,15 @@ class PointSelector(object):
     """Class that serves an interactive UI for selecting points in a matplotlib
     plot.
 
-    You can provide a ``session`` object and either ``sample_ids`` or
-    ``object_ids`` + ``object_field`` to link the currently selected points to
-    a FiftyOne App instance.
+    You can provide a ``session`` object and one of the following to link the
+    currently selected points to a FiftyOne App instance:
+
+    -   Sample selection: If ``sample_ids`` is provided, then when points are
+        selected, a view containing the corresponding samples will be loaded in
+        the App
+    -   Object selection: If ``object_ids`` and ``object_field`` are provided,
+        then when points are selected, a view containing the corresponding
+        objects in ``object_field`` will be loaded in the App
 
     Args:
         ax: a matplotlib axis
@@ -35,7 +40,7 @@ class PointSelector(object):
             ``collection``
         object_field (None): the sample field containing the objects in
             ``collection``
-        alpha_other (0.25): an alpha value for unselected points
+        alpha_other (0.25): a transparency value for unselected points
     """
 
     def __init__(
@@ -81,29 +86,46 @@ class PointSelector(object):
 
     @property
     def has_linked_session(self):
+        """Whether this object has a linked
+        :class:`fiftone.core.session.Session` that can be updated when points
+        are selected.
+        """
         return self.session is not None
 
     @property
-    def selecting_samples(self):
+    def is_selecting_samples(self):
+        """Whether this selector is selecting samples from a collection."""
         return self.sample_ids is not None
 
     @property
-    def selecting_objects(self):
-        return self.object_ids is not None
+    def is_selecting_objects(self):
+        """Whether this selector is selecting objects from a field of a sample
+        collection.
+        """
+        return self.object_ids is not None and self.object_field is not None
 
     @property
     def selected_inds(self):
-        return self._inds
+        """An array containing the indices of the currently selected points."""
+        return list(self._inds)
 
     @property
     def selected_samples(self):
+        """A list of the currently selected samples, or None if
+        :meth:`is_selecting_samples` is False.
+        """
         return self._selected_sample_ids
 
     @property
     def selected_objects(self):
+        """A list of the currently selected objects, or None if
+        :meth:`is_selecting_objects` is False.
+        """
         return self._selected_object_ids
 
     def disconnect(self):
+        """Disconnects this selector from its plot and linked sesssion (if any).
+        """
         self._lasso.disconnect_events()
         self._fc[:, -1] = 1
         self.collection.set_facecolors(self._fc)
@@ -133,13 +155,13 @@ class PointSelector(object):
             self._reset_session()
             return
 
-        if self.selecting_samples:
+        if self.is_selecting_samples:
             self._selected_sample_ids = list(self.sample_ids[self._inds])
             self.session.view = self._init_view.select(
                 self._selected_sample_ids
             )
 
-        if self.selecting_objects:
+        if self.is_selecting_objects:
             self._selected_object_ids = list(self.object_ids[self._inds])
             _object_ids = [ObjectId(_id) for _id in self._selected_object_ids]
             self.session.view = self._init_view.filter_labels(
@@ -153,27 +175,11 @@ class PointSelector(object):
         self.session.view = self._init_view
 
     def _check_facecolors(self):
-        # @todo why is this necessary?
+        # @todo why is this necessary? We do this JIT here because it seems
+        # that when __init__() runs, `get_facecolors()` doesn't have all the
+        # data yet...
         if len(self._fc) < self._num_pts:
             self._fc = self.collection.get_facecolors()
 
-
-if __name__ == "__main__":
-    fig, ax = plt.subplots()
-
-    data = np.random.rand(100, 2)
-    pts = ax.scatter(data[:, 0], data[:, 1], s=80)
-    selector = PointSelector(ax, pts)
-
-    def accept(event):
-        if event.key == "enter":
-            print("Selected points:")
-            print(selector.selected_inds)
-            selector.disconnect()
-            ax.set_title("")
-            fig.canvas.draw()
-
-    fig.canvas.mpl_connect("key_press_event", accept)
-    ax.set_title("Press enter to accept selected points")
-
-    plt.show(block=False)
+        if len(self._fc) < self._num_pts:
+            self._fc = np.tile(self._fc, (self._num_pts, 1))
