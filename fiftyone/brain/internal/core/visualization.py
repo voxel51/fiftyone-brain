@@ -164,7 +164,7 @@ class VisualizationResults(fob.BrainResults):
     """
 
     def __init__(self, samples, embeddings, points, config):
-        self.samples = samples
+        self._samples = samples
         self.embeddings = embeddings
         self.points = points
         self.config = config
@@ -211,7 +211,7 @@ class VisualizationResults(fob.BrainResults):
             )
 
         if field is not None:
-            labels = self.samples.values(field)
+            labels = self._samples.values(field)
 
         if labels and isinstance(labels[0], (list, tuple)):
             labels = list(itertools.chain.from_iterable(labels))
@@ -240,20 +240,20 @@ class VisualizationResults(fob.BrainResults):
         object_ids = None
         if self.config.patches_field is not None:
             object_ids = np.array(
-                _get_object_ids(self.samples, self.config.patches_field)
+                _get_object_ids(self._samples, self.config.patches_field)
             )
             if inds is not None:
                 object_ids = object_ids[inds]
         else:
-            sample_ids = np.array(self.samples._get_sample_ids())
+            sample_ids = np.array(self._samples._get_sample_ids())
             if inds is not None:
                 sample_ids = sample_ids[inds]
 
         if session is not None:
-            if isinstance(self.samples, DatasetView):
-                session.view = self.samples
+            if isinstance(self._samples, DatasetView):
+                session.view = self._samples
             else:
-                session.dataset = self.samples
+                session.dataset = self._samples
 
         selector = PointSelector(
             ax,
