@@ -147,6 +147,8 @@ def compute_mistakenness(
     if eval_key is not None:
         samples.delete_evaluation(eval_key)
 
+    brain_method.save_run_results(samples, brain_key, None)
+
     logger.info("Mistakenness computation complete")
 
 

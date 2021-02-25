@@ -53,6 +53,8 @@ def compute_hardness(samples, label_field, hardness_field):
             sample[hardness_field] = hardness
             sample.save()
 
+    brain_method.save_run_results(samples, brain_key, None)
+
     logger.info("Hardness computation complete")
 
 
