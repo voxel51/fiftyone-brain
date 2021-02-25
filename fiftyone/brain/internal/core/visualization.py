@@ -145,10 +145,6 @@ def compute_visualization(
 
     results = VisualizationResults(samples, embeddings, points, config)
 
-    if brain_key is not None:
-        # @todo save results
-        pass
-
     return results
 
 
