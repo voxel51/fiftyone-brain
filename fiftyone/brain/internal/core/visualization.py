@@ -216,6 +216,15 @@ class VisualizationResults(fob.BrainResults):
         if labels and isinstance(labels[0], (list, tuple)):
             labels = list(itertools.chain.from_iterable(labels))
 
+        if labels is not None:
+            if len(labels) != len(self.points):
+                raise ValueError(
+                    "Number of labels (%d) does not match number of points "
+                    "(%d). You may have missing embeddings and/or labels that "
+                    "you need to omit from your view before visualizing"
+                    % (len(labels), len(self.points))
+                )
+
         ax, coll, inds = _plot_scatter(
             self.points,
             labels=labels,
