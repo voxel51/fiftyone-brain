@@ -303,7 +303,11 @@ class Visualization(fob.BrainMethod):
         raise NotImplementedError("subclass must implement visualize()")
 
     def get_fields(self, samples, brain_key):
-        return []
+        fields = []
+        if self.config.patches_field is not None:
+            fields.append(self.config.patches_field)
+
+        return fields
 
     def cleanup(self, samples, brain_key):
         pass
