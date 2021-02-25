@@ -41,6 +41,8 @@ class PointSelector(object):
         object_field (None): the sample field containing the objects in
             ``collection``
         alpha_other (0.25): a transparency value for unselected points
+        expand_selected (2.0): expand the size of selected points by this
+            amount
     """
 
     def __init__(
@@ -52,6 +54,7 @@ class PointSelector(object):
         object_ids=None,
         object_field=None,
         alpha_other=0.25,
+        expand_selected=2.0,
     ):
         if sample_ids is not None:
             sample_ids = np.asarray(sample_ids)
@@ -66,6 +69,7 @@ class PointSelector(object):
         self.object_ids = object_ids
         self.object_field = object_field
         self.alpha_other = alpha_other
+        self.expand_selected = expand_selected
 
         self._init_view = None
         if session is not None:
@@ -78,6 +82,8 @@ class PointSelector(object):
         self._xy = collection.get_offsets()
         self._num_pts = len(self._xy)
         self._fc = collection.get_facecolors()
+        self._ms = collection.get_sizes()
+        self._init_ms = self._ms[0]
 
         self._lasso = LassoSelector(ax, onselect=self._onselect)
         self._inds = np.array([], dtype=int)
@@ -123,9 +129,36 @@ class PointSelector(object):
         """
         return self._selected_object_ids
 
-    def disconnect(self):
-        """Disconnects this selector from its plot and linked sesssion (if any).
+    def select_samples(self, sample_ids):
+        """Selects the points corresponding to the given sample IDs.
+
+        Args:
+            sample_ids: a list of sample IDs
         """
+        if not self.is_selecting_samples:
+            raise ValueError("This selector cannot select samples")
+
+        x = np.expand_dims(self.sample_ids, axis=1)
+        y = np.expand_dims(sample_ids, axis=0)
+        inds = np.nonzero(np.any(x == y, axis=1))[0]
+        self._select_inds(inds)
+
+    def select_objects(self, object_ids):
+        """Selects the points corresponding to the objects with the given IDs.
+
+        Args:
+            object_ids: a list of object IDs
+        """
+        if not self.is_selecting_objects:
+            raise ValueError("This selector cannot select objects")
+
+        x = np.expand_dims(self.object_ids, axis=1)
+        y = np.expand_dims(object_ids, axis=0)
+        inds = np.nonzero(np.any(x == y, axis=1))[0]
+        self._select_inds(inds)
+
+    def disconnect(self):
+        """Disconnects this selector from its plot and sesssion (if any)."""
         self._lasso.disconnect_events()
         self._fc[:, -1] = 1
         self.collection.set_facecolors(self._fc)
@@ -135,17 +168,38 @@ class PointSelector(object):
 
     def _onselect(self, vertices):
         path = Path(vertices)
-        self._inds = np.nonzero(path.contains_points(self._xy))[0]
-        self._check_facecolors()
-        if self._inds.size == 0:
+        inds = np.nonzero(path.contains_points(self._xy))[0]
+        self._select_inds(inds)
+
+    def _select_inds(self, inds):
+        self._inds = inds
+        self._update_selections()
+
+        self._prep_collection()
+
+        if inds.size == 0:
             self._fc[:, -1] = 1
         else:
             self._fc[:, -1] = self.alpha_other
-            self._fc[self._inds, -1] = 1
+            self._fc[inds, -1] = 1
 
         self.collection.set_facecolors(self._fc)
+
+        if self.expand_selected is not None:
+            self._ms[:] = self._init_ms
+            self._ms[inds] = self.expand_selected * self._init_ms
+
+        self.collection.set_sizes(self._ms)
+
         self._canvas.draw_idle()
         self._update_session()
+
+    def _update_selections(self):
+        if self.is_selecting_samples:
+            self._selected_sample_ids = list(self.sample_ids[self._inds])
+
+        if self.is_selecting_objects:
+            self._selected_object_ids = list(self.object_ids[self._inds])
 
     def _update_session(self):
         if not self.has_linked_session:
@@ -156,13 +210,11 @@ class PointSelector(object):
             return
 
         if self.is_selecting_samples:
-            self._selected_sample_ids = list(self.sample_ids[self._inds])
             self.session.view = self._init_view.select(
                 self._selected_sample_ids
             )
 
         if self.is_selecting_objects:
-            self._selected_object_ids = list(self.object_ids[self._inds])
             _object_ids = [ObjectId(_id) for _id in self._selected_object_ids]
             self.session.view = self._init_view.filter_labels(
                 self.object_field, F("_id").is_in(_object_ids)
@@ -174,7 +226,7 @@ class PointSelector(object):
 
         self.session.view = self._init_view
 
-    def _check_facecolors(self):
+    def _prep_collection(self):
         # @todo why is this necessary? We do this JIT here because it seems
         # that when __init__() runs, `get_facecolors()` doesn't have all the
         # data yet...
@@ -182,4 +234,8 @@ class PointSelector(object):
             self._fc = self.collection.get_facecolors()
 
         if len(self._fc) < self._num_pts:
-            self._fc = np.tile(self._fc, (self._num_pts, 1))
+            self._fc = np.tile(self._fc[0], (self._num_pts, 1))
+
+        if self.expand_selected is not None:
+            if len(self._ms) < self._num_pts:
+                self._ms = np.tile(self._ms[0], self._num_pts)
