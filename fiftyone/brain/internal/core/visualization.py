@@ -242,6 +242,7 @@ class VisualizationResults(fob.BrainResults):
             )
 
         if self.config.num_dims != 2:
+            plt.tight_layout()
             plt.show(block=block)
             return None
 
@@ -273,6 +274,7 @@ class VisualizationResults(fob.BrainResults):
             object_field=self.config.patches_field,
         )
 
+        plt.tight_layout()
         plt.show(block=block)
 
         return selector
@@ -597,8 +599,6 @@ def _plot_scatter(
 
     if figsize is not None:
         fig.set_size_inches(*figsize)
-
-    plt.tight_layout()
 
     return ax, coll, inds
 
