@@ -281,21 +281,12 @@ class VisualizationResults(fob.BrainResults):
 
         return selector
 
-    # pylint: disable=no-member
     @classmethod
-    def load_run_results(cls, samples, key):
-        results = super().load_run_results(samples, key)
-        view = cls.load_run_view(samples, key)
-        results._samples = view
-        return results
-
-    # pylint: disable=no-member
-    @classmethod
-    def _from_dict(cls, d):
+    def _from_dict(cls, d, samples):
         embeddings = etas.deserialize_numpy_array(d["embeddings"])
         points = etas.deserialize_numpy_array(d["points"])
         config = VisualizationConfig.from_dict(d["config"])
-        return cls(None, embeddings, points, config)
+        return cls(samples, embeddings, points, config)
 
 
 class VisualizationConfig(fob.BrainMethodConfig):
