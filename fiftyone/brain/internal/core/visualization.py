@@ -286,7 +286,7 @@ class VisualizationResults(fob.BrainResults):
     def load_run_results(cls, samples, key):
         results = super().load_run_results(samples, key)
         view = cls.load_run_view(samples, key)
-        results.samples = view
+        results._samples = view
         return results
 
     # pylint: disable=no-member
