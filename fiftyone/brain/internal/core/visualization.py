@@ -26,7 +26,7 @@ import fiftyone.core.validation as fov
 from fiftyone.core.view import DatasetView
 import fiftyone.zoo as foz
 
-from .plot.selector import PointSelector
+from .selector import PointSelector
 
 umap = fou.lazy_import(
     "umap", callback=lambda: etau.ensure_package("umap-learn")
@@ -177,6 +177,7 @@ class VisualizationResults(fob.BrainResults):
         cmap=None,
         ax=None,
         figsize=None,
+        style="seaborn-ticks",
         block=False,
         **kwargs,
     ):
@@ -199,6 +200,7 @@ class VisualizationResults(fob.BrainResults):
             ax (None): an optional matplotlib axis to plot in
             figsize (None): an optional ``(width, height)`` for the figure, in
                 inches
+            style ("seaborn-ticks"): a style to use for the plot
             block (False): whether to block execution when the plot is
                 displayed via ``matplotlib.pyplot.show(block=block)``
             **kwargs: optional keyword arguments for matplotlib's ``scatter()``
@@ -229,18 +231,20 @@ class VisualizationResults(fob.BrainResults):
                     % (len(labels), len(self.points))
                 )
 
-        ax, coll, inds = _plot_scatter(
-            self.points,
-            labels=labels,
-            classes=classes,
-            marker_size=marker_size,
-            cmap=cmap,
-            ax=ax,
-            figsize=figsize,
-            **kwargs,
-        )
+        with plt.style.context(style):
+            ax, coll, inds = _plot_scatter(
+                self.points,
+                labels=labels,
+                classes=classes,
+                marker_size=marker_size,
+                cmap=cmap,
+                ax=ax,
+                figsize=figsize,
+                **kwargs,
+            )
 
         if self.config.num_dims != 2:
+            plt.tight_layout()
             plt.show(block=block)
             return None
 
@@ -272,6 +276,7 @@ class VisualizationResults(fob.BrainResults):
             object_field=self.config.patches_field,
         )
 
+        plt.tight_layout()
         plt.show(block=block)
 
         return selector
@@ -608,10 +613,10 @@ def _plot_scatter(
             mappable.set_array(values)
             fig.colorbar(mappable, cax=cax)
 
+    ax.axis("equal")
+
     if figsize is not None:
         fig.set_size_inches(*figsize)
-
-    plt.tight_layout()
 
     return ax, coll, inds
 
@@ -640,20 +645,15 @@ def _parse_data(points, labels, classes):
 
 
 def _get_object_ids(samples, patches_field):
-    label_type = samples._get_label_field_type(patches_field)
-
+    label_type, id_path = samples._get_label_field_path(patches_field, "_id")
     if issubclass(label_type, (fol.Detection, fol.Polyline)):
-        return [str(_id) for _id in samples.values(patches_field + "._id")]
+        return [str(_id) for _id in samples.values(id_path)]
 
-    if issubclass(label_type, fol.Detections):
-        id_field = patches_field + ".detections._id"
-    elif issubclass(label_type, fol.Polylines):
-        id_field = patches_field + ".polylines._id"
-    else:
-        raise ValueError(
-            "Patches field %s has unsupported type %s"
-            % (patches_field, label_type)
-        )
+    if issubclass(label_type, (fol.Detections, fol.Polylines)):
+        object_ids = samples.values(id_path)
+        return [str(_id) for _id in itertools.chain.from_iterable(object_ids)]
 
-    object_ids = samples.values(id_field)
-    return [str(_id) for _id in itertools.chain.from_iterable(object_ids)]
+    raise ValueError(
+        "Patches field %s has unsupported type %s"
+        % (patches_field, label_type)
+    )

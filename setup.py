@@ -120,7 +120,7 @@ setup(
     long_description_content_type="text/markdown",
     packages=["fiftyone.brain"],
     include_package_data=True,
-    install_requires=["numpy", "scipy>=1.2.0", "scikit-learn"],
+    install_requires=["matplotlib", "numpy", "scipy>=1.2.0", "scikit-learn"],
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",

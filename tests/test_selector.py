@@ -12,7 +12,7 @@ import numpy as np
 
 import fiftyone as fo
 
-from fiftyone.brain.internal.core.plot.selector import PointSelector
+from fiftyone.brain.internal.core.selector import PointSelector
 
 
 def test_point_selector():
