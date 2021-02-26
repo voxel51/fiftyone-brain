@@ -175,6 +175,7 @@ class VisualizationResults(fob.BrainResults):
         cmap=None,
         ax=None,
         figsize=None,
+        style="seaborn-ticks",
         block=False,
         **kwargs,
     ):
@@ -197,6 +198,7 @@ class VisualizationResults(fob.BrainResults):
             ax (None): an optional matplotlib axis to plot in
             figsize (None): an optional ``(width, height)`` for the figure, in
                 inches
+            style ("seaborn-ticks"): a style to use for the plot
             block (False): whether to block execution when the plot is
                 displayed via ``matplotlib.pyplot.show(block=block)``
             **kwargs: optional keyword arguments for matplotlib's ``scatter()``
@@ -227,16 +229,17 @@ class VisualizationResults(fob.BrainResults):
                     % (len(labels), len(self.points))
                 )
 
-        ax, coll, inds = _plot_scatter(
-            self.points,
-            labels=labels,
-            classes=classes,
-            marker_size=marker_size,
-            cmap=cmap,
-            ax=ax,
-            figsize=figsize,
-            **kwargs,
-        )
+        with plt.style.context(style):
+            ax, coll, inds = _plot_scatter(
+                self.points,
+                labels=labels,
+                classes=classes,
+                marker_size=marker_size,
+                cmap=cmap,
+                ax=ax,
+                figsize=figsize,
+                **kwargs,
+            )
 
         if self.config.num_dims != 2:
             plt.show(block=block)

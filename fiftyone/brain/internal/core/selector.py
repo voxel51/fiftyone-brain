@@ -325,9 +325,13 @@ class PointSelector(object):
                 # the new selection contains new points, so add them
                 inds.update(new_inds)
 
-            inds = np.array(sorted(inds))
+            inds = np.array(sorted(inds), dtype=int)
         else:
             inds = np.unique(inds)
+
+        if np.all(inds == self._inds):
+            self._canvas.draw_idle()
+            return
 
         self._inds = inds
         self._update_selections()
