@@ -180,7 +180,8 @@ class PointSelector(object):
         self._select_inds(inds)
 
     def tag_selected(self, tag):
-        """Adds the tag to the currently selected samples/objects.
+        """Adds the tag to the currently selected samples/objects, if
+        necessary.
 
         Args:
             tag: a tag
@@ -194,7 +195,27 @@ class PointSelector(object):
             view.tag_samples(tag)
 
         if self.is_selecting_objects:
-            view.tag_objects(self.object_field, tag)
+            view.tag_objects(tag, label_fields=[self.object_field])
+
+        self.refresh()
+
+    def untag_selected(self, tag):
+        """Removes the tag from the currently selected samples/objects, if
+        necessary.
+
+        Args:
+            tag: a tag
+        """
+        view = self.selected_view()
+
+        if view is None:
+            return
+
+        if self.is_selecting_samples:
+            view.untag_samples(tag)
+
+        if self.is_selecting_objects:
+            view.untag_objects(tag, label_fields=[self.object_field])
 
         self.refresh()
 
