@@ -6,11 +6,11 @@ The brain currently uses both
 
 ## Contents
 
-| File                 | Description                                                        |
-| -------------------- | ------------------------------------------------------------------ |
-| `test_basic.py`      | Tests the basic interface of the brain methods (not their outputs) |
-| `test_uniqueness.py` | Tests of the uniqueness capability                                 |
-| `models/*.py`        | Tests of the various models used by the brain                      |
+| File                 | Description                                              |
+| -------------------- | -------------------------------------------------------- |
+| `test_uniqueness.py` | Tests of the uniqueness capability                       |
+| `models/*.py`        | Tests of the various models used by the brain            |
+| `intensive/*.py`     | Intensive tests that are not included in automated tests |
 
 ## Running tests
 
