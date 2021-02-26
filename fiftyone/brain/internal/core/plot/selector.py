@@ -5,10 +5,12 @@ Point selection utilities.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
-import numpy as np
+import math
 
+import numpy as np
 from matplotlib.widgets import LassoSelector
 from matplotlib.path import Path
+import sklearn.metrics.pairwise as skp
 
 from fiftyone import ViewField as F
 from fiftyone.core.expressions import ObjectId
@@ -43,6 +45,8 @@ class PointSelector(object):
         alpha_other (0.25): a transparency value for unselected points
         expand_selected (2.0): expand the size of selected points by this
             amount
+        click_tolerance (0.02): a click distance tolerance in ``[0, 1]`` when
+            clicking individual points
     """
 
     def __init__(
@@ -55,6 +59,7 @@ class PointSelector(object):
         object_field=None,
         alpha_other=0.25,
         expand_selected=2.0,
+        click_tolerance=0.02,
     ):
         if sample_ids is not None:
             sample_ids = np.asarray(sample_ids)
@@ -70,13 +75,7 @@ class PointSelector(object):
         self.object_field = object_field
         self.alpha_other = alpha_other
         self.expand_selected = expand_selected
-
-        self._init_view = None
-        if session is not None:
-            if session.view is not None:
-                self._init_view = session.view
-            else:
-                self._init_view = session.dataset.view()
+        self.click_tolerance = click_tolerance
 
         self._canvas = ax.figure.canvas
         self._xy = collection.get_offsets()
@@ -84,11 +83,29 @@ class PointSelector(object):
         self._fc = collection.get_facecolors()
         self._ms = collection.get_sizes()
         self._init_ms = self._ms[0]
+        self._click_thresh = click_tolerance * min(
+            np.max(self._xy, axis=0) - np.min(self._xy, axis=0)
+        )
 
-        self._lasso = LassoSelector(ax, onselect=self._onselect)
         self._inds = np.array([], dtype=int)
         self._selected_sample_ids = None
         self._selected_object_ids = None
+        self._canvas.mpl_connect("close_event", lambda e: self._disconnect())
+
+        self._connected = False
+        self._session = None
+        self._init_view = None
+        self._lasso = None
+        self._shift = False
+        self._keypress_events = []
+        self.connect()
+
+    @property
+    def is_connected(self):
+        """Whether this selector is currently linked to its plot and session
+        (if any).
+        """
+        return self._connected
 
     @property
     def has_linked_session(self):
@@ -96,7 +113,7 @@ class PointSelector(object):
         :class:`fiftone.core.session.Session` that can be updated when points
         are selected.
         """
-        return self.session is not None
+        return self._session is not None
 
     @property
     def is_selecting_samples(self):
@@ -112,7 +129,7 @@ class PointSelector(object):
 
     @property
     def selected_inds(self):
-        """An array containing the indices of the currently selected points."""
+        """A list of indices of the currently selected points."""
         return list(self._inds)
 
     @property
@@ -157,21 +174,107 @@ class PointSelector(object):
         inds = np.nonzero(np.any(x == y, axis=1))[0]
         self._select_inds(inds)
 
-    def disconnect(self):
+    def connect(self):
+        """Connects this selector to its plot and session (if any)."""
+        if self.is_connected:
+            return
+
+        session = self.session
+        if session is not None:
+            if session.view is not None:
+                self._init_view = session.view
+            else:
+                self._init_view = session.dataset.view()
+
+        self._lasso = LassoSelector(self.ax, onselect=self._onselect)
+        self._session = session
+        self._keypress_events = [
+            self._canvas.mpl_connect("key_press_event", self._onkeypress),
+            self._canvas.mpl_connect("key_release_event", self._onkeyrelease),
+        ]
+        self._connected = True
+
+        self.ax.set_title("Click or drag to select points")
+        self._canvas.draw_idle()
+
+    def disconnect(self,):
         """Disconnects this selector from its plot and sesssion (if any)."""
+        if not self.is_connected:
+            return
+
         self._lasso.disconnect_events()
+        self._lasso = None
+
+        for cid in self._keypress_events:
+            self._canvas.mpl_disconnect(cid)
+
+        self._shift = False
+        self._keypress_events = []
+        self.ax.set_title("")
+
         self._fc[:, -1] = 1
         self.collection.set_facecolors(self._fc)
         self._canvas.draw_idle()
-        self._reset_session()
-        self.session = None
+
+        self._disconnect()
+
+    def _disconnect(self):
+        self._session = None
+        self._connected = False
+
+    def _onkeypress(self, event):
+        if event.key == "shift":
+            self._shift = True
+            self.ax.set_title("Click or drag to add/remove points")
+            self._canvas.draw_idle()
+
+    def _onkeyrelease(self, event):
+        if event.key == "shift":
+            self._shift = False
+            self.ax.set_title("Click or drag to select points")
+            self._canvas.draw_idle()
 
     def _onselect(self, vertices):
-        path = Path(vertices)
-        inds = np.nonzero(path.contains_points(self._xy))[0]
+        if self._is_click(vertices):
+            dists = skp.euclidean_distances(self._xy, np.array([vertices[0]]))
+            click_ind = np.argmin(dists)
+            if dists[click_ind] < self._click_thresh:
+                inds = [click_ind]
+            else:
+                inds = []
+
+            inds = np.array(inds, dtype=int)
+        else:
+            path = Path(vertices)
+            inds = np.nonzero(path.contains_points(self._xy))[0]
+
         self._select_inds(inds)
 
+    @staticmethod
+    def _is_click(vertices):
+        if len(vertices) > 2:
+            return False
+
+        return math.isclose(vertices[0][0], vertices[-1][0]) and math.isclose(
+            vertices[0][1], vertices[-1][1]
+        )
+
     def _select_inds(self, inds):
+        if self._shift:
+            new_inds = set(inds)
+            inds = set(self._inds)
+            if new_inds.issubset(inds):
+                # the new selection is a subset of the current selection, so
+                # remove the selection
+                inds.difference_update(new_inds)
+            else:
+                # the new selection contains new points, so add them
+                inds.update(new_inds)
+
+            inds = np.array(sorted(inds))
+        else:
+            inds = np.unique(inds)
+
         self._inds = inds
         self._update_selections()
 
@@ -210,13 +313,13 @@ class PointSelector(object):
             return
 
         if self.is_selecting_samples:
-            self.session.view = self._init_view.select(
+            self._session.view = self._init_view.select(
                 self._selected_sample_ids
             )
 
         if self.is_selecting_objects:
             _object_ids = [ObjectId(_id) for _id in self._selected_object_ids]
-            self.session.view = self._init_view.filter_labels(
+            self._session.view = self._init_view.filter_labels(
                 self.object_field, F("_id").is_in(_object_ids)
             )
 
@@ -224,7 +327,7 @@ class PointSelector(object):
         if not self.has_linked_session:
             return
 
-        self.session.view = self._init_view
+        self._session.view = self._init_view
 
     def _prep_collection(self):
         # @todo why is this necessary? We do this JIT here because it seems
