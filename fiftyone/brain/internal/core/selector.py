@@ -191,10 +191,10 @@ class PointSelector(object):
             return
 
         if self.is_selecting_samples:
-            view.add_sample_tag(tag)
+            view.tag_samples(tag)
 
         if self.is_selecting_objects:
-            view.add_label_tag(self.object_field, tag)
+            view.tag_objects(self.object_field, tag)
 
         self.refresh()
 
