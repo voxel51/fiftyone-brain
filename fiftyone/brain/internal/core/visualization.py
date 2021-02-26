@@ -590,6 +590,8 @@ def _plot_scatter(
             mappable.set_array(values)
             fig.colorbar(mappable, cax=cax)
 
+    ax.axis("equal")
+
     if figsize is not None:
         fig.set_size_inches(*figsize)
 
