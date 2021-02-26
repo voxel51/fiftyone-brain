@@ -25,7 +25,7 @@ import fiftyone.core.validation as fov
 from fiftyone.core.view import DatasetView
 import fiftyone.zoo as foz
 
-from .plot.selector import PointSelector
+from .selector import PointSelector
 
 umap = fou.lazy_import(
     "umap", callback=lambda: etau.ensure_package("umap-learn")
@@ -624,20 +624,15 @@ def _parse_data(points, labels, classes):
 
 
 def _get_object_ids(samples, patches_field):
-    label_type = samples._get_label_field_type(patches_field)
-
+    label_type, id_path = samples._get_label_field_path(patches_field, "_id")
     if issubclass(label_type, (fol.Detection, fol.Polyline)):
-        return [str(_id) for _id in samples.values(patches_field + "._id")]
+        return [str(_id) for _id in samples.values(id_path)]
 
-    if issubclass(label_type, fol.Detections):
-        id_field = patches_field + ".detections._id"
-    elif issubclass(label_type, fol.Polylines):
-        id_field = patches_field + ".polylines._id"
-    else:
-        raise ValueError(
-            "Patches field %s has unsupported type %s"
-            % (patches_field, label_type)
-        )
+    if issubclass(label_type, (fol.Detections, fol.Polylines)):
+        object_ids = samples.values(id_path)
+        return [str(_id) for _id in itertools.chain.from_iterable(object_ids)]
 
-    object_ids = samples.values(id_field)
-    return [str(_id) for _id in itertools.chain.from_iterable(object_ids)]
+    raise ValueError(
+        "Patches field %s has unsupported type %s"
+        % (patches_field, label_type)
+    )

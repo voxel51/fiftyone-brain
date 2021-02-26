@@ -20,8 +20,8 @@ class PointSelector(object):
     """Class that serves an interactive UI for selecting points in a matplotlib
     plot.
 
-    You can provide a ``session`` object and one of the following to link the
-    currently selected points to a FiftyOne App instance:
+    You can provide a ``session`` object together with one of the following to
+    link the currently selected points to a FiftyOne App instance:
 
     -   Sample selection: If ``sample_ids`` is provided, then when points are
         selected, a view containing the corresponding samples will be loaded in
@@ -128,6 +128,11 @@ class PointSelector(object):
         return self.object_ids is not None and self.object_field is not None
 
     @property
+    def any_selected(self):
+        """Whether any points are currently selected."""
+        return self._inds.size > 0
+
+    @property
     def selected_inds(self):
         """A list of indices of the currently selected points."""
         return list(self._inds)
@@ -174,6 +179,50 @@ class PointSelector(object):
         inds = np.nonzero(np.any(x == y, axis=1))[0]
         self._select_inds(inds)
 
+    def tag_selected(self, tag):
+        """Adds the tag to the currently selected samples/objects.
+
+        Args:
+            tag: a tag
+        """
+        view = self.selected_view()
+
+        if view is None:
+            return
+
+        if self.is_selecting_samples:
+            view.add_sample_tag(tag)
+
+        if self.is_selecting_objects:
+            view.add_label_tag(self.object_field, tag)
+
+        self.refresh()
+
+    def selected_view(self):
+        """Returns a :class:`fiftyone.core.view.DatasetView` containing the
+        currently selected samples/objects.
+
+        Returns:
+            a :class:`fiftyone.core.view.DatasetView`, or None if no points are
+            selected
+        """
+        if not self.has_linked_session:
+            raise ValueError("This selector is not linked to a session")
+
+        if not self.any_selected:
+            return None
+
+        if self.is_selecting_samples:
+            return self._init_view.select(self._selected_sample_ids)
+
+        if self.is_selecting_objects:
+            _object_ids = [ObjectId(_id) for _id in self._selected_object_ids]
+            return self._init_view.select_fields(
+                self.object_field
+            ).filter_labels(self.object_field, F("_id").is_in(_object_ids))
+
+        return None
+
     def connect(self):
         """Connects this selector to its plot and session (if any)."""
         if self.is_connected:
@@ -196,6 +245,11 @@ class PointSelector(object):
 
         self.ax.set_title("Click or drag to select points")
         self._canvas.draw_idle()
+
+    def refresh(self):
+        """Refreshes the selector's plot and linked session (if any)."""
+        self._canvas.draw_idle()
+        self._update_session()
 
     def disconnect(self,):
         """Disconnects this selector from its plot and sesssion (if any)."""
@@ -294,8 +348,7 @@ class PointSelector(object):
 
         self.collection.set_sizes(self._ms)
 
-        self._canvas.draw_idle()
-        self._update_session()
+        self.refresh()
 
     def _update_selections(self):
         if self.is_selecting_samples:
@@ -308,26 +361,12 @@ class PointSelector(object):
         if not self.has_linked_session:
             return
 
-        if self._inds.size == 0:
-            self._reset_session()
-            return
+        if self.any_selected:
+            view = self.selected_view()
+        else:
+            view = self._init_view
 
-        if self.is_selecting_samples:
-            self._session.view = self._init_view.select(
-                self._selected_sample_ids
-            )
-
-        if self.is_selecting_objects:
-            _object_ids = [ObjectId(_id) for _id in self._selected_object_ids]
-            self._session.view = self._init_view.filter_labels(
-                self.object_field, F("_id").is_in(_object_ids)
-            )
-
-    def _reset_session(self):
-        if not self.has_linked_session:
-            return
-
-        self._session.view = self._init_view
+        self._session.view = view
 
     def _prep_collection(self):
         # @todo why is this necessary? We do this JIT here because it seems
