@@ -6,28 +6,20 @@ Methods that compute insights related to sample uniqueness.
 |
 """
 import logging
-import warnings
 
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
 import eta.core.utils as etau
 
-import fiftyone as fo
 import fiftyone.core.brain as fob
 import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
 import fiftyone.core.media as fom
-import fiftyone.core.models as fomo
-import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 import fiftyone.zoo as foz
 
 import fiftyone.brain.internal.models as fbm
-
-fou.ensure_torch()
-import torch
-import fiftyone.utils.torch as fout
 
 
 logger = logging.getLogger(__name__)
@@ -90,6 +82,7 @@ def compute_uniqueness(
     if embeddings_field is not None:
         embeddings = samples.values(embeddings_field)
         if roi_field is not None:
+            # @todo experiment with mean(), max(), abs().max(), etc
             embeddings = [e.max(axis=0) for e in embeddings]
 
         embeddings = np.stack(embeddings)
@@ -100,17 +93,26 @@ def compute_uniqueness(
             model = fbm.load_model(_DEFAULT_MODEL)
             batch_size = _DEFAULT_BATCH_SIZE
 
-        # @todo support non-Torch models with ragged batches
-        _validate_model(model)
-
-        batch_size = _parse_batch_size(model, batch_size)
-
         if roi_field is None:
-            embeddings = _compute_embeddings(samples, model, batch_size)
-        else:
-            embeddings = _compute_patch_embeddings(
-                samples, model, roi_field, batch_size, force_square, alpha
+            embeddings = samples.compute_embeddings(
+                model, batch_size=batch_size
             )
+        else:
+            patch_embeddings = samples.compute_patch_embeddings(
+                model,
+                roi_field,
+                batch_size=batch_size,
+                force_square=force_square,
+                alpha=alpha,
+            )
+
+            embeddings = []
+            for sample_id in samples._get_sample_ids():
+                # @todo experiment with mean(), max(), abs().max(), etc
+                embedding = patch_embeddings[sample_id].max(axis=0)
+                embeddings.append(embedding)
+
+            embeddings = np.stack(embeddings)
 
     uniqueness = _compute_uniqueness(embeddings)
 
@@ -118,6 +120,32 @@ def compute_uniqueness(
     samples.set_values(uniqueness_field, uniqueness)
 
     logger.info("Uniqueness computation complete")
+
+
+def _compute_uniqueness(embeddings):
+    logger.info("Computing uniqueness...")
+
+    # @todo convert to a parameter with a default, for tuning
+    K = 3
+
+    # First column of dists and indices is self-distance
+    knns = NearestNeighbors(n_neighbors=K + 1, algorithm="ball_tree").fit(
+        embeddings
+    )
+    dists, _ = knns.kneighbors(embeddings)
+
+    #
+    # @todo experiment on which method for assessing uniqueness is best
+    #
+    # To get something going, for now, just take a weighted mean
+    #
+    weights = [0.6, 0.3, 0.1]
+    sample_dists = np.mean(dists[:, 1:] * weights, axis=1)
+
+    # Normalize to keep the user on common footing across datasets
+    sample_dists /= sample_dists.max()
+
+    return sample_dists
 
 
 class UniquenessConfig(fob.BrainMethodConfig):
@@ -162,171 +190,3 @@ class Uniqueness(fob.BrainMethod):
         self._validate_fields_match(
             brain_key, "uniqueness_field", existing_info
         )
-
-
-def _validate_model(model):
-    if not isinstance(model, fomo.Model):
-        raise ValueError(
-            "Model must be a %s instance; found %s" % (fomo.Model, type(model))
-        )
-
-    if model.ragged_batches:
-        raise ValueError(
-            "This method does not support models with ragged batches"
-        )
-
-
-def _parse_batch_size(batch_size, model):
-    if batch_size is None:
-        batch_size = fo.config.default_batch_size
-
-    if batch_size is not None and batch_size > 1 and model.ragged_batches:
-        logger.warning("Model does not support batching")
-        batch_size = None
-
-    return batch_size
-
-
-def _compute_embeddings(samples, model, batch_size):
-    logger.info("Preparing data...")
-    data_loader = _make_data_loader(samples, model, batch_size)
-
-    logger.info("Generating embeddings...")
-    embeddings = []
-    with fou.ProgressBar(samples) as pb:
-        with fou.SetAttributes(model, preprocess=False):
-            with model:
-                for imgs in data_loader:
-                    embeddings_batch = model.embed_all(imgs)
-                    embeddings.append(embeddings_batch)
-
-                    pb.set_iteration(pb.iteration + len(imgs))
-
-    return np.concatenate(embeddings)
-
-
-def _compute_patch_embeddings(
-    samples, model, roi_field, batch_size, force_square, alpha
-):
-    logger.info("Preparing data...")
-    data_loader = _make_patch_data_loader(
-        samples, model, roi_field, force_square, alpha
-    )
-
-    logger.info("Generating embeddings...")
-    embeddings = []
-    with fou.ProgressBar(samples) as pb:
-        with fou.SetAttributes(model, preprocess=False):
-            with model:
-                for patches in pb(data_loader):
-                    patch_embeddings = []
-                    for patch_batch in fou.iter_slices(patches, batch_size):
-                        patch_batch_embeddings = model.embed_all(patch_batch)
-                        patch_embeddings.append(patch_batch_embeddings)
-
-                    patch_embeddings = np.concatenate(patch_embeddings)
-
-                    # Aggregate over patches
-                    # @todo experiment with mean(), max(), abs().max(), etc
-                    embedding = patch_embeddings.max(axis=0)
-                    embeddings.append(embedding)
-
-    return np.stack(embeddings)
-
-
-def _compute_uniqueness(embeddings):
-    logger.info("Computing uniqueness...")
-
-    # @todo convert to a parameter with a default, for tuning
-    K = 3
-
-    # First column of dists and indices is self-distance
-    knns = NearestNeighbors(n_neighbors=K + 1, algorithm="ball_tree").fit(
-        embeddings
-    )
-    dists, _ = knns.kneighbors(embeddings)
-
-    #
-    # @todo experiment on which method for assessing uniqueness is best
-    #
-    # To get something going, for now, just take a weighted mean
-    #
-    weights = [0.6, 0.3, 0.1]
-    sample_dists = np.mean(dists[:, 1:] * weights, axis=1)
-
-    # Normalize to keep the user on common footing across datasets
-    sample_dists /= sample_dists.max()
-
-    return sample_dists
-
-
-def _make_data_loader(samples, model, batch_size):
-    image_paths = []
-    for sample in samples.select_fields():
-        fov.validate_image(sample)
-        image_paths.append(sample.filepath)
-
-    dataset = fout.TorchImageDataset(
-        image_paths, transform=model.transforms, force_rgb=True
-    )
-
-    num_workers = fout.recommend_num_workers()
-    return torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, num_workers=num_workers
-    )
-
-
-def _make_patch_data_loader(samples, model, roi_field, force_square, alpha):
-    image_paths = []
-    detections = []
-    for sample in samples.select_fields(roi_field):
-        fov.validate_image(sample)
-
-        rois = _parse_rois(sample, roi_field)
-        if rois is None or not rois.detections:
-            # Use entire image as ROI
-            msg = "Sample found with no ROI; using the entire image..."
-            warnings.warn(msg)
-
-            rois = fol.Detections(
-                detections=[fol.Detection(bounding_box=[0, 0, 1, 1])]
-            )
-
-        image_paths.append(sample.filepath)
-        detections.append(rois)
-
-    dataset = fout.TorchImagePatchesDataset(
-        image_paths,
-        detections,
-        model.transforms,
-        ragged_batches=model.ragged_batches,
-        force_rgb=True,
-        force_square=force_square,
-        alpha=alpha,
-    )
-
-    num_workers = fout.recommend_num_workers()
-    return torch.utils.data.DataLoader(
-        dataset,
-        batch_size=1,
-        num_workers=num_workers,
-        collate_fn=lambda batch: batch[0],  # return patches directly
-    )
-
-
-def _parse_rois(sample, roi_field):
-    label = sample[roi_field]
-
-    if isinstance(label, fol.Detections):
-        return label
-
-    if isinstance(label, fol.Detection):
-        return fol.Detections(detections=[label])
-
-    if isinstance(label, fol.Polyline):
-        return fol.Detections(detections=[label.to_detection()])
-
-    if isinstance(label, fol.Polylines):
-        return label.to_detections()
-
-    return None
