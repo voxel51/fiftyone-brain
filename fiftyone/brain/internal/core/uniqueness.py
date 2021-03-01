@@ -93,6 +93,8 @@ def compute_uniqueness(
             model = fbm.load_model(_DEFAULT_MODEL)
             batch_size = _DEFAULT_BATCH_SIZE
 
+        logger.info("Generating embeddings...")
+
         if roi_field is None:
             embeddings = samples.compute_embeddings(
                 model, batch_size=batch_size
@@ -109,11 +111,12 @@ def compute_uniqueness(
             embeddings = []
             for sample_id in samples._get_sample_ids():
                 # @todo experiment with mean(), max(), abs().max(), etc
-                embedding = patch_embeddings[sample_id].max(axis=0)
+                embedding = patch_embeddings[str(sample_id)].max(axis=0)
                 embeddings.append(embedding)
 
             embeddings = np.stack(embeddings)
 
+    logger.info("Computing uniqueness...")
     uniqueness = _compute_uniqueness(embeddings)
 
     samples._add_field_if_necessary(uniqueness_field, fof.FloatField)
@@ -123,8 +126,6 @@ def compute_uniqueness(
 
 
 def _compute_uniqueness(embeddings):
-    logger.info("Computing uniqueness...")
-
     # @todo convert to a parameter with a default, for tuning
     K = 3
 
