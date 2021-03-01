@@ -76,8 +76,11 @@ def compute_visualization(
             values are ``("tsne", "umap")``
         config (None): a :class:`VisualizationConfig` specifying the parameters
              to use. If provided, takes precedence over other parameters
-        model (None): a :class:`fiftyone.core.models.Model` to use to generate
-            embeddings
+        model (None): a :class:`fiftyone.core.models.Model` or the name of a
+            model from the
+            `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/index.html>`_
+            to use to generate embeddings. The model must expose embeddings
+            (``model.has_embeddings = True``)
         batch_size (None): an optional batch size to use when computing
             embeddings. Only applicable when a ``model`` is provided
         force_square (False): whether to minimally manipulate the patch
@@ -109,6 +112,9 @@ def compute_visualization(
         brain_method.register_run(samples, brain_key)
 
     if model is not None:
+        if etau.is_str(model):
+            model = foz.load_zoo_model(model)
+
         if patches_field is not None:
             logger.info("Computing patch embeddings...")
             embeddings = samples.compute_patch_embeddings(
