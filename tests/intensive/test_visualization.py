@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 
 import fiftyone as fo
-import fiftyone.brain.internal.core.visualization as fbv
+import fiftyone.brain as fob
 import fiftyone.zoo as foz
 
 
@@ -32,7 +32,7 @@ def test_mnist():
         ]
     )
 
-    results = fbv.compute_visualization(
+    results = fob.compute_visualization(
         dataset,
         embeddings=embeddings,
         num_dims=2,
@@ -52,7 +52,7 @@ def test_images():
 
     session = fo.launch_app(dataset)
 
-    results = fbv.compute_visualization(
+    results = fob.compute_visualization(
         dataset,
         embeddings_field="embeddings",
         num_dims=2,
@@ -72,7 +72,7 @@ def test_objects():
 
     session = fo.launch_app(dataset)
 
-    results = fbv.compute_visualization(
+    results = fob.compute_visualization(
         dataset,
         embeddings_field="gt_embeddings",
         patches_field="ground_truth",
@@ -95,7 +95,7 @@ def test_objects_subset():
 
     session = fo.launch_app(dataset)
 
-    results = fbv.compute_visualization(
+    results = fob.compute_visualization(
         dataset,
         embeddings_field="gt_embeddings",
         patches_field="ground_truth",
