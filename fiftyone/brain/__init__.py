@@ -144,12 +144,21 @@ def compute_mistakenness(
     )
 
 
-def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
+def compute_uniqueness(
+    samples,
+    uniqueness_field="uniqueness",
+    roi_field=None,
+    embeddings_field=None,
+    model=None,
+):
     """Adds a uniqueness field to each sample scoring how unique it is with
     respect to the rest of the samples.
 
     This function only uses the pixel data and can therefore process labeled or
     unlabeled samples.
+
+    You can provide your own embeddings to seed this method by specifying
+    either the ``embeddings_field`` or ``model`` argument.
 
     .. note::
 
@@ -165,7 +174,15 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
             :class:`fiftyone.core.labels.Polyline`, or
             :class:`fiftyone.core.labels.Polylines` field defining a region of
             interest within each image to use to compute uniqueness
+        embeddings_field (None): the name of a field containing image/patch
+            embeddings to use
+        model (None): an optional :class:`fiftyone.core.models.Model` or the
+            name of a model from the
+            `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/models.html>`_
+            to use to generate embeddings
     """
     import fiftyone.brain.internal.core.uniqueness as fbu
 
-    fbu.compute_uniqueness(samples, uniqueness_field, roi_field)
+    fbu.compute_uniqueness(
+        samples, uniqueness_field, roi_field, embeddings_field, model
+    )

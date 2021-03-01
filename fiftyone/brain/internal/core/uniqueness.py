@@ -11,13 +11,17 @@ import warnings
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
+import eta.core.utils as etau
+
 import fiftyone as fo
 import fiftyone.core.brain as fob
 import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
 import fiftyone.core.media as fom
+import fiftyone.core.models as fomo
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
+import fiftyone.zoo as foz
 
 import fiftyone.brain.internal.models as fbm
 
@@ -38,7 +42,9 @@ _ALLOWED_ROI_FIELD_TYPES = (
 _DEFAULT_BATCH_SIZE = 16
 
 
-def compute_uniqueness(samples, uniqueness_field, roi_field):
+def compute_uniqueness(
+    samples, uniqueness_field, roi_field, embeddings_field, model
+):
     """See ``fiftyone/brain/__init__.py``."""
 
     #
@@ -63,17 +69,35 @@ def compute_uniqueness(samples, uniqueness_field, roi_field):
     if samples.media_type == fom.VIDEO:
         raise ValueError("Uniqueness does not yet support video collections")
 
-    config = UniquenessConfig(uniqueness_field, roi_field)
+    config = UniquenessConfig(
+        uniqueness_field,
+        roi_field,
+        embeddings_field=embeddings_field,
+        model=model,
+    )
     brain_key = uniqueness_field
     brain_method = config.build()
     brain_method.register_run(samples, brain_key)
 
-    model = _load_model()
+    if embeddings_field is not None:
+        embeddings = samples.values(embeddings_field)
+        if roi_field is not None:
+            embeddings = [e.max(axis=0) for e in embeddings]
 
-    if roi_field is None:
-        embeddings = _compute_embeddings(samples, model)
+        embeddings = np.stack(embeddings)
     else:
-        embeddings = _compute_patch_embeddings(samples, model, roi_field)
+        if etau.is_str(model):
+            model = foz.load_zoo_model(model)
+        elif model is None:
+            model = fbm.load_model("simple-resnet-cifar10")
+
+        # @todo support non-Torch models with ragged batches
+        _validate_model(model)
+
+        if roi_field is None:
+            embeddings = _compute_embeddings(samples, model)
+        else:
+            embeddings = _compute_patch_embeddings(samples, model, roi_field)
 
     uniqueness = _compute_uniqueness(embeddings)
 
@@ -84,10 +108,22 @@ def compute_uniqueness(samples, uniqueness_field, roi_field):
 
 
 class UniquenessConfig(fob.BrainMethodConfig):
-    def __init__(self, uniqueness_field, roi_field, **kwargs):
+    def __init__(
+        self,
+        uniqueness_field,
+        roi_field,
+        embeddings_field=None,
+        model=None,
+        **kwargs,
+    ):
+        if model is not None and not etau.is_str(model):
+            model = etau.get_class_name(model)
+
         super().__init__(**kwargs)
         self.uniqueness_field = uniqueness_field
         self.roi_field = roi_field
+        self.embeddings_field = embeddings_field
+        self.model = model
 
     @property
     def method(self):
@@ -97,8 +133,11 @@ class UniquenessConfig(fob.BrainMethodConfig):
 class Uniqueness(fob.BrainMethod):
     def get_fields(self, samples, brain_key):
         fields = [self.config.uniqueness_field]
-        if self.config.roi_field:
+        if self.config.roi_field is not None:
             fields.append(self.config.roi_field)
+
+        if self.config.embeddings_field is not None:
+            fields.append(self.config.embeddings_field)
 
         return fields
 
@@ -112,15 +151,16 @@ class Uniqueness(fob.BrainMethod):
         )
 
 
-def _load_model():
-    logger.info("Loading uniqueness model...")
-    model = fbm.load_model("simple-resnet-cifar10")
+def _validate_model(model):
+    if not isinstance(model, fomo.Model):
+        raise ValueError(
+            "Model must be a %s instance; found %s" % (fomo.Model, type(model))
+        )
+
     if model.ragged_batches:
         raise ValueError(
             "This method does not support models with ragged batches"
         )
-
-    return model
 
 
 def _compute_embeddings(samples, model):
