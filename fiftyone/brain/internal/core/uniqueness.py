@@ -39,11 +39,19 @@ _ALLOWED_ROI_FIELD_TYPES = (
     fol.Polyline,
     fol.Polylines,
 )
+_DEFAULT_MODEL = "simple-resnet-cifar10"
 _DEFAULT_BATCH_SIZE = 16
 
 
 def compute_uniqueness(
-    samples, uniqueness_field, roi_field, embeddings_field, model
+    samples,
+    uniqueness_field,
+    roi_field,
+    embeddings_field,
+    model,
+    batch_size,
+    force_square,
+    alpha,
 ):
     """See ``fiftyone/brain/__init__.py``."""
 
@@ -89,15 +97,20 @@ def compute_uniqueness(
         if etau.is_str(model):
             model = foz.load_zoo_model(model)
         elif model is None:
-            model = fbm.load_model("simple-resnet-cifar10")
+            model = fbm.load_model(_DEFAULT_MODEL)
+            batch_size = _DEFAULT_BATCH_SIZE
 
         # @todo support non-Torch models with ragged batches
         _validate_model(model)
 
+        batch_size = _parse_batch_size(model, batch_size)
+
         if roi_field is None:
-            embeddings = _compute_embeddings(samples, model)
+            embeddings = _compute_embeddings(samples, model, batch_size)
         else:
-            embeddings = _compute_patch_embeddings(samples, model, roi_field)
+            embeddings = _compute_patch_embeddings(
+                samples, model, roi_field, batch_size, force_square, alpha
+            )
 
     uniqueness = _compute_uniqueness(embeddings)
 
@@ -163,9 +176,20 @@ def _validate_model(model):
         )
 
 
-def _compute_embeddings(samples, model):
+def _parse_batch_size(batch_size, model):
+    if batch_size is None:
+        batch_size = fo.config.default_batch_size
+
+    if batch_size is not None and batch_size > 1 and model.ragged_batches:
+        logger.warning("Model does not support batching")
+        batch_size = None
+
+    return batch_size
+
+
+def _compute_embeddings(samples, model, batch_size):
     logger.info("Preparing data...")
-    data_loader = _make_data_loader(samples, model)
+    data_loader = _make_data_loader(samples, model, batch_size)
 
     logger.info("Generating embeddings...")
     embeddings = []
@@ -181,12 +205,15 @@ def _compute_embeddings(samples, model):
     return np.concatenate(embeddings)
 
 
-def _compute_patch_embeddings(samples, model, roi_field):
+def _compute_patch_embeddings(
+    samples, model, roi_field, batch_size, force_square, alpha
+):
     logger.info("Preparing data...")
-    data_loader = _make_patch_data_loader(samples, model, roi_field)
+    data_loader = _make_patch_data_loader(
+        samples, model, roi_field, force_square, alpha
+    )
 
     logger.info("Generating embeddings...")
-    batch_size = fo.config.default_batch_size or _DEFAULT_BATCH_SIZE
     embeddings = []
     with fou.ProgressBar(samples) as pb:
         with fou.SetAttributes(model, preprocess=False):
@@ -233,7 +260,7 @@ def _compute_uniqueness(embeddings):
     return sample_dists
 
 
-def _make_data_loader(samples, model):
+def _make_data_loader(samples, model, batch_size):
     image_paths = []
     for sample in samples.select_fields():
         fov.validate_image(sample)
@@ -243,14 +270,13 @@ def _make_data_loader(samples, model):
         image_paths, transform=model.transforms, force_rgb=True
     )
 
-    batch_size = fo.config.default_batch_size or _DEFAULT_BATCH_SIZE
     num_workers = fout.recommend_num_workers()
     return torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, num_workers=num_workers
     )
 
 
-def _make_patch_data_loader(samples, model, roi_field):
+def _make_patch_data_loader(samples, model, roi_field, force_square, alpha):
     image_paths = []
     detections = []
     for sample in samples.select_fields(roi_field):
@@ -270,7 +296,13 @@ def _make_patch_data_loader(samples, model, roi_field):
         detections.append(rois)
 
     dataset = fout.TorchImagePatchesDataset(
-        image_paths, detections, model.transforms, force_rgb=True
+        image_paths,
+        detections,
+        model.transforms,
+        ragged_batches=model.ragged_batches,
+        force_rgb=True,
+        force_square=force_square,
+        alpha=alpha,
     )
 
     num_workers = fout.recommend_num_workers()
