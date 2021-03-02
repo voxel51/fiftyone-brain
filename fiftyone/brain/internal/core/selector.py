@@ -14,6 +14,7 @@ import sklearn.metrics.pairwise as skp
 
 from fiftyone import ViewField as F
 from fiftyone.core.expressions import ObjectId
+import fiftyone.core.utils as fou
 
 
 class PointSelector(object):
@@ -36,10 +37,10 @@ class PointSelector(object):
             from
         session (None): a :class:`fiftyone.core.session.Session` to link with
             this selector
-        sample_ids (None): an array of sample IDs corresponding to
-            ``collection``
-        object_ids (None): an array of object IDs corresponding to
-            ``collection``
+        bidirectional (True): whether to update this selector in response to
+            updates to ``session`` that are not triggered by this selector
+        sample_ids (None): a list of sample IDs corresponding to ``collection``
+        object_ids (None): a list of object IDs corresponding to ``collection``
         object_field (None): the sample field containing the objects in
             ``collection``
         alpha_other (0.25): a transparency value for unselected points
@@ -54,6 +55,7 @@ class PointSelector(object):
         ax,
         collection,
         session=None,
+        bidirectional=True,
         sample_ids=None,
         object_ids=None,
         object_field=None,
@@ -70,6 +72,7 @@ class PointSelector(object):
         self.ax = ax
         self.collection = collection
         self.session = session
+        self.bidirectional = bidirectional
         self.sample_ids = sample_ids
         self.object_ids = object_ids
         self.object_field = object_field
@@ -94,6 +97,7 @@ class PointSelector(object):
 
         self._connected = False
         self._session = None
+        self._lock_session = False
         self._init_view = None
         self._lasso = None
         self._shift = False
@@ -160,10 +164,7 @@ class PointSelector(object):
         if not self.is_selecting_samples:
             raise ValueError("This selector cannot select samples")
 
-        x = np.expand_dims(self.sample_ids, axis=1)
-        y = np.expand_dims(sample_ids, axis=0)
-        inds = np.nonzero(np.any(x == y, axis=1))[0]
-        self._select_inds(inds)
+        self._select_samples(sample_ids)
 
     def select_objects(self, object_ids):
         """Selects the points corresponding to the objects with the given IDs.
@@ -174,10 +175,7 @@ class PointSelector(object):
         if not self.is_selecting_objects:
             raise ValueError("This selector cannot select objects")
 
-        x = np.expand_dims(self.object_ids, axis=1)
-        y = np.expand_dims(object_ids, axis=0)
-        inds = np.nonzero(np.any(x == y, axis=1))[0]
-        self._select_inds(inds)
+        self._select_objects(object_ids)
 
     def tag_selected(self, tag):
         """Adds the tag to the currently selected samples/objects, if
@@ -256,8 +254,12 @@ class PointSelector(object):
             else:
                 self._init_view = session.dataset.view()
 
+            if self.bidirectional:
+                session.add_listener("point_selector", self._onsessionupdate)
+
         self._lasso = LassoSelector(self.ax, onselect=self._onselect)
         self._session = session
+
         self._keypress_events = [
             self._canvas.mpl_connect("key_press_event", self._onkeypress),
             self._canvas.mpl_connect("key_release_event", self._onkeyrelease),
@@ -270,7 +272,8 @@ class PointSelector(object):
     def refresh(self):
         """Refreshes the selector's plot and linked session (if any)."""
         self._canvas.draw_idle()
-        self._update_session()
+        if not self._lock_session:
+            self._update_session()
 
     def disconnect(self,):
         """Disconnects this selector from its plot and sesssion (if any)."""
@@ -294,6 +297,9 @@ class PointSelector(object):
         self._disconnect()
 
     def _disconnect(self):
+        if self.session is not None and self.bidirectional:
+            self.session.delete_listener("point_selector")
+
         self._session = None
         self._connected = False
 
@@ -308,6 +314,67 @@ class PointSelector(object):
             self._shift = False
             self.ax.set_title("Click or drag to select points")
             self._canvas.draw_idle()
+
+    def _onsessionupdate(self, _):
+        if self._lock_session:
+            return
+
+        with fou.SetAttributes(self, _lock_session=True):
+            if self._session.view is not None:
+                view = self._session.view
+            else:
+                view = self._session.dataset
+
+            if self.is_selecting_samples:
+                """
+                if self._session.selected:
+                    selected = self._session.selected
+                else:
+                    selected = None
+
+                emph_sample_ids = selected
+                """
+
+                sample_ids = self._get_selected_samples(view)
+                self._select_samples(sample_ids)
+
+            if self.is_selecting_objects:
+                """
+                if self._session.selected_objects:
+                    selected_objects = [
+                        o["object_id"] for o in self._session.selected_objects
+                    ]
+                elif self._session.selected:
+                    selected_objects = self._get_selected_objects(
+                        view,
+                        self.object_field,
+                        selected=self._session.selected,
+                    )
+                else:
+                    selected_objects = None
+
+                emph_object_ids = selected_objects
+                """
+
+                object_ids = self._get_selected_objects(
+                    view, self.object_field
+                )
+                self._select_objects(object_ids)
+
+    @staticmethod
+    def _get_selected_samples(view, selected=None):
+        if selected is not None:
+            view = view.select(selected)
+
+        return [str(_id) for _id in view._get_sample_ids()]
+
+    @staticmethod
+    def _get_selected_objects(view, object_field, selected=None):
+        if selected is not None:
+            view = view.select(selected)
+
+        _, id_path = view._get_label_field_path(object_field, "_id")
+        return [str(_id) for _id in view.values(id_path)]
 
     def _onselect(self, vertices):
         if self._is_click(vertices):
@@ -334,16 +401,30 @@ class PointSelector(object):
             vertices[0][1], vertices[-1][1]
         )
 
+    def _select_samples(self, sample_ids):
+        # @todo is there a fast, more memory efficient way to do this?
+        x = np.expand_dims(self.sample_ids, axis=1)
+        y = np.expand_dims(sample_ids, axis=0)
+        inds = np.nonzero(np.any(x == y, axis=1))[0]
+        self._select_inds(inds)
+
+    def _select_objects(self, object_ids):
+        # @todo is there a fast, more memory efficient way to do this?
+        x = np.expand_dims(self.object_ids, axis=1)
+        y = np.expand_dims(object_ids, axis=0)
+        inds = np.nonzero(np.any(x == y, axis=1))[0]
+        self._select_inds(inds)
+
     def _select_inds(self, inds):
         if self._shift:
             new_inds = set(inds)
             inds = set(self._inds)
             if new_inds.issubset(inds):
-                # the new selection is a subset of the current selection, so
+                # The new selection is a subset of the current selection, so
                 # remove the selection
                 inds.difference_update(new_inds)
             else:
-                # the new selection contains new points, so add them
+                # The new selection contains new points, so add them
                 inds.update(new_inds)
 
             inds = np.array(sorted(inds), dtype=int)
@@ -355,10 +436,20 @@ class PointSelector(object):
             return
 
         self._inds = inds
-        self._update_selections()
 
+        if self.is_selecting_samples:
+            self._selected_sample_ids = list(self.sample_ids[inds])
+
+        if self.is_selecting_objects:
+            self._selected_object_ids = list(self.object_ids[inds])
+
+        self._update_plot()
+        self.refresh()
+
+    def _update_plot(self):
         self._prep_collection()
 
+        inds = self._inds
         if inds.size == 0:
             self._fc[:, -1] = 1
         else:
@@ -373,15 +464,6 @@ class PointSelector(object):
 
         self.collection.set_sizes(self._ms)
 
-        self.refresh()
-
-    def _update_selections(self):
-        if self.is_selecting_samples:
-            self._selected_sample_ids = list(self.sample_ids[self._inds])
-
-        if self.is_selecting_objects:
-            self._selected_object_ids = list(self.object_ids[self._inds])
-
     def _update_session(self):
         if not self.has_linked_session:
             return
@@ -391,7 +473,8 @@ class PointSelector(object):
         else:
             view = self._init_view
 
-        self._session.view = view
+        with fou.SetAttributes(self, _lock_session=True):
+            self._session.view = view
 
     def _prep_collection(self):
         # @todo why is this necessary? We do this JIT here because it seems

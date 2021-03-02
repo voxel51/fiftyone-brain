@@ -211,13 +211,13 @@ class VisualizationResults(fob.BrainResults):
         sample_ids = None
         object_ids = None
         if self.config.patches_field is not None:
-            object_ids = np.array(
-                _get_object_ids(self._samples, self.config.patches_field)
+            object_ids = _get_object_ids(
+                self._samples, self.config.patches_field
             )
             if inds is not None:
                 object_ids = object_ids[inds]
         else:
-            sample_ids = np.array(self._samples._get_sample_ids())
+            sample_ids = _get_sample_ids(self._samples)
             if inds is not None:
                 sample_ids = sample_ids[inds]
 
@@ -588,14 +588,20 @@ def _parse_data(points, labels, classes):
     return points, values, classes, found, True
 
 
+def _get_sample_ids(samples):
+    return np.array([str(_id) for _id in samples._get_sample_ids()])
+
+
 def _get_object_ids(samples, patches_field):
     label_type, id_path = samples._get_label_field_path(patches_field, "_id")
     if issubclass(label_type, (fol.Detection, fol.Polyline)):
-        return [str(_id) for _id in samples.values(id_path)]
+        return np.array([str(_id) for _id in samples.values(id_path)])
 
     if issubclass(label_type, (fol.Detections, fol.Polylines)):
         object_ids = samples.values(id_path)
-        return [str(_id) for _id in itertools.chain.from_iterable(object_ids)]
+        return np.array(
+            [str(_id) for _id in itertools.chain.from_iterable(object_ids)]
+        )
 
     raise ValueError(
         "Patches field %s has unsupported type %s"
