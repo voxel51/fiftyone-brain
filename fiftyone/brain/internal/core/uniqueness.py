@@ -103,6 +103,7 @@ def compute_uniqueness(
             patch_embeddings = samples.compute_patch_embeddings(
                 model,
                 roi_field,
+                handle_missing="image",
                 batch_size=batch_size,
                 force_square=force_square,
                 alpha=alpha,
