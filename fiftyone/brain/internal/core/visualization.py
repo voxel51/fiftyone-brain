@@ -192,7 +192,7 @@ class VisualizationResults(fob.BrainResults):
                 )
 
         with plt.style.context(style):
-            ax, coll, inds = _plot_scatter(
+            collection, inds = _plot_scatter(
                 self.points,
                 labels=labels,
                 classes=classes,
@@ -229,8 +229,7 @@ class VisualizationResults(fob.BrainResults):
 
         with plt.style.context(style):
             selector = PointSelector(
-                ax,
-                coll,
+                collection,
                 session=session,
                 sample_ids=sample_ids,
                 object_ids=object_ids,
@@ -532,7 +531,7 @@ def _plot_scatter(
     if scatter_3d:
         args.append(points[:, 2])
 
-    coll = ax.scatter(
+    collection = ax.scatter(
         *args, c=values, s=marker_size, cmap=cmap, norm=norm, **kwargs,
     )
 
@@ -563,7 +562,7 @@ def _plot_scatter(
     if figsize is not None:
         fig.set_size_inches(*figsize)
 
-    return ax, coll, inds
+    return collection, inds
 
 
 def _parse_data(points, labels, classes):

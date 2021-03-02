@@ -22,8 +22,16 @@ import fiftyone.core.utils as fou
 
 
 class PointSelector(object):
-    """Class that serves an interactive UI for selecting points in a matplotlib
-    plot.
+    """Class that manages an interactive UI for selecting points in a
+    matplotlib plot.
+
+    The currently selected points are given a visually distinctive style, and
+    the user can modify their selection by either clicking on individual points
+    or drawing a lasso around new points.
+
+    When the shift key is pressed, new selections are added to the selected
+    set, or subtracted if the new selection is a subset of the current
+    selection.
 
     You can provide a ``session`` object together with one of the following to
     link the currently selected points to a FiftyOne App instance:
@@ -31,12 +39,12 @@ class PointSelector(object):
     -   Sample selection: If ``sample_ids`` is provided, then when points are
         selected, a view containing the corresponding samples will be loaded in
         the App
+
     -   Object selection: If ``object_ids`` and ``object_field`` are provided,
         then when points are selected, a view containing the corresponding
         objects in ``object_field`` will be loaded in the App
 
     Args:
-        ax: a matplotlib axis
         collection: a ``matplotlib.collections.Collection`` to select points
             from
         session (None): a :class:`fiftyone.core.session.Session` to link with
@@ -54,7 +62,6 @@ class PointSelector(object):
 
     def __init__(
         self,
-        ax,
         collection,
         session=None,
         sample_ids=None,
@@ -70,8 +77,8 @@ class PointSelector(object):
         if object_ids is not None:
             object_ids = np.asarray(object_ids)
 
-        self.ax = ax
         self.collection = collection
+        self.ax = collection.axes
         self.session = session
         self.bidirectional = False
         self.sample_ids = sample_ids
@@ -81,7 +88,7 @@ class PointSelector(object):
         self.expand_selected = expand_selected
         self.click_tolerance = click_tolerance
 
-        self._canvas = ax.figure.canvas
+        self._canvas = self.ax.figure.canvas
         self._xy = collection.get_offsets()
         self._num_pts = len(self._xy)
         self._fc = collection.get_facecolors()
