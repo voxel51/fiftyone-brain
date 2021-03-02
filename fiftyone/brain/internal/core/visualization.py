@@ -227,16 +227,17 @@ class VisualizationResults(fob.BrainResults):
             else:
                 session.dataset = self._samples
 
-        selector = PointSelector(
-            ax,
-            coll,
-            session=session,
-            sample_ids=sample_ids,
-            object_ids=object_ids,
-            object_field=self.config.patches_field,
-        )
+        with plt.style.context(style):
+            selector = PointSelector(
+                ax,
+                coll,
+                session=session,
+                sample_ids=sample_ids,
+                object_ids=object_ids,
+                object_field=self.config.patches_field,
+            )
 
-        plt.tight_layout()
+        # plt.tight_layout()
         plt.show(block=block)
 
         return selector

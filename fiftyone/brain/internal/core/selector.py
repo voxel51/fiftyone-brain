@@ -8,8 +8,12 @@ Point selection utilities.
 import math
 
 import numpy as np
-from matplotlib.widgets import LassoSelector
+import matplotlib as mpl
+from matplotlib.widgets import Button, LassoSelector
 from matplotlib.path import Path
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from mpl_toolkits.axes_grid1.inset_locator import InsetPosition
 import sklearn.metrics.pairwise as skp
 
 from fiftyone import ViewField as F
@@ -37,8 +41,6 @@ class PointSelector(object):
             from
         session (None): a :class:`fiftyone.core.session.Session` to link with
             this selector
-        bidirectional (True): whether to update this selector in response to
-            updates to ``session`` that are not triggered by this selector
         sample_ids (None): a list of sample IDs corresponding to ``collection``
         object_ids (None): a list of object IDs corresponding to ``collection``
         object_field (None): the sample field containing the objects in
@@ -55,7 +57,6 @@ class PointSelector(object):
         ax,
         collection,
         session=None,
-        bidirectional=True,
         sample_ids=None,
         object_ids=None,
         object_field=None,
@@ -72,7 +73,7 @@ class PointSelector(object):
         self.ax = ax
         self.collection = collection
         self.session = session
-        self.bidirectional = bidirectional
+        self.bidirectional = False
         self.sample_ids = sample_ids
         self.object_ids = object_ids
         self.object_field = object_field
@@ -101,7 +102,14 @@ class PointSelector(object):
         self._init_view = None
         self._lasso = None
         self._shift = False
+        self._title = None
+        self._sync_button = None
+        self._disconnect_button = None
+        self._figure_events = []
         self._keypress_events = []
+
+        self._init_hud()
+
         self.connect()
 
     @property
@@ -186,8 +194,9 @@ class PointSelector(object):
         self._select_inds(inds)
 
     def select_session(self):
-        """Selects the contents of the currently linked session according to
-        the rules listed below.
+        """Selects the contents of the currently linked session.
+
+        The rules listed below are used to determine what to select.
 
         If this selector is selecting samples:
 
@@ -205,6 +214,9 @@ class PointSelector(object):
         """
         if not self.has_linked_session:
             raise ValueError("This selector is not linked to a session")
+
+        if self._lock_session:
+            return
 
         if self._session.view is not None:
             view = self._session.view
@@ -321,13 +333,24 @@ class PointSelector(object):
         self._lasso = LassoSelector(self.ax, onselect=self._onselect)
         self._session = session
 
+        self._title.set_text("  Click or drag to select points")
+        self._sync_button.on_clicked(self._onsync)
+        self._disconnect_button.on_clicked(self._ondisconnect)
+
+        self._figure_events = [
+            self._canvas.mpl_connect("figure_enter_event", self._onenter),
+            self._canvas.mpl_connect("figure_leave_event", self._onexit),
+        ]
+
         self._keypress_events = [
             self._canvas.mpl_connect("key_press_event", self._onkeypress),
             self._canvas.mpl_connect("key_release_event", self._onkeyrelease),
         ]
+
+        self._update_hud(False)
+
         self._connected = True
 
-        self.ax.set_title("Click or drag to select points")
         self._canvas.draw_idle()
 
     def refresh(self):
@@ -344,18 +367,53 @@ class PointSelector(object):
         self._lasso.disconnect_events()
         self._lasso = None
 
+        for cid in self._figure_events:
+            self._canvas.mpl_disconnect(cid)
+
         for cid in self._keypress_events:
             self._canvas.mpl_disconnect(cid)
 
         self._shift = False
+        self._figure_events = []
         self._keypress_events = []
-        self.ax.set_title("")
+        self._update_hud(False)
 
-        self._fc[:, -1] = 1
-        self.collection.set_facecolors(self._fc)
         self._canvas.draw_idle()
 
         self._disconnect()
+
+    def _init_hud(self):
+        # button sizing
+        gap = 0.02
+        width = 0.2
+        height = 0.1
+        color = "#DBEBFC"  # "#FFF0E5"
+        hovercolor = "#499CEF"  # "#FF6D04"
+
+        self._title = self.ax.set_title("", loc="left")
+
+        rax = self.ax.figure.add_axes([0, 0, 1, 1], label="refresh")
+        rax.set_axes_locator(
+            InsetPosition(
+                self.ax, [1 - 2 * width - gap, 1 + gap, width, height]
+            )
+        )
+        self._sync_button = Button(
+            rax, "sync", color=color, hovercolor=hovercolor
+        )
+
+        dax = self.ax.figure.add_axes([0, 0, 1, 1], label="disconnect")
+        dax.set_axes_locator(
+            InsetPosition(self.ax, [1 - width, 1 + gap, width, height])
+        )
+        self._disconnect_button = Button(
+            dax, "disconnect", color=color, hovercolor=hovercolor
+        )
+
+    def _update_hud(self, visible):
+        self._title.set_visible(visible)
+        self._sync_button.ax.set_visible(visible)
+        self._disconnect_button.ax.set_visible(visible)
 
     def _disconnect(self):
         if self.session is not None and self.bidirectional:
@@ -364,38 +422,25 @@ class PointSelector(object):
         self._session = None
         self._connected = False
 
+    def _onenter(self, event):
+        self._update_hud(True)
+        self._canvas.draw_idle()
+
+    def _onexit(self, event):
+        self._update_hud(False)
+        self._canvas.draw_idle()
+
     def _onkeypress(self, event):
         if event.key == "shift":
             self._shift = True
-            self.ax.set_title("Click or drag to add/remove points")
+            self._title.set_text("  Click or drag to add/remove points")
             self._canvas.draw_idle()
 
     def _onkeyrelease(self, event):
         if event.key == "shift":
             self._shift = False
-            self.ax.set_title("Click or drag to select points")
+            self._title.set_text("  Click or drag to select points")
             self._canvas.draw_idle()
-
-    def _onsessionupdate(self, _):
-        if self._lock_session:
-            return
-
-        self.select_session()
-
-    @staticmethod
-    def _get_selected_samples(view, selected=None):
-        if selected is not None:
-            view = view.select(selected)
-
-        return [str(_id) for _id in view._get_sample_ids()]
-
-    @staticmethod
-    def _get_selected_objects(view, object_field, selected=None):
-        if selected is not None:
-            view = view.select(selected)
-
-        _, id_path = view._get_label_field_path(object_field, "_id")
-        return [str(_id) for _id in view.values(id_path)]
 
     def _onselect(self, vertices):
         if self._is_click(vertices):
@@ -412,6 +457,19 @@ class PointSelector(object):
             inds = np.nonzero(path.contains_points(self._xy))[0]
 
         self._select_inds(inds)
+
+    def _onsessionupdate(self):
+        self.select_session()
+
+    def _onsync(self, event):
+        # Change to non-hover color to convey to user that something happened
+        # https://stackoverflow.com/a/28079210
+        self._sync_button.ax.set_facecolor(self._sync_button.color)
+        self._canvas.draw_idle()
+        self.select_session()
+
+    def _ondisconnect(self, event):
+        self.disconnect()
 
     @staticmethod
     def _is_click(vertices):
@@ -496,3 +554,18 @@ class PointSelector(object):
         if self.expand_selected is not None:
             if len(self._ms) < self._num_pts:
                 self._ms = np.tile(self._ms[0], self._num_pts)
+
+    @staticmethod
+    def _get_selected_samples(view, selected=None):
+        if selected is not None:
+            view = view.select(selected)
+
+        return [str(_id) for _id in view._get_sample_ids()]
+
+    @staticmethod
+    def _get_selected_objects(view, object_field, selected=None):
+        if selected is not None:
+            view = view.select(selected)
+
+        _, id_path = view._get_label_field_path(object_field, "_id")
+        return [str(_id) for _id in view.values(id_path)]
