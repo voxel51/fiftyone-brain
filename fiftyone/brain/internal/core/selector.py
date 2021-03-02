@@ -44,7 +44,7 @@ class PointSelector(object):
         object_field (None): the sample field containing the objects in
             ``collection``
         alpha_other (0.25): a transparency value for unselected points
-        expand_selected (2.0): expand the size of selected points by this
+        expand_selected (3.0): expand the size of selected points by this
             amount
         click_tolerance (0.02): a click distance tolerance in ``[0, 1]`` when
             clicking individual points
@@ -60,7 +60,7 @@ class PointSelector(object):
         object_ids=None,
         object_field=None,
         alpha_other=0.25,
-        expand_selected=2.0,
+        expand_selected=3.0,
         click_tolerance=0.02,
     ):
         if sample_ids is not None:
@@ -164,7 +164,11 @@ class PointSelector(object):
         if not self.is_selecting_samples:
             raise ValueError("This selector cannot select samples")
 
-        self._select_samples(sample_ids)
+        # @todo is there a fast, more memory efficient way to do this?
+        x = np.expand_dims(self.sample_ids, axis=1)
+        y = np.expand_dims(sample_ids, axis=0)
+        inds = np.nonzero(np.any(x == y, axis=1))[0]
+        self._select_inds(inds)
 
     def select_objects(self, object_ids):
         """Selects the points corresponding to the objects with the given IDs.
@@ -175,7 +179,64 @@ class PointSelector(object):
         if not self.is_selecting_objects:
             raise ValueError("This selector cannot select objects")
 
-        self._select_objects(object_ids)
+        # @todo is there a fast, more memory efficient way to do this?
+        x = np.expand_dims(self.object_ids, axis=1)
+        y = np.expand_dims(object_ids, axis=0)
+        inds = np.nonzero(np.any(x == y, axis=1))[0]
+        self._select_inds(inds)
+
+    def select_session(self):
+        """Selects the contents of the currently linked session according to
+        the rules listed below.
+
+        If this selector is selecting samples:
+
+        -   If samples are selected in the session (``session.selected``), only
+            select those
+        -   Otherwise, select all samples in the current view
+
+        If this selector is selecting objects:
+
+        -   If objects are selected in the session
+            (``session.selected_objects``), only select those
+        -   Else if samples are selected (``session.selected``), only select
+            their objects
+        -   Otherwise, select all objects in the current view
+        """
+        if not self.has_linked_session:
+            raise ValueError("This selector is not linked to a session")
+
+        if self._session.view is not None:
+            view = self._session.view
+        else:
+            view = self._session.dataset
+
+        if self.is_selecting_samples:
+            if self._session.selected:
+                sample_ids = self._session.selected
+            else:
+                sample_ids = self._get_selected_samples(view)
+
+            # Lock the session so that it is not updated, since we are
+            # responding to the state of the current session
+            with fou.SetAttributes(self, _lock_session=True):
+                self.select_samples(sample_ids)
+
+        if self.is_selecting_objects:
+            if self._session.selected_objects:
+                object_ids = [
+                    o["object_id"] for o in self._session.selected_objects
+                ]
+            else:
+                selected = self._session.selected or None
+                object_ids = self._get_selected_objects(
+                    view, self.object_field, selected=selected
+                )
+
+            # Lock the session so that it is not updated, since we are
+            # responding to the state of the current session
+            with fou.SetAttributes(self, _lock_session=True):
+                self.select_objects(object_ids)
 
     def tag_selected(self, tag):
         """Adds the tag to the currently selected samples/objects, if
@@ -319,47 +380,7 @@ class PointSelector(object):
         if self._lock_session:
             return
 
-        with fou.SetAttributes(self, _lock_session=True):
-            if self._session.view is not None:
-                view = self._session.view
-            else:
-                view = self._session.dataset
-
-            if self.is_selecting_samples:
-                """
-                if self._session.selected:
-                    selected = self._session.selected
-                else:
-                    selected = None
-
-                emph_sample_ids = selected
-                """
-
-                sample_ids = self._get_selected_samples(view)
-                self._select_samples(sample_ids)
-
-            if self.is_selecting_objects:
-                """
-                if self._session.selected_objects:
-                    selected_objects = [
-                        o["object_id"] for o in self._session.selected_objects
-                    ]
-                elif self._session.selected:
-                    selected_objects = self._get_selected_objects(
-                        view,
-                        self.object_field,
-                        selected=self._session.selected,
-                    )
-                else:
-                    selected_objects = None
-
-                emph_object_ids = selected_objects
-                """
-
-                object_ids = self._get_selected_objects(
-                    view, self.object_field
-                )
-                self._select_objects(object_ids)
+        self.select_session()
 
     @staticmethod
     def _get_selected_samples(view, selected=None):
@@ -400,20 +421,6 @@ class PointSelector(object):
         return math.isclose(vertices[0][0], vertices[-1][0]) and math.isclose(
             vertices[0][1], vertices[-1][1]
         )
-
-    def _select_samples(self, sample_ids):
-        # @todo is there a fast, more memory efficient way to do this?
-        x = np.expand_dims(self.sample_ids, axis=1)
-        y = np.expand_dims(sample_ids, axis=0)
-        inds = np.nonzero(np.any(x == y, axis=1))[0]
-        self._select_inds(inds)
-
-    def _select_objects(self, object_ids):
-        # @todo is there a fast, more memory efficient way to do this?
-        x = np.expand_dims(self.object_ids, axis=1)
-        y = np.expand_dims(object_ids, axis=0)
-        inds = np.nonzero(np.any(x == y, axis=1))[0]
-        self._select_inds(inds)
 
     def _select_inds(self, inds):
         if self._shift:
