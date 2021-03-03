@@ -124,7 +124,7 @@ class VisualizationResults(fob.BrainResults):
         self.points = points
         self.config = config
 
-    def plot(
+    def visualize(
         self,
         field=None,
         labels=None,
@@ -229,7 +229,7 @@ class Visualization(fob.BrainMethod):
         Returns:
             a ``num_samples x num_dims`` array of coordinates
         """
-        raise NotImplementedError("subclass must implement visualize()")
+        raise NotImplementedError("subclass must implement fit()")
 
     def get_fields(self, samples, brain_key):
         fields = []
