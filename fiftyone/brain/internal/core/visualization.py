@@ -35,7 +35,9 @@ umap = fou.lazy_import(
 logger = logging.getLogger(__name__)
 
 
+# @todo optimize this
 _DEFAULT_MODEL_NAME = "inception-v3-imagenet-torch"
+_DEFAULT_BATCH_SIZE = 16
 
 
 def compute_visualization(
@@ -59,6 +61,8 @@ def compute_visualization(
 
     if model is None and embeddings_field is None and embeddings is None:
         model = foz.load_zoo_model(_DEFAULT_MODEL_NAME)
+        if batch_size is None:
+            batch_size = _DEFAULT_BATCH_SIZE
 
     config = _parse_config(
         config, embeddings_field, patches_field, method, num_dims, **kwargs
