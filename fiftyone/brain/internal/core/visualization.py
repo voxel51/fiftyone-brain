@@ -23,9 +23,8 @@ import fiftyone.core.labels as fol
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 from fiftyone.core.view import DatasetView
+from fiftyone.utils.plot import PointSelector
 import fiftyone.zoo as foz
-
-from .selector import PointSelector
 
 umap = fou.lazy_import(
     "umap", callback=lambda: etau.ensure_package("umap-learn")
