@@ -11,7 +11,6 @@ import numpy as np
 import sklearn.decomposition as skd
 import sklearn.manifold as skm
 
-import eta.core.serial as etas
 import eta.core.utils as etau
 
 import fiftyone.core.brain as fob
@@ -189,8 +188,8 @@ class VisualizationResults(fob.BrainResults):
 
     @classmethod
     def _from_dict(cls, d, samples):
-        embeddings = etas.deserialize_numpy_array(d["embeddings"])
-        points = etas.deserialize_numpy_array(d["points"])
+        embeddings = np.array(d["embeddings"])
+        points = np.array(d["points"])
         config = VisualizationConfig.from_dict(d["config"])
         return cls(samples, embeddings, points, config)
 
