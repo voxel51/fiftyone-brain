@@ -169,7 +169,8 @@ class VisualizationResults(fob.BrainResults):
             **kwargs: optional keyword arguments for matplotlib's ``scatter()``
 
         Returns:
-            a :class:`PointSelector` if this is a 2D visualization, else None
+            a :class:`fiftyone.utils.plot.selector.PointSelector` if this is a
+            2D visualization, else None
         """
         if self.config.num_dims not in {2, 3}:
             raise ValueError(
@@ -239,7 +240,9 @@ class VisualizationResults(fob.BrainResults):
                 object_field=self.config.patches_field,
             )
 
+        selector.ax.axis("equal")
         # plt.tight_layout()
+
         plt.show(block=block)
 
         return selector
