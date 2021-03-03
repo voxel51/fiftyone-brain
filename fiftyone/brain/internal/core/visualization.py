@@ -5,25 +5,18 @@ Visualization methods.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
-import itertools
 import logging
 
 import numpy as np
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-from mpl_toolkits.mplot3d import Axes3D  # pylint: disable=unused-import
 import sklearn.decomposition as skd
 import sklearn.manifold as skm
 
 import eta.core.utils as etau
 
 import fiftyone.core.brain as fob
-import fiftyone.core.labels as fol
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
-from fiftyone.core.view import DatasetView
-from fiftyone.utils.plot import PointSelector
+import fiftyone.utils.plot as foup
 import fiftyone.zoo as foz
 
 umap = fou.lazy_import(
@@ -139,6 +132,7 @@ class VisualizationResults(fob.BrainResults):
         marker_size=None,
         cmap=None,
         ax=None,
+        ax_equal=True,
         figsize=None,
         style="seaborn-ticks",
         block=False,
@@ -161,6 +155,7 @@ class VisualizationResults(fob.BrainResults):
             marker_size (None): the marker size to use
             cmap (None): a colormap recognized by ``matplotlib``
             ax (None): an optional matplotlib axis to plot in
+            ax_equal (True): whether to set ``axis("equal")``
             figsize (None): an optional ``(width, height)`` for the figure, in
                 inches
             style ("seaborn-ticks"): a style to use for the plot
@@ -172,80 +167,23 @@ class VisualizationResults(fob.BrainResults):
             a :class:`fiftyone.utils.plot.selector.PointSelector` if this is a
             2D visualization, else None
         """
-        if self.config.num_dims not in {2, 3}:
-            raise ValueError(
-                "This method only supports 2D or 3D visualization"
-            )
-
-        if session is not None and self.config.num_dims != 2:
-            logger.warning("Interactive selection is only supported in 2D")
-
-        if field is not None:
-            labels = self._samples.values(field)
-
-        if labels and isinstance(labels[0], (list, tuple)):
-            labels = list(itertools.chain.from_iterable(labels))
-
-        if labels is not None:
-            if len(labels) != len(self.points):
-                raise ValueError(
-                    "Number of labels (%d) does not match number of points "
-                    "(%d). You may have missing embeddings and/or labels that "
-                    "you need to omit from your view before visualizing"
-                    % (len(labels), len(self.points))
-                )
-
-        with plt.style.context(style):
-            collection, inds = _plot_scatter(
-                self.points,
-                labels=labels,
-                classes=classes,
-                marker_size=marker_size,
-                cmap=cmap,
-                ax=ax,
-                figsize=figsize,
-                **kwargs,
-            )
-
-        if self.config.num_dims != 2:
-            plt.tight_layout()
-            plt.show(block=block)
-            return None
-
-        sample_ids = None
-        object_ids = None
-        if self.config.patches_field is not None:
-            object_ids = _get_object_ids(
-                self._samples, self.config.patches_field
-            )
-            if inds is not None:
-                object_ids = object_ids[inds]
-        else:
-            sample_ids = _get_sample_ids(self._samples)
-            if inds is not None:
-                sample_ids = sample_ids[inds]
-
-        if session is not None:
-            if isinstance(self._samples, DatasetView):
-                session.view = self._samples
-            else:
-                session.dataset = self._samples
-
-        with plt.style.context(style):
-            selector = PointSelector(
-                collection,
-                session=session,
-                sample_ids=sample_ids,
-                object_ids=object_ids,
-                object_field=self.config.patches_field,
-            )
-
-        selector.ax.axis("equal")
-        # plt.tight_layout()
-
-        plt.show(block=block)
-
-        return selector
+        return foup.scatterplot(
+            self.points,
+            samples=self._samples,
+            label_field=self.config.patches_field,
+            field=field,
+            labels=labels,
+            classes=classes,
+            session=session,
+            marker_size=marker_size,
+            cmap=cmap,
+            ax=ax,
+            ax_equal=ax_equal,
+            figsize=figsize,
+            style=style,
+            block=block,
+            **kwargs,
+        )
 
 
 class VisualizationConfig(fob.BrainMethodConfig):
@@ -488,128 +426,4 @@ def _parse_config(
         patches_field=patches_field,
         num_dims=num_dims,
         **kwargs,
-    )
-
-
-def _plot_scatter(
-    points,
-    labels=None,
-    classes=None,
-    marker_size=None,
-    cmap=None,
-    ax=None,
-    figsize=None,
-    **kwargs,
-):
-    if labels is not None:
-        points, values, classes, inds, categorical = _parse_data(
-            points, labels, classes
-        )
-    else:
-        values, classes, inds, categorical = None, None, None, None
-
-    scatter_3d = points.shape[1] == 3
-
-    if ax is None:
-        projection = "3d" if scatter_3d else None
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection=projection)
-    else:
-        fig = ax.figure
-
-    if cmap is None:
-        cmap = "Spectral" if categorical else "viridis"
-
-    cmap = plt.get_cmap(cmap)
-
-    if categorical:
-        boundaries = np.arange(0, len(classes) + 1)
-        norm = mpl.colors.BoundaryNorm(boundaries, cmap.N)
-    else:
-        norm = None
-
-    if marker_size is None:
-        marker_size = 10 ** (4 - np.log10(points.shape[0]))
-        marker_size = max(0.1, min(marker_size, 25))
-        marker_size = round(marker_size, 0 if marker_size >= 1 else 1)
-
-    args = [points[:, 0], points[:, 1]]
-    if scatter_3d:
-        args.append(points[:, 2])
-
-    collection = ax.scatter(
-        *args, c=values, s=marker_size, cmap=cmap, norm=norm, **kwargs,
-    )
-
-    if values is not None:
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes(
-            "right", size="5%", pad=0.1, axes_class=mpl.axes.Axes
-        )
-
-        if categorical:
-            ticks = 0.5 + np.arange(0, len(classes))
-            cbar = mpl.colorbar.ColorbarBase(
-                cax,
-                cmap=cmap,
-                norm=norm,
-                spacing="proportional",
-                boundaries=boundaries,
-                ticks=ticks,
-            )
-            cbar.set_ticklabels(classes)
-        else:
-            mappable = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
-            mappable.set_array(values)
-            fig.colorbar(mappable, cax=cax)
-
-    ax.axis("equal")
-
-    if figsize is not None:
-        fig.set_size_inches(*figsize)
-
-    return collection, inds
-
-
-def _parse_data(points, labels, classes):
-    if not labels:
-        return points, None, None, None, False
-
-    if not etau.is_str(labels[0]):
-        return points, labels, None, None, False
-
-    if classes is None:
-        classes = sorted(set(labels))
-
-    values_map = {c: i for i, c in enumerate(classes)}
-    values = np.array([values_map.get(l, -1) for l in labels])
-
-    found = values >= 0
-    if not np.all(found):
-        points = points[found, :]
-        values = values[found]
-    else:
-        found = None
-
-    return points, values, classes, found, True
-
-
-def _get_sample_ids(samples):
-    return np.array([str(_id) for _id in samples._get_sample_ids()])
-
-
-def _get_object_ids(samples, patches_field):
-    label_type, id_path = samples._get_label_field_path(patches_field, "_id")
-    if issubclass(label_type, (fol.Detection, fol.Polyline)):
-        return np.array([str(_id) for _id in samples.values(id_path)])
-
-    if issubclass(label_type, (fol.Detections, fol.Polylines)):
-        object_ids = samples.values(id_path)
-        return np.array(
-            [str(_id) for _id in itertools.chain.from_iterable(object_ids)]
-        )
-
-    raise ValueError(
-        "Patches field %s has unsupported type %s"
-        % (patches_field, label_type)
     )
