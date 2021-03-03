@@ -34,7 +34,7 @@ def compute_hardness(samples, label_field, hardness_field="hardness"):
     """
     import fiftyone.brain.internal.core.hardness as fbh
 
-    fbh.compute_hardness(samples, label_field, hardness_field)
+    return fbh.compute_hardness(samples, label_field, hardness_field)
 
 
 def compute_mistakenness(
@@ -132,7 +132,7 @@ def compute_mistakenness(
     """
     import fiftyone.brain.internal.core.mistakenness as fbm
 
-    fbm.compute_mistakenness(
+    return fbm.compute_mistakenness(
         samples,
         pred_field,
         label_field,
@@ -168,4 +168,87 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
     """
     import fiftyone.brain.internal.core.uniqueness as fbu
 
-    fbu.compute_uniqueness(samples, uniqueness_field, roi_field)
+    return fbu.compute_uniqueness(samples, uniqueness_field, roi_field)
+
+
+def compute_visualization(
+    samples,
+    embeddings=None,
+    patches_field=None,
+    embeddings_field=None,
+    brain_key=None,
+    num_dims=2,
+    method="tsne",
+    config=None,
+    model=None,
+    batch_size=None,
+    force_square=False,
+    alpha=None,
+    **kwargs,
+):
+    """Computes a low-dimensional representation of the samples' media or their
+    patches that can be interactively visualized and manipulated via the
+    returned :class:`VisualizationResults` object.
+
+    If no ``embeddings``, ``embeddings_field``, or ``model`` is provided, a
+    default model is used to generate embeddings.
+
+    Args:
+        samples: a :class:`fiftyone.core.collections.SampleCollection`
+        embeddings (None): a ``num_samples x num_dims`` array of embeddings,
+            or, if a ``patches_field`` is specified,  a dict mapping sample IDs
+            to ``num_patches x num_dims`` arrays of patch embeddings
+        patches_field (None): a sample field defining the image patches in each
+            sample that have been/will be embedded
+        embeddings_field (None): the name of a field containing embeddings to
+            use
+        brain_key (None): a brain key under which to store the results of this
+            visualization
+        num_dims (2): the dimension of the visualization space
+        method ("tsne"): the dimensionality-reduction method to use. Supported
+            values are ``("tsne", "umap")``
+        config (None): a
+            :class:`fiftyone.brain.internal.core.visualization.VisualizationConfig`
+            specifying the parameters to use. If provided, takes precedence
+            over other parameters
+        model (None): a :class:`fiftyone.core.models.Model` or the name of a
+            model from the
+            `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/index.html>`_
+            to use to generate embeddings. The model must expose embeddings
+            (``model.has_embeddings = True``)
+        batch_size (None): an optional batch size to use when computing
+            embeddings. Only applicable when a ``model`` is provided
+        force_square (False): whether to minimally manipulate the patch
+            bounding boxes into squares prior to extraction. Only applicable
+            when a ``model`` and ``patches_field`` are specified
+        alpha (None): an optional expansion/contraction to apply to the patches
+            before extracting them, in ``[-1, \infty)``. If provided, the
+            length and width of the box are expanded (or contracted, when
+            ``alpha < 0``) by ``(100 * alpha)%``. For example, set
+            ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
+            to contract the boxes by 10%. Only applicable when a ``model`` and
+            ``patches_field`` are specified
+        **kwargs: optional keyword arguments for the constructor of the
+            :class:`fiftyone.brain.internal.core.visualization.VisualizationConfig`
+            being used
+
+    Returns:
+        a :class:`fiftyone.brain.internal.core.visualization.VisualizationResults`
+    """
+    import fiftyone.brain.internal.core.visualization as fbv
+
+    return fbv.compute_visualization(
+        samples,
+        embeddings,
+        patches_field,
+        embeddings_field,
+        brain_key,
+        num_dims,
+        method,
+        config,
+        model,
+        batch_size,
+        force_square,
+        alpha,
+        **kwargs,
+    )

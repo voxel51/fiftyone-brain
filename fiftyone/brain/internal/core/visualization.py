@@ -24,9 +24,8 @@ import fiftyone.core.labels as fol
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 from fiftyone.core.view import DatasetView
+from fiftyone.utils.plot import PointSelector
 import fiftyone.zoo as foz
-
-from .selector import PointSelector
 
 umap = fou.lazy_import(
     "umap", callback=lambda: etau.ensure_package("umap-learn")
@@ -36,71 +35,34 @@ umap = fou.lazy_import(
 logger = logging.getLogger(__name__)
 
 
+# @todo optimize this
 _DEFAULT_MODEL_NAME = "inception-v3-imagenet-torch"
+_DEFAULT_BATCH_SIZE = 16
 
 
 def compute_visualization(
     samples,
-    embeddings=None,
-    patches_field=None,
-    embeddings_field=None,
-    brain_key=None,
-    num_dims=2,
-    method="tsne",
-    config=None,
-    model=None,
-    batch_size=None,
-    force_square=False,
-    alpha=None,
+    embeddings,
+    patches_field,
+    embeddings_field,
+    brain_key,
+    num_dims,
+    method,
+    config,
+    model,
+    batch_size,
+    force_square,
+    alpha,
     **kwargs,
 ):
-    """Computes a low-dimensional representation of the samples' media or their
-    patches that can be interactively visualized and manipulated via the
-    returned :class:`VisualizationResults` object.
+    """See ``fiftyone/brain/__init__.py``."""
 
-    If no ``embeddings``, ``embeddings_field``, or ``model`` is provided, a
-    default model is used to generate embeddings.
-
-    Args:
-        samples: a :class:`fiftyone.core.collections.SampleCollection`
-        embeddings (None): a ``num_samples x num_dims`` array of embeddings,
-            or, if a ``patches_field`` is specified,  a dict mapping sample IDs
-            to ``num_patches x num_dims`` arrays of patch embeddings
-        patches_field (None): a sample field defining the image patches in each
-            sample that have been/will be embedded
-        embeddings_field (None): the name of a field containing embeddings to
-            use
-        brain_key (None): a brain key under which to store the results of this
-            visualization
-        num_dims (2): the dimension of the visualization space
-        method ("tsne"): the dimensionality-reduction method to use. Supported
-            values are ``("tsne", "umap")``
-        config (None): a :class:`VisualizationConfig` specifying the parameters
-             to use. If provided, takes precedence over other parameters
-        model (None): a :class:`fiftyone.core.models.Model` to use to generate
-            embeddings
-        batch_size (None): an optional batch size to use when computing
-            embeddings. Only applicable when a ``model`` is provided
-        force_square (False): whether to minimally manipulate the patch
-            bounding boxes into squares prior to extraction. Only applicable
-            when a ``model`` and ``patches_field`` are specified
-        alpha (None): an optional expansion/contraction to apply to the patches
-            before extracting them, in ``[-1, \infty)``. If provided, the
-            length and width of the box are expanded (or contracted, when
-            ``alpha < 0``) by ``(100 * alpha)%``. For example, set
-            ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
-            to contract the boxes by 10%. Only applicable when a ``model`` and
-            ``patches_field`` are specified
-        **kwargs: optional keyword arguments for the constructor of the
-            :class:`VisualizationConfig` being used
-
-    Returns:
-        a :class:`VisualizationResults`
-    """
     fov.validate_collection(samples)
 
     if model is None and embeddings_field is None and embeddings is None:
         model = foz.load_zoo_model(_DEFAULT_MODEL_NAME)
+        if batch_size is None:
+            batch_size = _DEFAULT_BATCH_SIZE
 
     config = _parse_config(
         config, embeddings_field, patches_field, method, num_dims, **kwargs
@@ -110,6 +72,9 @@ def compute_visualization(
         brain_method.register_run(samples, brain_key)
 
     if model is not None:
+        if etau.is_str(model):
+            model = foz.load_zoo_model(model)
+
         if patches_field is not None:
             logger.info("Computing patch embeddings...")
             embeddings = samples.compute_patch_embeddings(
@@ -232,7 +197,7 @@ class VisualizationResults(fob.BrainResults):
                 )
 
         with plt.style.context(style):
-            ax, coll, inds = _plot_scatter(
+            collection, inds = _plot_scatter(
                 self.points,
                 labels=labels,
                 classes=classes,
@@ -251,13 +216,13 @@ class VisualizationResults(fob.BrainResults):
         sample_ids = None
         object_ids = None
         if self.config.patches_field is not None:
-            object_ids = np.array(
-                _get_object_ids(self._samples, self.config.patches_field)
+            object_ids = _get_object_ids(
+                self._samples, self.config.patches_field
             )
             if inds is not None:
                 object_ids = object_ids[inds]
         else:
-            sample_ids = np.array(self._samples._get_sample_ids())
+            sample_ids = _get_sample_ids(self._samples)
             if inds is not None:
                 sample_ids = sample_ids[inds]
 
@@ -267,16 +232,16 @@ class VisualizationResults(fob.BrainResults):
             else:
                 session.dataset = self._samples
 
-        selector = PointSelector(
-            ax,
-            coll,
-            session=session,
-            sample_ids=sample_ids,
-            object_ids=object_ids,
-            object_field=self.config.patches_field,
-        )
+        with plt.style.context(style):
+            selector = PointSelector(
+                collection,
+                session=session,
+                sample_ids=sample_ids,
+                object_ids=object_ids,
+                object_field=self.config.patches_field,
+            )
 
-        plt.tight_layout()
+        # plt.tight_layout()
         plt.show(block=block)
 
         return selector
@@ -578,7 +543,7 @@ def _plot_scatter(
     if scatter_3d:
         args.append(points[:, 2])
 
-    coll = ax.scatter(
+    collection = ax.scatter(
         *args, c=values, s=marker_size, cmap=cmap, norm=norm, **kwargs,
     )
 
@@ -609,7 +574,7 @@ def _plot_scatter(
     if figsize is not None:
         fig.set_size_inches(*figsize)
 
-    return ax, coll, inds
+    return collection, inds
 
 
 def _parse_data(points, labels, classes):
@@ -635,14 +600,20 @@ def _parse_data(points, labels, classes):
     return points, values, classes, found, True
 
 
+def _get_sample_ids(samples):
+    return np.array([str(_id) for _id in samples._get_sample_ids()])
+
+
 def _get_object_ids(samples, patches_field):
     label_type, id_path = samples._get_label_field_path(patches_field, "_id")
     if issubclass(label_type, (fol.Detection, fol.Polyline)):
-        return [str(_id) for _id in samples.values(id_path)]
+        return np.array([str(_id) for _id in samples.values(id_path)])
 
     if issubclass(label_type, (fol.Detections, fol.Polylines)):
         object_ids = samples.values(id_path)
-        return [str(_id) for _id in itertools.chain.from_iterable(object_ids)]
+        return np.array(
+            [str(_id) for _id in itertools.chain.from_iterable(object_ids)]
+        )
 
     raise ValueError(
         "Patches field %s has unsupported type %s"
