@@ -179,10 +179,8 @@ class PointSelector(object):
         if not self.is_selecting_samples:
             raise ValueError("This selector cannot select samples")
 
-        # @todo is there a fast, more memory efficient way to do this?
-        x = np.expand_dims(self.sample_ids, axis=1)
-        y = np.expand_dims(sample_ids, axis=0)
-        inds = np.nonzero(np.any(x == y, axis=1))[0]
+        _sample_ids = set(sample_ids)
+        inds = np.nonzero([_id in _sample_ids for _id in self.sample_ids])[0]
         self._select_inds(inds)
 
     def select_objects(self, object_ids):
@@ -194,10 +192,8 @@ class PointSelector(object):
         if not self.is_selecting_objects:
             raise ValueError("This selector cannot select objects")
 
-        # @todo is there a fast, more memory efficient way to do this?
-        x = np.expand_dims(self.object_ids, axis=1)
-        y = np.expand_dims(object_ids, axis=0)
-        inds = np.nonzero(np.any(x == y, axis=1))[0]
+        _object_ids = set(object_ids)
+        inds = np.nonzero([_id in _object_ids for _id in self.object_ids])[0]
         self._select_inds(inds)
 
     def select_session(self):
