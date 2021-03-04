@@ -27,7 +27,7 @@ umap = fou.lazy_import(
 logger = logging.getLogger(__name__)
 
 
-# @todo optimize this
+# @todo optimize this?
 _DEFAULT_MODEL_NAME = "inception-v3-imagenet-torch"
 _DEFAULT_BATCH_SIZE = 16
 
@@ -101,7 +101,7 @@ def compute_visualization(
     logger.info("Generating visualization...")
     points = brain_method.fit(embeddings)
 
-    results = VisualizationResults(samples, embeddings, points, config)
+    results = VisualizationResults(samples, points, config)
 
     return results
 
@@ -112,14 +112,12 @@ class VisualizationResults(fob.BrainResults):
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` for
             which this visualization was computed
-        embeddings: a ``num_samples x num_features`` array of embeddings
         points: a ``num_samples x num_dims`` array of visualization points
         config: the :class:`VisualizationConfig` used to generate the points
     """
 
-    def __init__(self, samples, embeddings, points, config):
+    def __init__(self, samples, points, config):
         self._samples = samples
-        self.embeddings = embeddings
         self.points = points
         self.config = config
 
