@@ -144,12 +144,24 @@ def compute_mistakenness(
     )
 
 
-def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
+def compute_uniqueness(
+    samples,
+    uniqueness_field="uniqueness",
+    roi_field=None,
+    embeddings_field=None,
+    model=None,
+    batch_size=None,
+    force_square=False,
+    alpha=None,
+):
     """Adds a uniqueness field to each sample scoring how unique it is with
     respect to the rest of the samples.
 
     This function only uses the pixel data and can therefore process labeled or
     unlabeled samples.
+
+    You can provide your own embeddings to seed this method by specifying
+    either the ``embeddings_field`` or ``model`` argument.
 
     .. note::
 
@@ -165,7 +177,35 @@ def compute_uniqueness(samples, uniqueness_field="uniqueness", roi_field=None):
             :class:`fiftyone.core.labels.Polyline`, or
             :class:`fiftyone.core.labels.Polylines` field defining a region of
             interest within each image to use to compute uniqueness
+        embeddings_field (None): the name of a field containing image/patch
+            embeddings to use
+        model (None): a :class:`fiftyone.core.models.Model` or the name of a
+            model from the
+            `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/models.html>`_
+            to use to generate embeddings. The model must expose embeddings
+            (``model.has_embeddings = True``)
+        batch_size (None): a batch size to use when computing embeddings. Only
+            applicable when a ``model`` is provided
+        force_square (False): whether to minimally manipulate the patch
+            bounding boxes into squares prior to extraction. Only applicable
+            when a ``model`` and ``roi_field`` are specified
+        alpha (None): an optional expansion/contraction to apply to the patches
+            before extracting them, in ``[-1, \infty)``. If provided, the
+            length and width of the box are expanded (or contracted, when
+            ``alpha < 0``) by ``(100 * alpha)%``. For example, set
+            ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
+            to contract the boxes by 10%. Only applicable when a ``model`` and
+            ``roi_field`` are specified
     """
     import fiftyone.brain.internal.core.uniqueness as fbu
 
-    fbu.compute_uniqueness(samples, uniqueness_field, roi_field)
+    fbu.compute_uniqueness(
+        samples,
+        uniqueness_field,
+        roi_field,
+        embeddings_field,
+        model,
+        batch_size,
+        force_square,
+        alpha,
+    )

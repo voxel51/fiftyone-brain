@@ -116,7 +116,7 @@ jobs:
           pip install imageio pytest torch torchvision
       - name: Run tests
         run: |
-          pytest --verbose tests/
+          pytest --verbose tests/ --ignore tests/intensive/
 
   publish:
     needs: [build, test]
