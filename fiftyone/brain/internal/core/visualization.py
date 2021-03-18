@@ -127,20 +127,21 @@ class VisualizationResults(fob.BrainResults):
         field=None,
         labels=None,
         classes=None,
-        session=None,
-        marker_size=None,
-        cmap=None,
-        ax=None,
-        ax_equal=True,
-        figsize=None,
-        style="seaborn-ticks",
-        block=False,
+        backend=None,
+        show=True,
         **kwargs,
     ):
         """Generates a scatterplot of the visualization results.
 
         This method supports 2D or 3D visualizations, but interactive point
         selection is only aviailable in 2D.
+
+        You can use the ``field`` or ``labels`` parameters to define a coloring
+        for the points.
+
+        You can connect this method to a :class:`fiftyone.core.session.Session`
+        in order to automatically sync the session's view with the currently
+        selected points in the plot.
 
         Args:
             field (None): a sample field or ``embedded.field.name`` to use to
@@ -149,22 +150,21 @@ class VisualizationResults(fob.BrainResults):
                 the points
             classes (None): an optional list of classes whose points to plot.
                 Only applicable when ``labels`` contains strings
-            session (None): a :class:`fiftyone.core.session.Session` object to
-                link with the interactive plot. Only supported in 2D
-            marker_size (None): the marker size to use
-            cmap (None): a colormap recognized by ``matplotlib``
-            ax (None): an optional matplotlib axis to plot in
-            ax_equal (True): whether to set ``axis("equal")``
-            figsize (None): an optional ``(width, height)`` for the figure, in
-                inches
-            style ("seaborn-ticks"): a style to use for the plot
-            block (False): whether to block execution when the plot is
-                displayed via ``matplotlib.pyplot.show(block=block)``
-            **kwargs: optional keyword arguments for matplotlib's ``scatter()``
+            backend (None): the plotting backend to use. Supported values are
+                ``("plotly", "matplotlib")``. If no backend is specified, the
+                best applicable backend is chosen
+            show (True): whether to show the plot
+            **kwargs: keyword arguments for the backend plotting method:
+
+                -   "plotly" backend: :meth:`fiftyone.utils.plot.plotly.scatterplot`
+                -   "matplotlib" backend: :meth:`fiftyone.utils.plot.matplotlib.scatterplot`
 
         Returns:
-            a :class:`fiftyone.utils.plot.selector.PointSelector` if this is a
-            2D visualization, else None
+            one of the following:
+
+            -   an :class:`fiftyone.utils.plot.interactive.InteractivePlot`, if
+                the backend supports interactivity
+            -   a plotly or matplotlib figure, otherwise
         """
         return foup.scatterplot(
             self.points,
@@ -173,14 +173,8 @@ class VisualizationResults(fob.BrainResults):
             field=field,
             labels=labels,
             classes=classes,
-            session=session,
-            marker_size=marker_size,
-            cmap=cmap,
-            ax=ax,
-            ax_equal=ax_equal,
-            figsize=figsize,
-            style=style,
-            block=block,
+            backend=backend,
+            show=show,
             **kwargs,
         )
 
