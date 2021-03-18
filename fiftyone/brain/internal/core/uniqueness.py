@@ -123,6 +123,8 @@ def compute_uniqueness(
     samples._add_field_if_necessary(uniqueness_field, fof.FloatField)
     samples.set_values(uniqueness_field, uniqueness)
 
+    brain_method.save_run_results(samples, brain_key, None)
+
     logger.info("Uniqueness computation complete")
 
 
