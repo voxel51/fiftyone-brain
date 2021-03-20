@@ -14,9 +14,9 @@ import sklearn.manifold as skm
 import eta.core.utils as etau
 
 import fiftyone.core.brain as fob
+import fiftyone.core.plots as fop
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
-import fiftyone.utils.plot as foup
 import fiftyone.zoo as foz
 
 umap = fou.lazy_import(
@@ -156,17 +156,17 @@ class VisualizationResults(fob.BrainResults):
             show (True): whether to show the plot
             **kwargs: keyword arguments for the backend plotting method:
 
-                -   "plotly" backend: :meth:`fiftyone.utils.plot.plotly.scatterplot`
-                -   "matplotlib" backend: :meth:`fiftyone.utils.plot.matplotlib.scatterplot`
+                -   "plotly" backend: :meth:`fiftyone.core.plots.plotly.scatterplot`
+                -   "matplotlib" backend: :meth:`fiftyone.core.plots.matplotlib.scatterplot`
 
         Returns:
             one of the following:
 
-            -   an :class:`fiftyone.utils.plot.interactive.InteractivePlot`, if
-                the backend supports interactivity
+            -   an :class:`fiftyone.core.plots.base.InteractivePlot`, if the
+                backend supports interactivity
             -   a plotly or matplotlib figure, otherwise
         """
-        return foup.scatterplot(
+        return fop.scatterplot(
             self.points,
             samples=self._samples,
             label_field=self.config.patches_field,
