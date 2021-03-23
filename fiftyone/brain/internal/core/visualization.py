@@ -23,13 +23,13 @@ from fiftyone.brain.visualization import (
     TSNEVisualizationConfig,
     PCAVisualizationConfig,
 )
+import fiftyone.brain.internal.models as fbm
 
 
 logger = logging.getLogger(__name__)
 
 
-# @todo optimize this?
-_DEFAULT_MODEL_NAME = "inception-v3-imagenet-torch"
+_DEFAULT_MODEL = "simple-resnet-cifar10"
 _DEFAULT_BATCH_SIZE = 16
 
 
@@ -52,7 +52,7 @@ def compute_visualization(
     fov.validate_collection(samples)
 
     if model is None and embeddings is None:
-        model = foz.load_zoo_model(_DEFAULT_MODEL_NAME)
+        model = fbm.load_model(_DEFAULT_MODEL)
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
 
