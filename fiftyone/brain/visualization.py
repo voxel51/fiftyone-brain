@@ -84,11 +84,7 @@ class VisualizationResults(fob.BrainResults):
                 -   "matplotlib" backend: :meth:`fiftyone.core.plots.matplotlib.scatterplot`
 
         Returns:
-            one of the following:
-
-            -   an :class:`fiftyone.core.plots.base.InteractivePlot`, if you
-                are working in an environment that supports interactivity
-            -   a plotly or matplotlib figure, otherwise
+            an :class:`fiftyone.core.plots.base.InteractivePlot`
         """
         return fop.scatterplot(
             self.points,
