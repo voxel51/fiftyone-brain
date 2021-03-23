@@ -141,9 +141,9 @@ class UMAPVisualizationConfig(VisualizationConfig):
             visualizing
         num_dims (2): the dimension of the visualization space
         num_neighbors (15): the number of neighboring points used in local
-            approximations of manifold structure. Larger values will result i
-             more global structure being preserved at the loss of detailed
-             local structure. Typical values are in ``[5, 50]``
+            approximations of manifold structure. Larger values will result in
+            more global structure being preserved at the loss of detailed local
+            structure. Typical values are in ``[5, 50]``
         metric ("euclidean"): the metric to use when calculating distance
             between embeddings. See the UMAP documentation for supported values
         min_dist (0.1): the effective minimum distance between embedded
