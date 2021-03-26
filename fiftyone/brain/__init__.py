@@ -148,7 +148,7 @@ def compute_uniqueness(
     samples,
     uniqueness_field="uniqueness",
     roi_field=None,
-    embeddings_field=None,
+    embeddings=None,
     model=None,
     batch_size=None,
     force_square=False,
@@ -161,7 +161,7 @@ def compute_uniqueness(
     unlabeled samples.
 
     You can provide your own embeddings to seed this method by specifying
-    either the ``embeddings_field`` or ``model`` argument.
+    either the ``embeddings`` or ``model`` arguments.
 
     .. note::
 
@@ -177,8 +177,14 @@ def compute_uniqueness(
             :class:`fiftyone.core.labels.Polyline`, or
             :class:`fiftyone.core.labels.Polylines` field defining a region of
             interest within each image to use to compute uniqueness
-        embeddings_field (None): the name of a field containing image/patch
-            embeddings to use
+        embeddings (None): pre-computed embeddings to use. Can be any of the
+            following:
+
+            -   a ``num_samples x num_dims`` array of embeddings
+            -   if ``roi_field`` is specified,  a dict mapping sample IDs to
+                ``num_patches x num_dims`` arrays of patch embeddings
+            -   the name of a dataset field containing the embeddings to use
+
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/models.html>`_
@@ -203,7 +209,7 @@ def compute_uniqueness(
         samples,
         uniqueness_field,
         roi_field,
-        embeddings_field,
+        embeddings,
         model,
         batch_size,
         force_square,
@@ -213,12 +219,11 @@ def compute_uniqueness(
 
 def compute_visualization(
     samples,
-    embeddings=None,
     patches_field=None,
-    embeddings_field=None,
+    embeddings=None,
     brain_key=None,
     num_dims=2,
-    method="tsne",
+    method="umap",
     config=None,
     model=None,
     batch_size=None,
@@ -230,25 +235,28 @@ def compute_visualization(
     patches that can be interactively visualized and manipulated via the
     returned :class:`VisualizationResults` object.
 
-    If no ``embeddings``, ``embeddings_field``, or ``model`` is provided, a
-    default model is used to generate embeddings.
+    If no ``embeddings`` or ``model`` is provided, a default model is used to
+    generate embeddings.
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
-        embeddings (None): a ``num_samples x num_dims`` array of embeddings,
-            or, if a ``patches_field`` is specified,  a dict mapping sample IDs
-            to ``num_patches x num_dims`` arrays of patch embeddings
         patches_field (None): a sample field defining the image patches in each
             sample that have been/will be embedded
-        embeddings_field (None): the name of a field containing embeddings to
-            use
+        embeddings (None): pre-computed embeddings to use. Can be any of the
+            following:
+
+            -   a ``num_samples x num_dims`` array of embeddings
+            -   if ``patches_field`` is specified,  a dict mapping sample IDs
+                to ``num_patches x num_dims`` arrays of patch embeddings
+            -   the name of a dataset field containing the embeddings to use
+
         brain_key (None): a brain key under which to store the results of this
             visualization
         num_dims (2): the dimension of the visualization space
-        method ("tsne"): the dimensionality-reduction method to use. Supported
-            values are ``("tsne", "umap")``
+        method ("umap"): the dimensionality-reduction method to use. Supported
+            values are ``("umap", "tsne", "pca")``
         config (None): a
-            :class:`fiftyone.brain.internal.core.visualization.VisualizationConfig`
+            :class:`fiftyone.brain.visualization.VisualizationConfig`
             specifying the parameters to use. If provided, takes precedence
             over other parameters
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
@@ -269,19 +277,18 @@ def compute_visualization(
             to contract the boxes by 10%. Only applicable when a ``model`` and
             ``patches_field`` are specified
         **kwargs: optional keyword arguments for the constructor of the
-            :class:`fiftyone.brain.internal.core.visualization.VisualizationConfig`
+            :class:`fiftyone.brain.visualization.VisualizationConfig`
             being used
 
     Returns:
-        a :class:`fiftyone.brain.internal.core.visualization.VisualizationResults`
+        a :class:`fiftyone.brain.visualization.VisualizationResults`
     """
     import fiftyone.brain.internal.core.visualization as fbv
 
     return fbv.compute_visualization(
         samples,
-        embeddings,
         patches_field,
-        embeddings_field,
+        embeddings,
         brain_key,
         num_dims,
         method,

@@ -21,9 +21,6 @@ _DATASET_NAME = "visualization-test"
 def test_mnist():
     dataset = foz.load_zoo_dataset("mnist", split="test")
 
-    session = fo.launch_app(dataset)
-
-    # Use raw images as embeddings
     # pylint: disable=no-member
     embeddings = np.array(
         [
@@ -33,16 +30,11 @@ def test_mnist():
     )
 
     results = fob.compute_visualization(
-        dataset,
-        embeddings=embeddings,
-        num_dims=2,
-        method="umap",  # "tsne" or "umap"
-        verbose=True,
-        seed=51,
+        dataset, embeddings=embeddings, num_dims=2, verbose=True, seed=51
     )
 
-    # color by label
-    selector = results.plot(session=session, field="ground_truth.label")
+    plot = results.visualize(labels="ground_truth.label")
+    plot.show()
 
     input("Press enter to continue...")
 
@@ -50,19 +42,12 @@ def test_mnist():
 def test_images():
     dataset = _load_dataset()
 
-    session = fo.launch_app(dataset)
-
     results = fob.compute_visualization(
-        dataset,
-        embeddings_field="embeddings",
-        num_dims=2,
-        method="umap",  # "tsne" or "umap"
-        verbose=True,
-        seed=51,
+        dataset, embeddings="embeddings", num_dims=2, verbose=True, seed=51
     )
 
-    # color by uniqueness
-    selector = results.plot(session=session, field="uniqueness")
+    plot = results.visualize(labels="uniqueness")
+    plot.show()
 
     input("Press enter to continue...")
 
@@ -70,22 +55,17 @@ def test_images():
 def test_objects():
     dataset = _load_dataset()
 
-    session = fo.launch_app(dataset)
-
     results = fob.compute_visualization(
         dataset,
-        embeddings_field="gt_embeddings",
         patches_field="ground_truth",
+        embeddings="gt_embeddings",
         num_dims=2,
-        method="umap",  # "tsne" or "umap"
         verbose=True,
         seed=51,
     )
 
-    field = "ground_truth.detections.label"
-
-    # color by object label
-    selector = results.plot(session=session, field=field)
+    plot = results.visualize(labels="ground_truth.detections.label")
+    plot.show()
 
     input("Press enter to continue...")
 
@@ -93,24 +73,22 @@ def test_objects():
 def test_objects_subset():
     dataset = _load_dataset()
 
-    session = fo.launch_app(dataset)
-
     results = fob.compute_visualization(
         dataset,
-        embeddings_field="gt_embeddings",
         patches_field="ground_truth",
+        embeddings="gt_embeddings",
         num_dims=2,
-        method="umap",  # "tsne" or "umap"
         verbose=True,
         seed=51,
     )
 
-    field = "ground_truth.detections.label"
-
-    # color by object label, only include top-5 classes
-    counts = dataset.count_values(field)
+    counts = dataset.count_values("ground_truth.detections.label")
     classes = sorted(counts, key=counts.get, reverse=True)[:5]
-    selector = results.plot(session=session, field=field, classes=classes)
+
+    plot = results.visualize(
+        labels="ground_truth.detections.label", classes=classes
+    )
+    plot.show()
 
     input("Press enter to continue...")
 
