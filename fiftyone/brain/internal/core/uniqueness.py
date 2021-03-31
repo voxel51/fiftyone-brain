@@ -39,7 +39,7 @@ def compute_uniqueness(
     samples,
     uniqueness_field,
     roi_field,
-    embeddings_field,
+    embeddings,
     model,
     batch_size,
     force_square,
@@ -69,6 +69,12 @@ def compute_uniqueness(
     if samples.media_type == fom.VIDEO:
         raise ValueError("Uniqueness does not yet support video collections")
 
+    if etau.is_str(embeddings):
+        embeddings_field = embeddings
+        embeddings = None
+    else:
+        embeddings_field = None
+
     config = UniquenessConfig(
         uniqueness_field,
         roi_field,
@@ -79,19 +85,17 @@ def compute_uniqueness(
     brain_method = config.build()
     brain_method.register_run(samples, brain_key)
 
-    if embeddings_field is not None:
-        embeddings = samples.values(embeddings_field)
-        if roi_field is not None:
-            # @todo experiment with mean(), max(), abs().max(), etc
-            embeddings = [e.max(axis=0) for e in embeddings]
+    #
+    # Get embeddings
+    #
 
-        embeddings = np.stack(embeddings)
-    else:
+    if model is not None or (embeddings is None and embeddings_field is None):
         if etau.is_str(model):
             model = foz.load_zoo_model(model)
         elif model is None:
             model = fbm.load_model(_DEFAULT_MODEL)
-            batch_size = _DEFAULT_BATCH_SIZE
+            if batch_size is None:
+                batch_size = _DEFAULT_BATCH_SIZE
 
         logger.info("Generating embeddings...")
 
@@ -100,7 +104,7 @@ def compute_uniqueness(
                 model, batch_size=batch_size
             )
         else:
-            patch_embeddings = samples.compute_patch_embeddings(
+            embeddings = samples.compute_patch_embeddings(
                 model,
                 roi_field,
                 handle_missing="image",
@@ -109,19 +113,29 @@ def compute_uniqueness(
                 alpha=alpha,
             )
 
-            embeddings = []
-            for sample_id in samples._get_sample_ids():
-                # @todo experiment with mean(), max(), abs().max(), etc
-                embedding = patch_embeddings[str(sample_id)].max(axis=0)
-                embeddings.append(embedding)
+    if embeddings_field is not None:
+        # extracts a potentially huge number of embedding vectors/arrays
+        embeddings = samples.values(embeddings_field)
 
-            embeddings = np.stack(embeddings)
+    if isinstance(embeddings, dict):
+        _embeddings = []
+        for _id in samples.values("id"):
+            e = embeddings[_id]
+            if roi_field is not None:
+                # @todo experiment with mean(), max(), abs().max(), etc
+                e = e.max(axis=0)
+
+            _embeddings.append(e)
+
+        embeddings = np.stack(_embeddings)
 
     logger.info("Computing uniqueness...")
     uniqueness = _compute_uniqueness(embeddings)
 
     samples._add_field_if_necessary(uniqueness_field, fof.FloatField)
     samples.set_values(uniqueness_field, uniqueness)
+
+    brain_method.save_run_results(samples, brain_key, None)
 
     logger.info("Uniqueness computation complete")
 

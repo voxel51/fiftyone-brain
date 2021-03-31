@@ -17,10 +17,9 @@ Getting help:
 -h      Display this help message.
 
 Custom installations:
--d      Install developer dependencies. The default is false.
+-d      Install developer dependencies.
 "
 }
-
 
 # Parse flags
 SHOW_HELP=false
@@ -35,7 +34,6 @@ done
 [ ${SHOW_HELP} = true ] && usage && exit 0
 OS=$(uname -s)
 
-
 echo "***** INSTALLING FIFTYONE-BRAIN *****"
 if [ ${DEV_INSTALL} = true ]; then
     echo "Performing dev install"
@@ -45,6 +43,5 @@ else
     pip install -r requirements.txt
 fi
 pip install -e .
-
 
 echo "***** INSTALLATION COMPLETE *****"
