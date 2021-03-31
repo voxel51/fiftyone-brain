@@ -282,6 +282,7 @@ class PCAVisualizationConfig(VisualizationConfig):
         patches_field=None,
         num_dims=2,
         svd_solver="randomized",
+        seed=None,
         **kwargs,
     ):
         super().__init__(
@@ -291,6 +292,7 @@ class PCAVisualizationConfig(VisualizationConfig):
             **kwargs,
         )
         self.svd_solver = svd_solver
+        self.seed = seed
 
     @property
     def method(self):
