@@ -29,8 +29,8 @@ import fiftyone.brain.internal.models as fbm
 logger = logging.getLogger(__name__)
 
 
-_DEFAULT_MODEL = "simple-resnet-cifar10"
-_DEFAULT_BATCH_SIZE = 16
+_DEFAULT_MODEL = "mobilenet-v2-imagenet-torch"
+_DEFAULT_BATCH_SIZE = None
 
 
 def compute_visualization(
@@ -52,7 +52,7 @@ def compute_visualization(
     fov.validate_collection(samples)
 
     if model is None and embeddings is None:
-        model = fbm.load_model(_DEFAULT_MODEL)
+        model = foz.load_zoo_model(_DEFAULT_MODEL)
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
 
