@@ -42,7 +42,7 @@ class VisualizationResults(fob.BrainResults):
         """Generates an interactive scatterplot of the visualization results.
 
         This method supports 2D or 3D visualizations, but interactive point
-        selection is only aviailable in 2D.
+        selection is only available in 2D.
 
         You can use the ``labels`` parameters to define a coloring for the
         points, and you can use the ``sizes`` parameter to scale the sizes of
@@ -89,7 +89,7 @@ class VisualizationResults(fob.BrainResults):
         return fop.scatterplot(
             self.points,
             samples=self._samples,
-            label_field=self.config.patches_field,
+            link_field=self.config.patches_field,
             labels=labels,
             sizes=sizes,
             classes=classes,
@@ -282,6 +282,7 @@ class PCAVisualizationConfig(VisualizationConfig):
         patches_field=None,
         num_dims=2,
         svd_solver="randomized",
+        seed=None,
         **kwargs,
     ):
         super().__init__(
@@ -291,6 +292,7 @@ class PCAVisualizationConfig(VisualizationConfig):
             **kwargs,
         )
         self.svd_solver = svd_solver
+        self.seed = seed
 
     @property
     def method(self):
