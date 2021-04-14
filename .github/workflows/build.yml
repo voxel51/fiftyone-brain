@@ -40,20 +40,28 @@ jobs:
       - name: Build wheel
         run: |
           python setup.py bdist_wheel
-      - name: Build wheel (Linux)
+      - name: Build wheel (linux.x86_64)
         run: |
-          python setup.py bdist_wheel --plat-name linux
+          python setup.py bdist_wheel --plat-name linux.x86_64
+      - name: Build wheel (linux.aarch64)
+        run: |
+          python setup.py bdist_wheel --plat-name linux.aarch64
       - name: Build wheel (macOS)
         run: |
           python setup.py bdist_wheel --plat-name mac
       - name: Build wheel (Windows)
         run: |
           python setup.py bdist_wheel --plat-name win
-      - name: Upload wheel (Linux)
+      - name: Upload wheel (linux.x86_64)
         uses: actions/upload-artifact@v2
         with:
-          name: wheel-linux-${{ matrix.python-version }}
-          path: dist/*linux*.whl
+          name: wheel-linux-x86_64-${{ matrix.python-version }}
+          path: dist/*linux*x86_64.whl
+      - name: Upload wheel (linux.aarch64)
+        uses: actions/upload-artifact@v2
+        with:
+          name: wheel-linux-aarch64-${{ matrix.python-version }}
+          path: dist/*linux*aarch64.whl
       - name: Upload wheel (macOS)
         uses: actions/upload-artifact@v2
         with:
