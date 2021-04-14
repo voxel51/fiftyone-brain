@@ -52,10 +52,10 @@ class CustomBdistWheel(bdist_wheel):
         self.root_is_pure = False
 
         # rewrite platform names - we currently only support 64-bit targets
-        if self.plat_name.startswith("linux.x86_64"):
+        if self.plat_name.startswith("linux-x86_64"):
             self.plat_name = "manylinux1_x86_64"
             pyarmor_platform = "linux.x86_64"
-        elif self.plat_name.startswith("linux.aarch64"):
+        elif self.plat_name.startswith("linux-aarch64"):
             self.plat_name = "manylinux1_aarch64"
             pyarmor_platform = "linux.aarch64"
         elif self.plat_name.startswith("mac"):
