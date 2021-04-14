@@ -56,7 +56,7 @@ class CustomBdistWheel(bdist_wheel):
             self.plat_name = "manylinux1_x86_64"
             pyarmor_platform = "linux.x86_64"
         elif self.plat_name.startswith("linux-aarch64"):
-            self.plat_name = "manylinux1_aarch64"
+            self.plat_name = "manylinux2014_aarch64"
             pyarmor_platform = "linux.aarch64"
         elif self.plat_name.startswith("mac"):
             # unclear what minimum version PyArmor requires, but the .dylib was
