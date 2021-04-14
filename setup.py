@@ -99,6 +99,7 @@ VERSION = "0.5.0"
 
 
 def get_version():
+    return VERSION
     if "RELEASE_VERSION" in os.environ:
         version = os.environ["RELEASE_VERSION"]
         if not version.startswith(VERSION):
