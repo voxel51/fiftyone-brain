@@ -99,7 +99,7 @@ jobs:
       - name: Download fiftyone-brain wheel
         uses: actions/download-artifact@v2
         with:
-          name: wheel-linux-${{ matrix.python-version }}
+          name: wheel-linux-x86_64-${{ matrix.python-version }}
           path: downloads
       - name: Reinstall fiftyone-brain
         run: |
