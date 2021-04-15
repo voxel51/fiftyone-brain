@@ -8,6 +8,14 @@ See https://github.com/voxel51/fiftyone for more information.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+from .similarity import SimilarityResults
+from .visualization import (
+    VisualizationResults,
+    VisualizationConfig,
+    UMAPVisualizationConfig,
+    TSNEVisualizationConfig,
+    PCAVisualizationConfig,
+)
 
 
 def compute_hardness(samples, label_field, hardness_field="hardness"):
