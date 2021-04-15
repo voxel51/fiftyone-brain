@@ -1,5 +1,5 @@
 """
-Public visualization interface.
+Visualization interface.
 
 | Copyright 2017-2021, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -22,7 +22,7 @@ class VisualizationResults(fob.BrainResults):
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` for
             which this visualization was computed
-        points: a ``num_samples x num_dims`` array of visualization points
+        points: a ``num_points x num_dims`` array of visualization points
         config: the :class:`VisualizationConfig` used to generate the points
     """
 

@@ -241,7 +241,7 @@ def compute_visualization(
 ):
     """Computes a low-dimensional representation of the samples' media or their
     patches that can be interactively visualized and manipulated via the
-    returned :class:`VisualizationResults` object.
+    returned :class:`fiftyone.brain.visualization.VisualizationResults` object.
 
     If no ``embeddings`` or ``model`` is provided, a default model is used to
     generate embeddings.
@@ -259,7 +259,7 @@ def compute_visualization(
             -   the name of a dataset field containing the embeddings to use
 
         brain_key (None): a brain key under which to store the results of this
-            visualization
+            method
         num_dims (2): the dimension of the visualization space
         method ("umap"): the dimensionality-reduction method to use. Supported
             values are ``("umap", "tsne", "pca")``
