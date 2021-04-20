@@ -70,26 +70,6 @@ class SimilarityResults(fob.BrainResults):
         )
 
     @classmethod
-    def from_visualization_results(cls, results):
-        """Constructs a :class:`SimilarityResults` from a
-        :class:`fiftyone.brain.visualization.VisualizationResults`.
-
-        Args:
-            results: a
-                :class:`fiftyone.brain.visualization.VisualizationResults`
-
-        Returns:
-            a :class:`SimilarityResults`
-        """
-        import fiftyone.brain.internal.core.similarity as fbs
-
-        config = fbs.SimilarityConfig(
-            embeddings_field=results.config.embeddings_field,
-            patches_field=results.config.patches_field,
-        )
-        return cls(results._samples, results.points, config)
-
-    @classmethod
     def _from_dict(cls, d, samples):
         import fiftyone.brain.internal.core.similarity as fbs
 

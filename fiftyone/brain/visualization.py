@@ -97,17 +97,6 @@ class VisualizationResults(fob.BrainResults):
             **kwargs,
         )
 
-    def to_similarity_results(self):
-        """Constructs a :class:`fiftyone.brain.similarity.SimilarityResults`
-        for these visualization results.
-
-        Returns:
-            a :class:`fiftyone.brain.similarity.SimilarityResults`
-        """
-        from .similarity import SimilarityResults
-
-        return SimilarityResults.from_visualization_results(self)
-
     @classmethod
     def _from_dict(cls, d, samples):
         points = np.array(d["points"])
