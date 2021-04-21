@@ -7,7 +7,12 @@ Similarity interface.
 """
 import numpy as np
 
+import eta.core.utils as etau
+
 import fiftyone.core.brain as fob
+
+
+_INTERNAL_MODULE = "fiftyone.brain.internal.core.similarity"
 
 
 class SimilarityResults(fob.BrainResults):
@@ -21,12 +26,15 @@ class SimilarityResults(fob.BrainResults):
     """
 
     def __init__(self, samples, embeddings, config):
+        sample_ids, label_ids = _get_ids_for_embeddings(
+            embeddings, samples, patches_field=config.patches_field
+        )
+
         self._samples = samples
         self.embeddings = embeddings
         self.config = config
-        self._ids = _get_ids_for_embeddings(
-            embeddings, samples, patches_field=config.patches_field
-        )
+        self._sample_ids = sample_ids
+        self._label_ids = label_ids
 
     def sort_by_similarity(
         self,
@@ -60,8 +68,9 @@ class SimilarityResults(fob.BrainResults):
         return fbs.sort_by_similarity(
             self._samples,
             self.embeddings,
-            self._ids,
             query_ids,
+            self._sample_ids,
+            label_ids=self._label_ids,
             patches_field=self.config.patches_field,
             k=k,
             reverse=reverse,
@@ -78,18 +87,50 @@ class SimilarityResults(fob.BrainResults):
         return cls(samples, embeddings, config)
 
 
+class SimilarityConfig(fob.BrainMethodConfig):
+    """Similarity configuration.
+
+    Args:
+        embeddings_field (None): the sample field containing the embeddings
+        patches_field (None): the sample field defining the patches we're
+            indexing
+    """
+
+    def __init__(self, embeddings_field=None, patches_field=None, **kwargs):
+        super().__init__(**kwargs)
+        self.embeddings_field = embeddings_field
+        self.patches_field = patches_field
+
+    @property
+    def method(self):
+        return "similarity"
+
+    @property
+    def run_cls(self):
+        run_cls_name = self.__class__.__name__[: -len("Config")]
+        return etau.get_class(_INTERNAL_MODULE + "." + run_cls_name)
+
+
 def _get_ids_for_embeddings(embeddings, samples, patches_field=None):
     if patches_field is not None:
-        ids = samples._get_label_ids(fields=patches_field)
-    else:
-        ids = samples.values("id")
+        sample_ids = []
+        label_ids = []
+        for l in samples._get_selected_labels(fields=patches_field):
+            sample_ids.append(l["sample_id"])
+            label_ids.append(l["label_id"])
 
-    if len(ids) != len(embeddings):
+        sample_ids = np.array(sample_ids)
+        label_ids = np.array(label_ids)
+    else:
+        sample_ids = np.array(samples.values("id"))
+        label_ids = None
+
+    if len(sample_ids) != len(embeddings):
         ptype = "label" if patches_field is not None else "sample"
         raise ValueError(
             "Number of %s IDs (%d) does not match number of embeddings "
             "(%d). You may have missing data/labels that you need to omit "
-            "from your view" % (ptype, len(ids), len(embeddings))
+            "from your view" % (ptype, len(sample_ids), len(embeddings))
         )
 
-    return np.array(ids)
+    return sample_ids, label_ids

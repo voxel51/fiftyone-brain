@@ -8,7 +8,10 @@ See https://github.com/voxel51/fiftyone for more information.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
-from .similarity import SimilarityResults
+from .similarity import (
+    SimilarityResults,
+    SimilarityConfig,
+)
 from .visualization import (
     VisualizationResults,
     VisualizationConfig,

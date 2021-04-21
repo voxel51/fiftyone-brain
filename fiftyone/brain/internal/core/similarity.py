@@ -5,16 +5,19 @@ Similarity methods.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+from bson import ObjectId
+
 import numpy as np
 import sklearn.metrics as skm
 
 import eta.core.utils as etau
 
+from fiftyone import ViewField as F
 import fiftyone.core.brain as fob
 import fiftyone.core.validation as fov
 import fiftyone.zoo as foz
 
-from fiftyone.brain.similarity import SimilarityResults
+from fiftyone.brain.similarity import SimilarityConfig, SimilarityResults
 
 import logging
 
@@ -102,21 +105,25 @@ def compute_similarity(
 def sort_by_similarity(
     samples,
     embeddings,
-    ids,
     query_ids,
+    sample_ids,
+    label_ids=None,
     patches_field=None,
     k=None,
     reverse=False,
     metric="euclidean",
     aggregation="mean",
 ):
-    ids = np.asarray(ids)
-
     if etau.is_str(query_ids):
         query_ids = [query_ids]
 
     if not query_ids:
         raise ValueError("At least one query ID must be provided")
+
+    if patches_field is not None:
+        ids = label_ids
+    else:
+        ids = sample_ids
 
     if aggregation not in _AGGREGATIONS:
         raise ValueError(
@@ -134,7 +141,9 @@ def sort_by_similarity(
             query_inds.append(_inds[0])
 
     if bad_ids:
-        raise ValueError("Invalid query IDs %s" % bad_ids)
+        raise ValueError(
+            "Query IDs %s were not included in this index" % bad_ids
+        )
 
     query_embeddings = embeddings[query_inds]
     dists = skm.pairwise_distances(embeddings, query_embeddings, metric=metric)
@@ -152,10 +161,21 @@ def sort_by_similarity(
     result_ids = list(ids[inds])
 
     if patches_field is not None:
-        # @todo show samples with closest objects first?
-        return samples.select_labels(ids=result_ids, fields=patches_field)
+        result_sample_ids = _unique_no_sort(sample_ids[inds])
+        view = samples.select(result_sample_ids, ordered=True)
+
+        if k is not None:
+            _ids = [ObjectId(_id) for _id in result_ids]
+            view = view.filter_labels(patches_field, F("_id").is_in(_ids))
+
+        return view
 
     return samples.select(result_ids, ordered=True)
+
+
+def _unique_no_sort(values):
+    seen = set()
+    return [v for v in values if v not in seen and not seen.add(v)]
 
 
 class Similarity(fob.BrainMethod):
@@ -174,22 +194,3 @@ class Similarity(fob.BrainMethod):
 
     def cleanup(self, samples, brain_key):
         pass
-
-
-class SimilarityConfig(fob.BrainMethodConfig):
-    """Similarity configuration.
-
-    Args:
-        embeddings_field (None): the sample field containing the embeddings
-        patches_field (None): the sample field defining the patches we're
-            indexing
-    """
-
-    def __init__(self, embeddings_field=None, patches_field=None, **kwargs):
-        super().__init__(**kwargs)
-        self.embeddings_field = embeddings_field
-        self.patches_field = patches_field
-
-    @property
-    def method(self):
-        return "similarity"

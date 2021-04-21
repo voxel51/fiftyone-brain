@@ -124,8 +124,8 @@ class VisualizationConfig(fob.BrainMethodConfig):
 
     @property
     def run_cls(self):
-        visualization_cls_name = self.__class__.__name__[: -len("Config")]
-        return etau.get_class(_INTERNAL_MODULE + "." + visualization_cls_name)
+        run_cls_name = self.__class__.__name__[: -len("Config")]
+        return etau.get_class(_INTERNAL_MODULE + "." + run_cls_name)
 
 
 class UMAPVisualizationConfig(VisualizationConfig):
