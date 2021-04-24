@@ -14,6 +14,7 @@ import eta.core.utils as etau
 
 from fiftyone import ViewField as F
 import fiftyone.core.brain as fob
+import fiftyone.core.stages as fos
 import fiftyone.core.validation as fov
 import fiftyone.zoo as foz
 
@@ -109,10 +110,12 @@ def sort_by_similarity(
     sample_ids,
     label_ids=None,
     patches_field=None,
+    filter_ids=False,
     k=None,
     reverse=False,
     metric="euclidean",
     aggregation="mean",
+    mongo=False,
 ):
     if etau.is_str(query_ids):
         query_ids = [query_ids]
@@ -120,16 +123,20 @@ def sort_by_similarity(
     if not query_ids:
         raise ValueError("At least one query ID must be provided")
 
-    if patches_field is not None:
-        ids = label_ids
-    else:
-        ids = sample_ids
-
     if aggregation not in _AGGREGATIONS:
         raise ValueError(
             "Unsupported aggregation method '%s'. Supported values are %s"
             % (aggregation, tuple(_AGGREGATIONS.keys()))
         )
+
+    #
+    # Extract query embeddings
+    #
+
+    if patches_field is None:
+        ids = sample_ids
+    else:
+        ids = label_ids
 
     bad_ids = []
     query_inds = []
@@ -146,6 +153,33 @@ def sort_by_similarity(
         )
 
     query_embeddings = embeddings[query_inds]
+
+    #
+    # Filter possible results, if necessary
+    #
+
+    if filter_ids:
+        if patches_field is None:
+            possible_ids = set(samples.values("id"))
+            keep = np.array([_id in possible_ids for _id in sample_ids])
+            sample_ids = sample_ids[keep]
+            embeddings = embeddings[keep]
+            ids = sample_ids
+        else:
+            possible_ids = set(
+                l["label_id"]
+                for l in samples._get_selected_labels(fields=patches_field)
+            )
+            keep = np.array([_id in possible_ids for _id in label_ids])
+            sample_ids = sample_ids[keep]
+            label_ids = label_ids[keep]
+            embeddings = embeddings[keep]
+            ids = label_ids
+
+    #
+    # Perform sorting
+    #
+
     dists = skm.pairwise_distances(embeddings, query_embeddings, metric=metric)
 
     agg_fcn = _AGGREGATIONS[aggregation]
@@ -160,17 +194,39 @@ def sort_by_similarity(
 
     result_ids = list(ids[inds])
 
-    if patches_field is not None:
+    #
+    # Construct sorted view
+    #
+
+    view = samples
+    pipeline = []
+
+    if patches_field is None:
+        stage = fos.Select(result_ids, ordered=True)
+        if mongo:
+            pipeline.extend(stage.to_mongo(view))
+
+        view = view.add_stage(stage)
+    else:
         result_sample_ids = _unique_no_sort(sample_ids[inds])
-        view = samples.select(result_sample_ids, ordered=True)
+        stage = fos.Select(result_sample_ids, ordered=True)
+        if mongo:
+            pipeline.extend(stage.to_mongo(view))
+
+        view = view.add_stage(stage)
 
         if k is not None:
             _ids = [ObjectId(_id) for _id in result_ids]
-            view = view.filter_labels(patches_field, F("_id").is_in(_ids))
+            stage = fos.FilterLabels(patches_field, F("_id").is_in(_ids))
+            if mongo:
+                pipeline.extend(stage.to_mongo(view))
 
-        return view
+            view = view.add_stage(stage)
 
-    return samples.select(result_ids, ordered=True)
+    if mongo:
+        return pipeline
+
+    return view
 
 
 def _unique_no_sort(values):

@@ -41,8 +41,10 @@ class SimilarityResults(fob.BrainResults):
         query_ids,
         k=None,
         reverse=False,
+        samples=None,
         metric="euclidean",
         aggregation="mean",
+        mongo=False,
     ):
         """Returns a view that sorts the samples/labels in the collection by
         visual similarity to the specified query.
@@ -52,6 +54,11 @@ class SimilarityResults(fob.BrainResults):
             k (None): the number of matches to return. By default, the entire
                 collection is sorted
             reverse (False): whether to sort by least similarity
+            samples (None): an optional
+                :class:`fiftyone.core.collections.SampleCollection` defining
+                the samples to include in the sort. If provided, the returned
+                view will only include samples from this collection that were
+                indexed. If not provided, all indexed samples are used
             metric ("euclidean"): the distance metric to use. This parameter is
                 passed directly to
                 ``sklearn.metrics.pairwise_distances(..., metric=metric)``
@@ -59,23 +66,35 @@ class SimilarityResults(fob.BrainResults):
                 composite similarities. Only applicable when ``query_ids``
                 contains multiple IDs. Supported values are
                 ``("mean", "min", "max")``
+            mongo (False): whether to return the aggregation pipeline defining
+                the sort rather than constructing the actual
+                :class:`fiftyone.core.view.DatasetView`
 
         Returns:
-            a :class:`fiftyone.core.view.DatasetView`
+            a :class:`fiftyone.core.view.DatasetView`, or, if
+            ``mongo == True``, a MongoDB aggregation pipeline (list of dicts)
         """
         import fiftyone.brain.internal.core.similarity as fbs
 
+        if samples is not None and samples != self._samples:
+            filter_ids = True
+        else:
+            filter_ids = False
+            samples = self._samples
+
         return fbs.sort_by_similarity(
-            self._samples,
+            samples,
             self.embeddings,
             query_ids,
             self._sample_ids,
             label_ids=self._label_ids,
             patches_field=self.config.patches_field,
+            filter_ids=filter_ids,
             k=k,
             reverse=reverse,
             metric=metric,
             aggregation=aggregation,
+            mongo=mongo,
         )
 
     @classmethod
