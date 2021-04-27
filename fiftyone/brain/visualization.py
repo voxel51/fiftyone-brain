@@ -59,6 +59,9 @@ class VisualizationResults(fob.BrainResults):
 
                 -   the name of a sample field or ``embedded.field.name`` from
                     which to extract numeric or string values
+                -   a :class:`fiftyone.core.expressions.ViewExpression`
+                    defining numeric or string values to compute via
+                    :meth:`fiftyone.core.collections.SampleCollection.values`
                 -   a list or array-like of numeric or string values
                 -   a list of lists of numeric or string values, if the data in
                     this visualization corresponds to a label list field like
@@ -69,6 +72,9 @@ class VisualizationResults(fob.BrainResults):
 
                 -   the name of a sample field or ``embedded.field.name`` from
                     which to extract numeric values
+                -   a :class:`fiftyone.core.expressions.ViewExpression`
+                    defining numeric values to compute via
+                    :meth:`fiftyone.core.collections.SampleCollection.values`
                 -   a list or array-like of numeric values
                 -   a list of lists of numeric values, if the data in this
                     visualization corresponds to a label list field like
