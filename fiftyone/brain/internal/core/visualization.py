@@ -23,7 +23,6 @@ from fiftyone.brain.visualization import (
     TSNEVisualizationConfig,
     PCAVisualizationConfig,
 )
-import fiftyone.brain.internal.models as fbm
 
 
 logger = logging.getLogger(__name__)

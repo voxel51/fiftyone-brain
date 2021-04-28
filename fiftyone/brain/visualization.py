@@ -1,5 +1,5 @@
 """
-Public visualization interface.
+Visualization interface.
 
 | Copyright 2017-2021, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -22,7 +22,7 @@ class VisualizationResults(fob.BrainResults):
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` for
             which this visualization was computed
-        points: a ``num_samples x num_dims`` array of visualization points
+        points: a ``num_points x num_dims`` array of visualization points
         config: the :class:`VisualizationConfig` used to generate the points
     """
 
@@ -124,8 +124,8 @@ class VisualizationConfig(fob.BrainMethodConfig):
 
     @property
     def run_cls(self):
-        visualization_cls_name = self.__class__.__name__[: -len("Config")]
-        return etau.get_class(_INTERNAL_MODULE + "." + visualization_cls_name)
+        run_cls_name = self.__class__.__name__[: -len("Config")]
+        return etau.get_class(_INTERNAL_MODULE + "." + run_cls_name)
 
 
 class UMAPVisualizationConfig(VisualizationConfig):
