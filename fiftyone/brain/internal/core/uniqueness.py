@@ -132,7 +132,7 @@ def compute_uniqueness(
     logger.info("Computing uniqueness...")
     uniqueness = _compute_uniqueness(embeddings)
 
-    samples._add_sample_field_if_necessary(uniqueness_field, fof.FloatField)
+    samples._dataset._add_sample_field_if_necessary(uniqueness_field, fof.FloatField)
     samples.set_values(uniqueness_field, uniqueness)
 
     brain_method.save_run_results(samples, brain_key, None)
