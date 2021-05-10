@@ -101,9 +101,6 @@ jobs:
         with:
           name: wheel-linux-x86_64-${{ matrix.python-version }}
           path: downloads
-      - name: Reinstall fiftyone-brain
-        run: |
-          pip install --force-reinstall --no-deps downloads/*.whl
       - name: Install fiftyone
         run: |
           git clone https://${{ secrets.FIFTYONE_GITHUB_TOKEN }}@github.com/voxel51/fiftyone fiftyone-src --depth 1 --branch develop
@@ -111,6 +108,9 @@ jobs:
           python setup.py bdist_wheel
           pip install voxel51-eta[storage] fiftyone-db
           pip install ./dist/*.whl
+      - name: Reinstall fiftyone-brain
+        run: |
+          pip install --force-reinstall --no-deps downloads/*.whl
       - name: Set up ETA credentials
         env:
           FIFTYONE_GOOGLE_CREDENTIALS: ${{ secrets.FIFTYONE_GOOGLE_CREDENTIALS }}
