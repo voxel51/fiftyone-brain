@@ -287,13 +287,13 @@ class DetectionMistakenness(MistakennessMethod):
                 continue
 
             pred_id = gt_det[eval_key + "_id"]
-            iou = gt_det[eval_key + "_iou"]
             if pred_id == "":
                 # FN may be spurious
                 gt_det[spurious_field] = True
                 num_spurious += 1
             else:
                 # For matched FP, compute mistakenness
+                iou = gt_det[eval_key + "_iou"]
                 pred_det = pred_map[pred_id]
                 m = float(gt_det.label == pred_det.label)
                 if use_logits:
