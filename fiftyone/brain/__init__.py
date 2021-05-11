@@ -252,7 +252,11 @@ def compute_visualization(
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
         patches_field (None): a sample field defining the image patches in each
-            sample that have been/will be embedded
+            sample that have been/will be embedded. Must be of type
+                :class:`fiftyone.core.labels.Detection`,
+                :class:`fiftyone.core.labels.Detections`,
+                :class:`fiftyone.core.labels.Polyline`, or
+                :class:`fiftyone.core.labels.Polylines`
         embeddings (None): pre-computed embeddings to use. Can be any of the
             following:
 
@@ -332,7 +336,11 @@ def compute_similarity(
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
         patches_field (None): a sample field defining the image patches in each
-            sample that have been/will be embedded
+            sample that have been/will be embedded. Must be of type
+                :class:`fiftyone.core.labels.Detection`,
+                :class:`fiftyone.core.labels.Detections`,
+                :class:`fiftyone.core.labels.Polyline`, or
+                :class:`fiftyone.core.labels.Polylines`
         embeddings (None): pre-computed embeddings to use. Can be any of the
             following:
 
