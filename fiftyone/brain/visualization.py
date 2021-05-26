@@ -17,7 +17,8 @@ _INTERNAL_MODULE = "fiftyone.brain.internal.core.visualization"
 
 
 class VisualizationResults(fob.BrainResults):
-    """Class for visualizing the results of :meth:`compute_visualization`.
+    """Class storing the results of
+    :meth:`fiftyone.brain.compute_visualization`.
 
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` for

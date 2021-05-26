@@ -384,3 +384,88 @@ def compute_similarity(
         force_square,
         alpha,
     )
+
+
+def compute_duplicates(
+    samples,
+    patches_field=None,
+    embeddings=None,
+    brain_key=None,
+    model=None,
+    metric="cosine",
+    thresh=None,
+    fraction=None,
+    batch_size=None,
+    force_square=False,
+    alpha=None,
+):
+    """Uses embeddings to index the samples or their patches so that you can
+    query/sort by visual similarity via the returned
+    :class:`fiftyone.brain.similarity.SimilarityResults` object.
+
+    If no ``embeddings`` or ``model`` is provided, a default model is used to
+    generate embeddings.
+
+    Args:
+        samples: a :class:`fiftyone.core.collections.SampleCollection`
+        patches_field (None): a sample field defining image patches in each
+            sample to assess for duplicates. Must be of type
+            :class:`fiftyone.core.labels.Detection`,
+            :class:`fiftyone.core.labels.Detections`,
+            :class:`fiftyone.core.labels.Polyline`, or
+            :class:`fiftyone.core.labels.Polylines`
+        embeddings (None): pre-computed embeddings to use. Can be any of the
+            following:
+
+            -   a ``num_samples x num_dims`` array of embeddings
+            -   if ``patches_field`` is specified,  a dict mapping sample IDs
+                to ``num_patches x num_dims`` arrays of patch embeddings
+            -   the name of a dataset field containing the embeddings to use
+
+        brain_key (None): a brain key under which to store the results of this
+            method
+        model (None): a :class:`fiftyone.core.models.Model` or the name of a
+            model from the
+            `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/index.html>`_
+            to use to generate embeddings. The model must expose embeddings
+            (``model.has_embeddings = True``)
+        metric ("cosine"): the embedding distance metric to use. Supported
+            values are ``"cosine"`` and the values supported by
+            ``sklearn.neighbors.DistanceMetric``
+        thresh (None): a distance threshold to use to determine duplicates. If
+            neither ``thresh`` nor ``fraction`` is supplied, a default
+            threshold will be chosen as long as ``metric="cosine"``
+        fraction (None): a desired fraction of images/patches to tag as
+            duplicates, in ``[0, 1]``. If provided, ``thresh`` is automatically
+            tuned to achieve the desired fraction of duplicates
+        batch_size (None): an optional batch size to use when computing
+            embeddings. Only applicable when a ``model`` is provided
+        force_square (False): whether to minimally manipulate the patch
+            bounding boxes into squares prior to extraction. Only applicable
+            when a ``model`` and ``patches_field`` are specified
+        alpha (None): an optional expansion/contraction to apply to the patches
+            before extracting them, in ``[-1, \infty)``. If provided, the
+            length and width of the box are expanded (or contracted, when
+            ``alpha < 0``) by ``(100 * alpha)%``. For example, set
+            ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
+            to contract the boxes by 10%. Only applicable when a ``model`` and
+            ``patches_field`` are specified
+
+    Returns:
+        a :class:`fiftyone.brain.uniqueness.DuplicateResults`
+    """
+    import fiftyone.brain.internal.core.duplicates as fbd
+
+    return fbd.compute_duplicates(
+        samples,
+        patches_field,
+        embeddings,
+        brain_key,
+        model,
+        metric,
+        thresh,
+        fraction,
+        batch_size,
+        force_square,
+        alpha,
+    )

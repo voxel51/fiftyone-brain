@@ -57,7 +57,9 @@ def compute_similarity(
         embeddings_field = None
 
     config = SimilarityConfig(
-        embeddings_field=embeddings_field, patches_field=patches_field
+        model=model,
+        embeddings_field=embeddings_field,
+        patches_field=patches_field,
     )
     brain_method = config.build()
     if brain_key is not None:
@@ -266,7 +268,7 @@ class Similarity(fob.BrainMethod):
     """Similarity method.
 
     Args:
-        config: a :class:`SimilarityConfig`
+        config: a :class:`fiftyone.brain.similarity.SimilarityConfig`
     """
 
     def get_fields(self, samples, brain_key):

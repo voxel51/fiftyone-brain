@@ -16,7 +16,7 @@ _INTERNAL_MODULE = "fiftyone.brain.internal.core.similarity"
 
 
 class SimilarityResults(fob.BrainResults):
-    """Class for performing similarity searches on a dataset.
+    """Class storing the results of :meth:`fiftyone.brain.compute_similarity`.
 
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` for
@@ -111,13 +111,21 @@ class SimilarityConfig(fob.BrainMethodConfig):
 
     Args:
         embeddings_field (None): the sample field containing the embeddings
+        model (None): the :class:`fiftyone.core.models.Model` or class name of
+            the model that was used to compute embeddings
         patches_field (None): the sample field defining the patches we're
             indexing
     """
 
-    def __init__(self, embeddings_field=None, patches_field=None, **kwargs):
+    def __init__(
+        self, embeddings_field=None, model=None, patches_field=None, **kwargs
+    ):
+        if model is not None and not etau.is_str(model):
+            model = etau.get_class_name(model)
+
         super().__init__(**kwargs)
         self.embeddings_field = embeddings_field
+        self.model = model
         self.patches_field = patches_field
 
     @property
