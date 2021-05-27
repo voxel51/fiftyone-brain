@@ -27,6 +27,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 _AGGREGATIONS = {"mean": np.mean, "min": np.min, "max": np.max}
+
 _DEFAULT_MODEL = "mobilenet-v2-imagenet-torch"
 _DEFAULT_BATCH_SIZE = None
 

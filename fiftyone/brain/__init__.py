@@ -386,6 +386,26 @@ def compute_similarity(
     )
 
 
+def compute_exact_duplicates(samples, num_workers=None, skip_failures=True):
+    """Detects duplicate media in a sample collection.
+
+    This method detects exact duplicates with the same filehash. Use
+    :meth:`compute_duplicates` to detect near-duplicate images.
+
+    Args:
+        samples: a :class:`fiftyone.core.collections.SampleCollection`
+        num_workers (None): an optional number of processes to use
+        skip_failures (True): whether to gracefully ignore samples whose
+            filehash cannot be computed
+
+    Returns:
+        a list of IDs of duplicate samples
+    """
+    import fiftyone.brain.internal.core.duplicates as fbd
+
+    return fbd.compute_exact_duplicates(samples, num_workers, skip_failures)
+
+
 def compute_duplicates(
     samples,
     patches_field=None,
@@ -399,12 +419,15 @@ def compute_duplicates(
     force_square=False,
     alpha=None,
 ):
-    """Uses embeddings to index the samples or their patches so that you can
-    query/sort by visual similarity via the returned
-    :class:`fiftyone.brain.similarity.SimilarityResults` object.
+    """Uses embeddings to index the samples or their patches by their visual
+    uniqueness so that you can identify near-duplicate examples, or,
+    conversely, extract the most unique examples in a collection.
 
     If no ``embeddings`` or ``model`` is provided, a default model is used to
     generate embeddings.
+
+    Use :meth:`compute_exact_duplicates` to detect exactly duplicate media in
+    a collection.
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
@@ -429,9 +452,8 @@ def compute_duplicates(
             `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/index.html>`_
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
-        metric ("cosine"): the embedding distance metric to use. Supported
-            values are ``"cosine"`` and the values supported by
-            ``sklearn.neighbors.DistanceMetric``
+        metric ("cosine"): the embedding distance metric to use. See
+            ``sklearn.metrics.pairwise_distance`` for supported values
         thresh (None): a distance threshold to use to determine duplicates. If
             neither ``thresh`` nor ``fraction`` is supplied, a default
             threshold will be chosen as long as ``metric="cosine"``
@@ -452,7 +474,7 @@ def compute_duplicates(
             ``patches_field`` are specified
 
     Returns:
-        a :class:`fiftyone.brain.uniqueness.DuplicateResults`
+        a :class:`fiftyone.brain.duplicates.DuplicateResults`
     """
     import fiftyone.brain.internal.core.duplicates as fbd
 

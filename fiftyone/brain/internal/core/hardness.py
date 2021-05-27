@@ -58,6 +58,7 @@ def compute_hardness(samples, label_field, hardness_field):
     logger.info("Hardness computation complete")
 
 
+# @todo move to `fiftyone/brain/hardness.py`
 class HardnessConfig(fob.BrainMethodConfig):
     def __init__(self, label_field, hardness_field, **kwargs):
         super().__init__(**kwargs)

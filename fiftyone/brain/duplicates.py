@@ -18,19 +18,29 @@ class DuplicatesResults(fob.BrainResults):
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
         embeddings: a ``num_embeddings x num_dims`` array of embeddings
-        keep_ids: an array of sample/patch IDs indicating the non-duplicates
-        thresh: the embedding distance threshold used
         config: the :class:`DuplicatesConfig` used
-        neighbors (None): the ``sklearn.neighbors.NearestNeighbors`` instance
+        dup_ids (None): an array of duplicate sample/patch IDs
+        keep_ids (None): an array of non-duplicate sample/patch IDs
+        thresh (None): the embedding distance threshold used
+        neighbors (None): a ``sklearn.neighbors.NearestNeighbors`` instance
     """
 
     def __init__(
-        self, samples, embeddings, keep_ids, thresh, config, neighbors=None,
+        self,
+        samples,
+        embeddings,
+        config,
+        dup_ids=None,
+        keep_ids=None,
+        thresh=None,
+        neighbors=None,
     ):
         self._samples = samples
         self._neighbors = neighbors
 
         self.embeddings = embeddings
+        self.config = config
+        self.dup_ids = dup_ids
         self.keep_ids = keep_ids
         self.thresh = thresh
         self.config = config
@@ -47,10 +57,26 @@ class DuplicatesResults(fob.BrainResults):
         import fiftyone.brain.internal.core.duplicates as fbd
 
         embeddings = np.array(d["embeddings"])
-        keep_ids = np.array(d["keep_ids"])
-        thresh = d["thresh"]
         config = fbd.DuplicatesConfig.from_dict(d["config"])
-        return cls(samples, embeddings, keep_ids, thresh, config)
+
+        dup_ids = d.get("dup_ids", None)
+        if dup_ids is not None:
+            dup_ids = np.array(dup_ids)
+
+        keep_ids = d.get("keep_ids", None)
+        if keep_ids is not None:
+            keep_ids = np.array(keep_ids)
+
+        thresh = d.get("thresh", None)
+
+        return cls(
+            samples,
+            embeddings,
+            config,
+            dup_ids=dup_ids,
+            keep_ids=keep_ids,
+            thresh=thresh,
+        )
 
 
 class DuplicatesConfig(fob.BrainMethodConfig):

@@ -152,6 +152,7 @@ def compute_mistakenness(
     logger.info("Mistakenness computation complete")
 
 
+# @todo move to `fiftyone/brain/mistakenness.py`
 class MistakennessMethodConfig(fob.BrainMethodConfig):
     def __init__(self, pred_field, label_field, mistakenness_field, **kwargs):
         super().__init__(**kwargs)
@@ -173,6 +174,7 @@ class MistakennessMethod(fob.BrainMethod):
         )
 
 
+# @todo move to `fiftyone/brain/mistakenness.py`
 class ClassificationMistakennessConfig(MistakennessMethodConfig):
     def __init__(
         self, pred_field, label_field, mistakenness_field, use_logits, **kwargs
@@ -227,6 +229,7 @@ class ClassificationMistakenness(MistakennessMethod):
             )
 
 
+# @todo move to `fiftyone/brain/mistakenness.py`
 class DetectionMistakennessConfig(MistakennessMethodConfig):
     def __init__(
         self,

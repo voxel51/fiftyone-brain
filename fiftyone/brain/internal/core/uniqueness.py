@@ -8,7 +8,8 @@ Methods that compute insights related to sample uniqueness.
 import logging
 
 import numpy as np
-from sklearn.neighbors import NearestNeighbors
+import sklearn.metrics as skm
+import sklearn.neighbors as skn
 
 import eta.core.utils as etau
 
@@ -31,8 +32,11 @@ _ALLOWED_ROI_FIELD_TYPES = (
     fol.Polyline,
     fol.Polylines,
 )
+
 _DEFAULT_MODEL = "simple-resnet-cifar10"
 _DEFAULT_BATCH_SIZE = 16
+
+_MAX_PRECOMPUTE_DISTS = 15000  # ~1.7GB to store distance matrix in-memory
 
 
 def compute_uniqueness(
@@ -142,15 +146,23 @@ def compute_uniqueness(
     logger.info("Uniqueness computation complete")
 
 
-def _compute_uniqueness(embeddings):
+def _compute_uniqueness(embeddings, metric="euclidean"):
     # @todo convert to a parameter with a default, for tuning
     K = 3
 
+    num_embeddings = len(embeddings)
+    if num_embeddings <= _MAX_PRECOMPUTE_DISTS:
+        embeddings = skm.pairwise_distances(embeddings, metric=metric)
+        metric = "precomputed"
+    else:
+        logger.info(
+            "Computing neighbors for %d embeddings; this may take awhile...",
+            num_embeddings,
+        )
+
     # First column of dists and indices is self-distance
-    knns = NearestNeighbors(n_neighbors=K + 1, algorithm="ball_tree").fit(
-        embeddings
-    )
-    dists, _ = knns.kneighbors(embeddings)
+    knns = skn.NearestNeighbors(metric=metric).fit(embeddings)
+    dists, _ = knns.kneighbors(embeddings, n_neighbors=K + 1)
 
     #
     # @todo experiment on which method for assessing uniqueness is best
@@ -166,6 +178,7 @@ def _compute_uniqueness(embeddings):
     return sample_dists
 
 
+# @todo move to `fiftyone/brain/uniqueness.py`
 class UniquenessConfig(fob.BrainMethodConfig):
     def __init__(
         self,
