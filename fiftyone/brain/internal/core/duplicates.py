@@ -323,7 +323,10 @@ def _remove_duplicates_fraction(
 
 
 def _compute_filehashes(samples, method):
-    ids, filepaths = samples.values(["id", "filepath"])
+    # ids, filepaths = samples.values(["id", "filepath"])
+    ids, filepaths = samples.aggregate(
+        [foa.Values("id"), foa.Values("filepath")]
+    )
 
     with fou.ProgressBar(total=len(ids)) as pb:
         return {
@@ -333,7 +336,11 @@ def _compute_filehashes(samples, method):
 
 
 def _compute_filehashes_multi(samples, method, num_workers):
-    ids, filepaths = samples.values(["id", "filepath"])
+    # ids, filepaths = samples.values(["id", "filepath"])
+    ids, filepaths = samples.aggregate(
+        [foa.Values("id"), foa.Values("filepath")]
+    )
+
     methods = itertools.repeat(method)
 
     inputs = list(zip(ids, filepaths, methods))
@@ -350,7 +357,8 @@ def _compute_filehashes_multi(samples, method, num_workers):
 
 def _compute_filehash(filepath, method):
     try:
-        filehash = fou.compute_filehash(filepath, method=method)
+        filehash = fou.compute_filehash(filepath)
+        # filehash = fou.compute_filehash(filepath, method=method)
     except:
         filehash = None
 
@@ -360,7 +368,8 @@ def _compute_filehash(filepath, method):
 def _do_compute_filehash(args):
     _id, filepath, method = args
     try:
-        filehash = fou.compute_filehash(filepath, method=method)
+        filehash = fou.compute_filehash(filepath)
+        # filehash = fou.compute_filehash(filepath, method=method)
     except:
         filehash = None
 
