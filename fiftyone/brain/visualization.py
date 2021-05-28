@@ -11,9 +11,9 @@ import eta.core.utils as etau
 
 import fiftyone.core.brain as fob
 import fiftyone.core.plots as fop
+import fiftyone.core.utils as fou
 
-
-_INTERNAL_MODULE = "fiftyone.brain.internal.core.visualization"
+fbv = fou.lazy_import("fiftyone.brain.internal.core.visualization")
 
 
 class VisualizationResults(fob.BrainResults):
@@ -21,10 +21,9 @@ class VisualizationResults(fob.BrainResults):
     :meth:`fiftyone.brain.compute_visualization`.
 
     Args:
-        samples: the :class:`fiftyone.core.collections.SampleCollection` for
-            which this visualization was computed
+        samples: the :class:`fiftyone.core.collections.SampleCollection` used
         points: a ``num_points x num_dims`` array of visualization points
-        config: the :class:`VisualizationConfig` used to generate the points
+        config: the :class:`VisualizationConfig` used
     """
 
     def __init__(self, samples, points, config):
@@ -115,24 +114,36 @@ class VisualizationConfig(fob.BrainMethodConfig):
     """Base class for configuring visualization methods.
 
     Args:
-        embeddings_field (None): the sample field containing the embeddings
-        patches_field (None): the sample field defining the patches we're
-            visualizing
+        embeddings_field (None): the sample field containing the embeddings,
+            if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or class name of
+            the model that was used to compute embeddings, if one was provided
+        patches_field (None): the sample field defining the patches being
+            analyzed, if any
         num_dims (2): the dimension of the visualization space
     """
 
     def __init__(
-        self, embeddings_field=None, patches_field=None, num_dims=2, **kwargs
+        self,
+        embeddings_field=None,
+        model=None,
+        patches_field=None,
+        num_dims=2,
+        **kwargs,
     ):
-        super().__init__(**kwargs)
+        if model is not None and not etau.is_str(model):
+            model = etau.get_class_name(model)
+
         self.embeddings_field = embeddings_field
+        self.model = model
         self.patches_field = patches_field
         self.num_dims = num_dims
+        super().__init__(**kwargs)
 
     @property
     def run_cls(self):
         run_cls_name = self.__class__.__name__[: -len("Config")]
-        return etau.get_class(_INTERNAL_MODULE + "." + run_cls_name)
+        return getattr(fbv, run_cls_name)
 
 
 class UMAPVisualizationConfig(VisualizationConfig):
@@ -143,9 +154,12 @@ class UMAPVisualizationConfig(VisualizationConfig):
     supported parameters.
 
     Args:
-        embeddings_field (None): the sample field containing the embeddings
-        patches_field (None): the sample field defining the patches we're
-            visualizing
+        embeddings_field (None): the sample field containing the embeddings,
+            if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or class name of
+            the model that was used to compute embeddings, if one was provided
+        patches_field (None): the sample field defining the patches being
+            analyzed, if any
         num_dims (2): the dimension of the visualization space
         num_neighbors (15): the number of neighboring points used in local
             approximations of manifold structure. Larger values will result in
@@ -160,23 +174,25 @@ class UMAPVisualizationConfig(VisualizationConfig):
             optimise more accurately with regard to local structure. Typical
             values are in ``[0.001, 0.5]``
         seed (None): a random seed
-        verbose (False): whether to log progress
+        verbose (True): whether to log progress
     """
 
     def __init__(
         self,
         embeddings_field=None,
+        model=None,
         patches_field=None,
         num_dims=2,
         num_neighbors=15,
         metric="euclidean",
         min_dist=0.1,
         seed=None,
-        verbose=False,
+        verbose=True,
         **kwargs,
     ):
         super().__init__(
             embeddings_field=embeddings_field,
+            model=model,
             patches_field=patches_field,
             num_dims=num_dims,
             **kwargs,
@@ -200,9 +216,12 @@ class TSNEVisualizationConfig(VisualizationConfig):
     for more information about the supported parameters.
 
     Args:
-        embeddings_field (None): the sample field containing the embeddings
-        patches_field (None): the sample field defining the patches we're
-            visualizing
+        embeddings_field (None): the sample field containing the embeddings,
+            if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or class name of
+            the model that was used to compute embeddings, if one was provided
+        patches_field (None): the sample field defining the patches being
+            analyzed, if any
         num_dims (2): the dimension of the visualization space
         pca_dims (50): the number of PCA dimensions to compute prior to running
             t-SNE. It is highly recommended to reduce the number of dimensions
@@ -228,12 +247,13 @@ class TSNEVisualizationConfig(VisualizationConfig):
         max_iters (1000): the maximum number of iterations to run. Should be at
             least 250
         seed (None): a random seed
-        verbose (False): whether to log progress
+        verbose (True): whether to log progress
     """
 
     def __init__(
         self,
         embeddings_field=None,
+        model=None,
         patches_field=None,
         num_dims=2,
         pca_dims=50,
@@ -243,11 +263,12 @@ class TSNEVisualizationConfig(VisualizationConfig):
         learning_rate=200.0,
         max_iters=1000,
         seed=None,
-        verbose=False,
+        verbose=True,
         **kwargs,
     ):
         super().__init__(
             embeddings_field=embeddings_field,
+            model=model,
             patches_field=patches_field,
             num_dims=num_dims,
             **kwargs,
@@ -274,9 +295,12 @@ class PCAVisualizationConfig(VisualizationConfig):
     for more information about the supported parameters.
 
     Args:
-        embeddings_field (None): the sample field containing the embeddings
-        patches_field (None): the sample field defining the patches we're
-            visualizing
+        embeddings_field (None): the sample field containing the embeddings,
+            if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or class name of
+            the model that was used to compute embeddings, if one was provided
+        patches_field (None): the sample field defining the patches being
+            analyzed, if any
         num_dims (2): the dimension of the visualization space
         svd_solver ("randomized"): the SVD solver to use. Consult the sklearn
             docmentation for details
@@ -286,6 +310,7 @@ class PCAVisualizationConfig(VisualizationConfig):
     def __init__(
         self,
         embeddings_field=None,
+        model=None,
         patches_field=None,
         num_dims=2,
         svd_solver="randomized",
@@ -294,6 +319,7 @@ class PCAVisualizationConfig(VisualizationConfig):
     ):
         super().__init__(
             embeddings_field=embeddings_field,
+            model=model,
             patches_field=patches_field,
             num_dims=num_dims,
             **kwargs,

@@ -62,7 +62,13 @@ def compute_visualization(
         embeddings_field = None
 
     config = _parse_config(
-        config, embeddings_field, patches_field, method, num_dims, **kwargs
+        config,
+        embeddings_field,
+        model,
+        patches_field,
+        method,
+        num_dims,
+        **kwargs,
     )
     brain_method = config.build()
     if brain_key is not None:
@@ -215,7 +221,7 @@ class PCAVisualization(Visualization):
 
 
 def _parse_config(
-    config, embeddings_field, patches_field, method, num_dims, **kwargs
+    config, embeddings_field, model, patches_field, method, num_dims, **kwargs
 ):
     if config is not None:
         return config
@@ -231,6 +237,7 @@ def _parse_config(
 
     return config_cls(
         embeddings_field=embeddings_field,
+        model=model,
         patches_field=patches_field,
         num_dims=num_dims,
         **kwargs,

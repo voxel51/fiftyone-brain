@@ -81,7 +81,7 @@ def compute_uniqueness(
 
     config = UniquenessConfig(
         uniqueness_field,
-        roi_field,
+        roi_field=roi_field,
         embeddings_field=embeddings_field,
         model=model,
     )
@@ -183,7 +183,7 @@ class UniquenessConfig(fob.BrainMethodConfig):
     def __init__(
         self,
         uniqueness_field,
-        roi_field,
+        roi_field=None,
         embeddings_field=None,
         model=None,
         **kwargs,
@@ -191,11 +191,11 @@ class UniquenessConfig(fob.BrainMethodConfig):
         if model is not None and not etau.is_str(model):
             model = etau.get_class_name(model)
 
-        super().__init__(**kwargs)
         self.uniqueness_field = uniqueness_field
         self.roi_field = roi_field
         self.embeddings_field = embeddings_field
         self.model = model
+        super().__init__(**kwargs)
 
     @property
     def method(self):

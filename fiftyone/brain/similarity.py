@@ -10,19 +10,18 @@ import numpy as np
 import eta.core.utils as etau
 
 import fiftyone.core.brain as fob
+import fiftyone.core.utils as fou
 
-
-_INTERNAL_MODULE = "fiftyone.brain.internal.core.similarity"
+fbs = fou.lazy_import("fiftyone.brain.internal.core.similarity")
 
 
 class SimilarityResults(fob.BrainResults):
     """Class storing the results of :meth:`fiftyone.brain.compute_similarity`.
 
     Args:
-        samples: the :class:`fiftyone.core.collections.SampleCollection` for
-            which this index was computed
+        samples: the :class:`fiftyone.core.collections.SampleCollection` used
         embeddings: a ``num_embeddings x num_dims`` array of embeddings
-        config: the :class:`SimilarityConfig` used to index the samples
+        config: the :class:`SimilarityConfig` used
     """
 
     def __init__(self, samples, embeddings, config):
@@ -74,8 +73,6 @@ class SimilarityResults(fob.BrainResults):
             a :class:`fiftyone.core.view.DatasetView`, or, if
             ``mongo == True``, a MongoDB aggregation pipeline (list of dicts)
         """
-        import fiftyone.brain.internal.core.similarity as fbs
-
         if samples is not None and samples != self._samples:
             filter_ids = True
         else:
@@ -99,10 +96,8 @@ class SimilarityResults(fob.BrainResults):
 
     @classmethod
     def _from_dict(cls, d, samples):
-        import fiftyone.brain.internal.core.similarity as fbs
-
         embeddings = np.array(d["embeddings"])
-        config = fbs.SimilarityConfig.from_dict(d["config"])
+        config = SimilarityConfig.from_dict(d["config"])
         return cls(samples, embeddings, config)
 
 
@@ -110,11 +105,12 @@ class SimilarityConfig(fob.BrainMethodConfig):
     """Similarity configuration.
 
     Args:
-        embeddings_field (None): the sample field containing the embeddings
+        embeddings_field (None): the sample field containing the embeddings,
+            if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or class name of
-            the model that was used to compute embeddings
-        patches_field (None): the sample field defining the patches we're
-            indexing
+            the model that was used to compute embeddings, if one was provided
+        patches_field (None): the sample field defining the patches being
+            analyzed, if any
     """
 
     def __init__(
@@ -123,10 +119,10 @@ class SimilarityConfig(fob.BrainMethodConfig):
         if model is not None and not etau.is_str(model):
             model = etau.get_class_name(model)
 
-        super().__init__(**kwargs)
         self.embeddings_field = embeddings_field
         self.model = model
         self.patches_field = patches_field
+        super().__init__(**kwargs)
 
     @property
     def method(self):
@@ -135,7 +131,7 @@ class SimilarityConfig(fob.BrainMethodConfig):
     @property
     def run_cls(self):
         run_cls_name = self.__class__.__name__[: -len("Config")]
-        return etau.get_class(_INTERNAL_MODULE + "." + run_cls_name)
+        return getattr(fbs, run_cls_name)
 
 
 def _get_ids_for_embeddings(embeddings, samples, patches_field=None):

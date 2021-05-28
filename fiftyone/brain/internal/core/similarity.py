@@ -58,8 +58,8 @@ def compute_similarity(
         embeddings_field = None
 
     config = SimilarityConfig(
-        model=model,
         embeddings_field=embeddings_field,
+        model=model,
         patches_field=patches_field,
     )
     brain_method = config.build()

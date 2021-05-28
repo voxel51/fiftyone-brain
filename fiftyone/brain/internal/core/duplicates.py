@@ -5,6 +5,7 @@ Methods that compute insights related to sample uniqueness.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+from collections import defaultdict
 import itertools
 import logging
 import multiprocessing
@@ -18,14 +19,16 @@ import eta.core.utils as etau
 
 import fiftyone.core.aggregations as foa
 import fiftyone.core.brain as fob
+import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
 import fiftyone.core.media as fom
+import fiftyone.core.patches as fop
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 import fiftyone.zoo as foz
 
-import fiftyone.brain.internal.models as fbm
 from fiftyone.brain.duplicates import DuplicatesConfig, DuplicatesResults
+import fiftyone.brain.internal.models as fbm
 
 
 logger = logging.getLogger(__name__)
@@ -42,6 +45,7 @@ _DEFAULT_MODEL = "simple-resnet-cifar10"
 _DEFAULT_BATCH_SIZE = 16
 
 _MAX_PRECOMPUTE_DISTS = 15000  # ~1.7GB to store distance matrix in-memory
+_COSINE_HACK_ATTR = "_cosine_hack"
 
 
 def compute_exact_duplicates(samples, num_workers, skip_failures):
@@ -91,10 +95,8 @@ def compute_duplicates(
     patches_field,
     embeddings,
     brain_key,
-    model,
     metric,
-    thresh,
-    fraction,
+    model,
     batch_size,
     force_square,
     alpha,
@@ -108,9 +110,6 @@ def compute_duplicates(
             samples, patches_field, _ALLOWED_PATCH_FIELD_TYPES
         )
 
-    if samples.media_type == fom.VIDEO:
-        raise ValueError("Duplicates does not yet support video collections")
-
     if etau.is_str(embeddings):
         embeddings_field = embeddings
         embeddings = None
@@ -118,25 +117,13 @@ def compute_duplicates(
         embeddings_field = None
 
     config = DuplicatesConfig(
-        metric=metric,
-        thresh=thresh,
-        fraction=fraction,
         embeddings_field=embeddings_field,
         model=model,
         patches_field=patches_field,
+        metric=metric,
     )
     brain_method = config.build()
     brain_method.register_run(samples, brain_key)
-
-    if thresh is None and fraction is None:
-        if metric == "cosine":
-            default_degrees = 5  # @todo tune this?
-            thresh = 1.0 - np.cos(default_degrees * np.pi / 180.0)
-        else:
-            raise ValueError(
-                "You must provide either `thresh` or `fraction` when "
-                "`metric` != 'cosine'"
-            )
 
     if model is not None or (embeddings is None and embeddings_field is None):
         if etau.is_str(model):
@@ -174,45 +161,16 @@ def compute_duplicates(
 
         embeddings = np.concatenate(_embeddings, axis=0)
 
-    logger.info("Detecting duplicates...")
+    results = DuplicatesResults(samples, embeddings, config)
 
-    num_embeddings = len(embeddings)
-    neighbors, cosine_hack = init_neighbors(embeddings, metric)
+    logger.info("Generating index...")
 
-    if fraction is not None:
-        keep, thresh = _remove_duplicates_fraction(
-            neighbors,
-            fraction,
-            num_embeddings,
-            init_thresh=thresh,
-            cosine_hack=cosine_hack,
-        )
-    else:
-        keep = _remove_duplicates_thresh(
-            neighbors, thresh, num_embeddings, cosine_hack=cosine_hack
-        )
+    neighbors = init_neighbors(embeddings, metric)
+    results._neighbors = neighbors
 
-    if patches_field is not None:
-        id_path = samples._get_label_field_path(patches_field, "id")
-        ids = samples.values(id_path, unwind=True)
-    else:
-        ids = samples.values("id")
-
-    dup_ids = np.array([_id for idx, _id in enumerate(ids) if idx not in keep])
-    keep_ids = np.array([_id for idx, _id in enumerate(ids) if idx in keep])
-
-    logger.info("Duplicates computation complete")
-
-    results = DuplicatesResults(
-        samples,
-        embeddings,
-        config,
-        dup_ids=dup_ids,
-        keep_ids=keep_ids,
-        thresh=thresh,
-        neighbors=neighbors,
-    )
     brain_method.save_run_results(samples, brain_key, results)
+
+    logger.info("Index complete")
 
     return results
 
@@ -249,19 +207,282 @@ def init_neighbors(embeddings, metric):
     else:
         cosine_hack = False
 
-    neighbors = skn.NearestNeighbors(algorithm="auto", metric=metric)
+    neighbors = skn.NearestNeighbors(metric=metric)
+    setattr(neighbors, _COSINE_HACK_ATTR, cosine_hack)
+
     neighbors.fit(embeddings)
 
-    return neighbors, cosine_hack
+    return neighbors
 
 
-def _remove_duplicates_thresh(
-    neighbors, thresh, num_embeddings, cosine_hack=False
-):
+def find_duplicates(results, thresh, fraction):
+    _ensure_neighbors(results)
+
+    samples = results._samples
+    neighbors = results._neighbors
+    embeddings = results.embeddings
+    metric = results.config.metric
+    patches_field = results.config.patches_field
+
+    num_embeddings = len(embeddings)
+
+    logger.info("Computing duplicates...")
+
+    #
+    # Detect duplicates
+    #
+
+    if fraction is not None:
+        num_keep = int(round(min(max(0, 1.0 - fraction), 1) * num_embeddings))
+        keep, thresh = _remove_duplicates_count(
+            neighbors, num_keep, num_embeddings, init_thresh=thresh,
+        )
+    else:
+        keep = _remove_duplicates_thresh(neighbors, thresh, num_embeddings)
+
+    if patches_field is not None:
+        id_path = samples._get_label_field_path(patches_field, "id")
+        ids = samples.values(id_path, unwind=True)
+    else:
+        ids = samples.values("id")
+
+    #
+    # Locate nearest non-duplicate for each duplicate
+    #
+
+    unique_inds = np.array(sorted(keep))
+    dup_inds = np.array([i for i in range(num_embeddings) if i not in keep])
+
+    if num_embeddings <= _MAX_PRECOMPUTE_DISTS:
+        # Use pre-computed distances
+        dists = neighbors._fit_X[unique_inds, :][:, dup_inds]
+        min_inds = np.argmin(dists, axis=0)
+    else:
+        neighbors = skn.NearestNeighbors(metric=metric)
+        neighbors.fit(embeddings[unique_inds, :])
+        min_inds = neighbors.kneighbors(
+            embeddings[dup_inds, :], n_neighbors=1, return_distance=False
+        )
+
+    unique_ids = np.array([_id for idx, _id in enumerate(ids) if idx in keep])
+    dup_ids = np.array([_id for idx, _id in enumerate(ids) if idx not in keep])
+    nearest_ids = np.array([ids[unique_inds[i]] for i in min_inds])
+
+    results.thresh = thresh
+    results.unique_ids = unique_ids
+    results.dup_ids = dup_ids
+    results.nearest_ids = nearest_ids
+
+    logger.info("Duplicates computation complete")
+
+
+def find_unique(results, count):
+    _ensure_neighbors(results)
+
+    samples = results._samples
+    neighbors = results._neighbors
+    embeddings = results.embeddings
+    patches_field = results.config.patches_field
+
+    logger.info("Computing uniques...")
+
+    num_keep = count
+    num_embeddings = len(embeddings)
+
+    keep, thresh = _remove_duplicates_count(
+        neighbors, num_keep, num_embeddings
+    )
+
+    if patches_field is not None:
+        id_path = samples._get_label_field_path(patches_field, "id")
+        ids = samples.values(id_path, unwind=True)
+    else:
+        ids = samples.values("id")
+
+    unique_ids = np.array([_id for idx, _id in enumerate(ids) if idx in keep])
+    dup_ids = np.array([_id for idx, _id in enumerate(ids) if idx not in keep])
+
+    results.thresh = thresh
+    results.unique_ids = unique_ids
+    results.dup_ids = dup_ids
+    results.nearest_ids = None
+
+    logger.info("Unique computation complete")
+
+
+def plot_distances(results, bins=100, logx=False, logy=False):
+    _ensure_neighbors(results)
+
+    import matplotlib.pyplot as plt
+
+    min_dists, _ = results._neighbors.kneighbors(n_neighbors=1)
+
+    if logx:
+        bins = np.logspace(
+            np.log10(min_dists.min()), np.log10(min_dists.max()), bins
+        )
+
+    plt.hist(min_dists, bins=bins)
+
+    if results.thresh is not None:
+        plt.vlines(results.thresh, *plt.gca().get_ylim(), "r")
+
+    if logx:
+        plt.xscale("log")
+
+    if logy:
+        plt.yscale("log")
+
+    plt.show(block=False)
+
+
+def duplicates_view(results, field):
+    samples = results._samples
+    patches_field = results.config.patches_field
+    dup_ids = results.dup_ids
+    nearest_ids = results.nearest_ids
+
+    if patches_field is not None and not isinstance(samples, fop.PatchesView):
+        samples = samples.to_patches(patches_field)
+
+    dups_map = defaultdict(list)
+    for dup_id, nearest_id in zip(dup_ids, nearest_ids):
+        dups_map[nearest_id].append(dup_id)
+
+    ids = []
+    labels = []
+    for _id in samples.values("id"):
+        _dup_ids = dups_map.get(_id, None)
+        if _dup_ids is None:
+            continue
+
+        ids.append(_id)
+        labels.append("nearest")
+
+        ids.extend(_dup_ids)
+        labels.extend(["duplicate"] * len(_dup_ids))
+
+    dups_view = samples.select(ids, ordered=True)
+
+    dups_view._dataset._add_sample_field_if_necessary(field, fof.StringField)
+    dups_view.set_values(field, labels)
+
+    return dups_view
+
+
+def unique_view(results):
+    samples = results._samples
+    patches_field = results.config.patches_field
+    unique_ids = results.unique_ids
+
+    if patches_field is not None and not isinstance(samples, fop.PatchesView):
+        samples = samples.to_patches(patches_field)
+
+    return samples.select(list(unique_ids))
+
+
+def visualize_duplicates(results, viz_results):
+    _ensure_visualization(results, viz_results)
+
+    samples = results._samples
+    visualization = results._visualization
+    dup_ids = results.dup_ids
+    nearest_ids = results.nearest_ids
+
+    ids = samples.values("id")
+    inds_map = {_id: idx for idx, _id in enumerate(ids)}
+
+    dup_inds = np.array([inds_map[_id] for _id in dup_ids])
+    nearest_inds = np.array([inds_map[_id] for _id in nearest_ids])
+
+    _dup_ids = set(dup_ids)
+    _nearest_ids = set(nearest_ids)
+
+    labels = []
+    for _id in ids:
+        if _id in _dup_ids:
+            label = "duplicate"
+        elif _id in _nearest_ids:
+            label = "nearest"
+        else:
+            label = "unique"
+
+        labels.append(label)
+
+    edges = np.stack((dup_inds, nearest_inds), axis=1)
+
+    return visualization.visualize(
+        labels=labels,
+        edges=edges,
+        classes=["unique", "nearest", "duplicate"],
+        edges_title="neighbors",
+    )
+
+
+def visualize_unique(results, viz_results):
+    _ensure_visualization(results, viz_results)
+
+    samples = results._samples
+    visualization = results._visualization
+    unique_ids = results.unique_ids
+
+    ids = samples.values("id")
+
+    _unique_ids = set(unique_ids)
+
+    labels = []
+    for _id in ids:
+        if _id in _unique_ids:
+            label = "unique"
+        else:
+            label = "other"
+
+        labels.append(label)
+
+    return visualization.visualize(labels=labels, classes=["other", "unique"])
+
+
+def _ensure_neighbors(results):
+    if results._neighbors is None:
+        results._neighbors = init_neighbors(
+            results.embeddings, results.config.metric
+        )
+
+
+def _ensure_visualization(results, viz_results):
+    if viz_results is None:
+        if results._visualization is None:
+            viz_results = _generate_visualization(results)
+        else:
+            viz_results = results._visualization
+
+    results._visualization = viz_results
+
+
+def _generate_visualization(results):
+    import fiftyone.brain as fb
+
+    samples = results._samples
+    embeddings = results.embeddings
+    patches_field = results.config.patches_field
+
+    if embeddings.shape[1] in {2, 3}:
+        return fb.VisualizationResults(
+            samples,
+            embeddings,
+            fb.VisualizationConfig(patches_field=patches_field, num_dims=2),
+        )
+
+    return fb.compute_visualization(
+        samples, patches_field=patches_field, embeddings=embeddings, num_dims=2
+    )
+
+
+def _remove_duplicates_thresh(neighbors, thresh, num_embeddings):
     # When not using brute force, we approximate cosine distance by computing
     # Euclidean distance on unit-norm embeddings. ED = sqrt(2 * CD), so we need
     # to scale the threshold appropriately
-    if cosine_hack:
+    if getattr(neighbors, _COSINE_HACK_ATTR, False):
         thresh = np.sqrt(2.0 * thresh)
 
     inds = neighbors.radius_neighbors(radius=thresh, return_distance=False)
@@ -274,8 +495,8 @@ def _remove_duplicates_thresh(
     return keep
 
 
-def _remove_duplicates_fraction(
-    neighbors, fraction, num_embeddings, init_thresh=None, cosine_hack=False
+def _remove_duplicates_count(
+    neighbors, num_keep, num_embeddings, init_thresh=None
 ):
     if init_thresh is not None:
         thresh = init_thresh
@@ -283,13 +504,11 @@ def _remove_duplicates_fraction(
         thresh = 1
 
     thresh_lims = [0, None]
-    num_target = int(round((1.0 - fraction) * num_embeddings))
+    num_target = num_keep
     num_keep = -1
 
     while True:
-        keep = _remove_duplicates_thresh(
-            neighbors, thresh, num_embeddings, cosine_hack=cosine_hack
-        )
+        keep = _remove_duplicates_thresh(neighbors, thresh, num_embeddings)
         num_keep_last = num_keep
         num_keep = len(keep)
 

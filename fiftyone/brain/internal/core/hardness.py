@@ -61,9 +61,9 @@ def compute_hardness(samples, label_field, hardness_field):
 # @todo move to `fiftyone/brain/hardness.py`
 class HardnessConfig(fob.BrainMethodConfig):
     def __init__(self, label_field, hardness_field, **kwargs):
-        super().__init__(**kwargs)
         self.label_field = label_field
         self.hardness_field = hardness_field
+        super().__init__(**kwargs)
 
     @property
     def method(self):
