@@ -231,33 +231,32 @@ def sort_by_similarity(
     # Construct sorted view
     #
 
-    view = samples
-    pipeline = []
+    stages = []
 
     if patches_field is None:
         stage = fos.Select(result_ids, ordered=True)
-        if mongo:
-            pipeline.extend(stage.to_mongo(view))
-
-        view = view.add_stage(stage)
+        stages.append(stage)
     else:
         result_sample_ids = _unique_no_sort(sample_ids[inds])
         stage = fos.Select(result_sample_ids, ordered=True)
-        if mongo:
-            pipeline.extend(stage.to_mongo(view))
-
-        view = view.add_stage(stage)
+        stages.append(stage)
 
         if k is not None:
             _ids = [ObjectId(_id) for _id in result_ids]
             stage = fos.FilterLabels(patches_field, F("_id").is_in(_ids))
-            if mongo:
-                pipeline.extend(stage.to_mongo(view))
-
-            view = view.add_stage(stage)
+            stages.append(stage)
 
     if mongo:
+        pipeline = []
+        for stage in stages:
+            stage.validate(samples)
+            pipeline.extend(stage.to_mongo(samples))
+
         return pipeline
+
+    view = samples
+    for stage in stages:
+        view = view.add_stage(stage)
 
     return view
 
