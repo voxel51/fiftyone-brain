@@ -2,7 +2,7 @@
 """
 Installs `fiftyone-brain`.
 
-| Copyright 2017-2020, Voxel51, Inc.
+| Copyright 2017-2021, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -52,9 +52,12 @@ class CustomBdistWheel(bdist_wheel):
         self.root_is_pure = False
 
         # rewrite platform names - we currently only support 64-bit targets
-        if self.plat_name.startswith("linux"):
+        if self.plat_name.startswith("linux-x86_64"):
             self.plat_name = "manylinux1_x86_64"
             pyarmor_platform = "linux.x86_64"
+        elif self.plat_name.startswith("linux-aarch64"):
+            self.plat_name = "manylinux2014_aarch64"
+            pyarmor_platform = "linux.aarch64"
         elif self.plat_name.startswith("mac"):
             # unclear what minimum version PyArmor requires, but the .dylib was
             # built on 10.11 per https://pyarmor.readthedocs.io/en/latest/platforms.html#platform-tables
@@ -88,8 +91,11 @@ class CustomBdistWheel(bdist_wheel):
 with open("PYPI_README.md", "r") as fh:
     long_description = fh.read()
 
+with open("LICENSE", "r") as fh:
+    long_description += "\n## License\n\n" + fh.read()
 
-VERSION = "0.1.12"
+
+VERSION = "0.6.1"
 
 
 def get_version():
@@ -119,10 +125,23 @@ setup(
     include_package_data=True,
     install_requires=["numpy", "scipy>=1.2.0", "scikit-image", "scikit-learn"],
     classifiers=[
+        "Development Status :: 4 - Beta",
+        "Intended Audience :: Developers",
+        "Intended Audience :: Science/Research",
+        "License :: Freeware",
+        "Topic :: Scientific/Engineering :: Artificial Intelligence",
+        "Topic :: Scientific/Engineering :: Image Processing",
+        "Topic :: Scientific/Engineering :: Image Recognition",
+        "Topic :: Scientific/Engineering :: Information Analysis",
+        "Topic :: Scientific/Engineering :: Visualization",
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX :: Linux",
         "Operating System :: Microsoft :: Windows",
         "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
     ],
     scripts=[],
     python_requires=">=3.6",

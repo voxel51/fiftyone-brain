@@ -1,19 +1,19 @@
 """
-Test drivers for uniqueness
+Uniqueness tests.
 
-| Copyright 2017-2020, Voxel51, Inc.
+| Copyright 2017-2021, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
 import os
+import unittest
 
 import eta.core.storage as etas
 import eta.core.utils as etau
 
 import fiftyone as fo
-import fiftyone.zoo as foz
-
 import fiftyone.brain as fob
+import fiftyone.zoo as foz
 
 
 def test_uniqueness():
@@ -32,9 +32,9 @@ def test_gray():
 
     Requires Voxel51 Google Drive credentials to download the test data.
     """
-    with etau.TempDir() as tempdir:
-        tmp_zip = os.path.join(tempdir, "data.zip")
-        tmp_data = os.path.join(tempdir, "brain_grayscale_test_data")
+    with etau.TempDir() as tmpdir:
+        tmp_zip = os.path.join(tmpdir, "data.zip")
+        tmp_data = os.path.join(tmpdir, "brain_grayscale_test_data")
         client = etas.GoogleDriveStorageClient()
         client.download("1ECeNnLmKQCHxlVdRqGefV5eXOD_OkmWx", tmp_zip)
         etau.extract_zip(tmp_zip, delete_zip=True)
@@ -42,10 +42,9 @@ def test_gray():
         dataset = fo.Dataset.from_dir(tmp_data, fo.types.ImageDirectory)
 
         fob.compute_uniqueness(dataset)
-
         print(dataset)
 
 
 if __name__ == "__main__":
-    test_uniqueness()
-    test_gray()
+    fo.config.show_progress_bars = True
+    unittest.main(verbosity=2)

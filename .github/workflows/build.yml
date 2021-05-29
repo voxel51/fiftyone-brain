@@ -9,7 +9,6 @@ jobs:
       fail-fast: false
       matrix:
         python-version:
-          - 3.5
           - 3.6
           - 3.7
           - 3.8
@@ -41,20 +40,28 @@ jobs:
       - name: Build wheel
         run: |
           python setup.py bdist_wheel
-      - name: Build wheel (Linux)
+      - name: Build wheel (linux-x86_64)
         run: |
-          python setup.py bdist_wheel --plat-name linux
+          python setup.py bdist_wheel --plat-name linux-x86_64
+      - name: Build wheel (linux-aarch64)
+        run: |
+          python setup.py bdist_wheel --plat-name linux-aarch64
       - name: Build wheel (macOS)
         run: |
           python setup.py bdist_wheel --plat-name mac
       - name: Build wheel (Windows)
         run: |
           python setup.py bdist_wheel --plat-name win
-      - name: Upload wheel (Linux)
+      - name: Upload wheel (linux-x86_64)
         uses: actions/upload-artifact@v2
         with:
-          name: wheel-linux-${{ matrix.python-version }}
-          path: dist/*linux*.whl
+          name: wheel-linux-x86_64-${{ matrix.python-version }}
+          path: dist/*linux*x86_64.whl
+      - name: Upload wheel (linux-aarch64)
+        uses: actions/upload-artifact@v2
+        with:
+          name: wheel-linux-aarch64-${{ matrix.python-version }}
+          path: dist/*linux*aarch64.whl
       - name: Upload wheel (macOS)
         uses: actions/upload-artifact@v2
         with:
@@ -92,18 +99,18 @@ jobs:
       - name: Download fiftyone-brain wheel
         uses: actions/download-artifact@v2
         with:
-          name: wheel-linux-${{ matrix.python-version }}
+          name: wheel-linux-x86_64-${{ matrix.python-version }}
           path: downloads
-      - name: Reinstall fiftyone-brain
-        run: |
-          pip install --force-reinstall --no-deps downloads/*.whl
       - name: Install fiftyone
         run: |
           git clone https://${{ secrets.FIFTYONE_GITHUB_TOKEN }}@github.com/voxel51/fiftyone fiftyone-src --depth 1 --branch develop
           cd fiftyone-src
           python setup.py bdist_wheel
-          pip install --pre --extra-index-url https://test.pypi.org/simple/ voxel51-eta[storage] fiftyone-db
+          pip install voxel51-eta[storage] fiftyone-db
           pip install ./dist/*.whl
+      - name: Reinstall fiftyone-brain
+        run: |
+          pip install --force-reinstall --no-deps downloads/*.whl
       - name: Set up ETA credentials
         env:
           FIFTYONE_GOOGLE_CREDENTIALS: ${{ secrets.FIFTYONE_GOOGLE_CREDENTIALS }}
@@ -117,7 +124,7 @@ jobs:
           pip install imageio pytest torch torchvision
       - name: Run tests
         run: |
-          pytest --verbose tests/
+          pytest --verbose tests/ --ignore tests/intensive/
 
   publish:
     needs: [build, test]
@@ -130,6 +137,7 @@ jobs:
           path: downloads
       - name: Install dependencies
         run: |
+          pip3 install --upgrade pip setuptools wheel
           pip3 install twine
       - name: Set environment
         env:
