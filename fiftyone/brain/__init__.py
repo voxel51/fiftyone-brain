@@ -325,6 +325,7 @@ def compute_similarity(
     patches_field=None,
     embeddings=None,
     brain_key=None,
+    metric="euclidean",
     model=None,
     batch_size=None,
     force_square=False,
@@ -355,6 +356,8 @@ def compute_similarity(
 
         brain_key (None): a brain key under which to store the results of this
             method
+        metric ("euclidean"): the embedding distance metric to use. See
+            ``sklearn.metrics.pairwise_distance`` for supported values
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/index.html>`_
@@ -383,6 +386,7 @@ def compute_similarity(
         patches_field,
         embeddings,
         brain_key,
+        metric,
         model,
         batch_size,
         force_square,

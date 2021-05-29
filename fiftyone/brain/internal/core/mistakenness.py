@@ -1,5 +1,5 @@
 """
-Methods that compute insights related to the chance that a label is a mistake.
+Mistakenness methods.
 
 | Copyright 2017-2021, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_

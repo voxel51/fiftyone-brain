@@ -1,5 +1,5 @@
 """
-Methods that compute insights related to sample uniqueness.
+Duplicates methods.
 
 | Copyright 2017-2021, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -19,6 +19,7 @@ import eta.core.utils as etau
 
 import fiftyone.core.aggregations as foa
 import fiftyone.core.brain as fob
+import fiftyone.core.context as foc
 import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
 import fiftyone.core.media as fom
@@ -310,30 +311,17 @@ def find_unique(results, count):
     logger.info("Unique computation complete")
 
 
-def plot_distances(results, bins=100, logx=False, logy=False):
+def plot_distances(results, bins, log, backend, **kwargs):
     _ensure_neighbors(results)
 
-    import matplotlib.pyplot as plt
+    dists, _ = results._neighbors.kneighbors(n_neighbors=1)
+    metric = results.config.metric
+    thresh = results.thresh
 
-    min_dists, _ = results._neighbors.kneighbors(n_neighbors=1)
+    if backend == "matplotlib":
+        return _plot_distances_mpl(dists, metric, thresh, bins, log, **kwargs)
 
-    if logx:
-        bins = np.logspace(
-            np.log10(min_dists.min()), np.log10(min_dists.max()), bins
-        )
-
-    plt.hist(min_dists, bins=bins)
-
-    if results.thresh is not None:
-        plt.vlines(results.thresh, *plt.gca().get_ylim(), "r")
-
-    if logx:
-        plt.xscale("log")
-
-    if logy:
-        plt.yscale("log")
-
-    plt.show(block=False)
+    return _plot_distances_plotly(dists, metric, thresh, bins, log, **kwargs)
 
 
 def duplicates_view(results, field):
@@ -381,7 +369,7 @@ def unique_view(results):
     return samples.select(list(unique_ids))
 
 
-def visualize_duplicates(results, viz_results):
+def visualize_duplicates(results, viz_results, backend, **kwargs):
     _ensure_visualization(results, viz_results)
 
     samples = results._samples
@@ -409,17 +397,20 @@ def visualize_duplicates(results, viz_results):
 
         labels.append(label)
 
-    edges = np.stack((dup_inds, nearest_inds), axis=1)
+    # Only plotly backend supports drawing edges
+    if backend == "plotly":
+        kwargs["edges"] = np.stack((dup_inds, nearest_inds), axis=1)
+        kwargs["edges_title"] = "neighbors"
 
     return visualization.visualize(
         labels=labels,
-        edges=edges,
         classes=["unique", "nearest", "duplicate"],
-        edges_title="neighbors",
+        backend=backend,
+        **kwargs,
     )
 
 
-def visualize_unique(results, viz_results):
+def visualize_unique(results, viz_results, backend, **kwargs):
     _ensure_visualization(results, viz_results)
 
     samples = results._samples
@@ -439,7 +430,21 @@ def visualize_unique(results, viz_results):
 
         labels.append(label)
 
-    return visualization.visualize(labels=labels, classes=["other", "unique"])
+    return visualization.visualize(
+        labels=labels, classes=["other", "unique"], backend=backend, **kwargs,
+    )
+
+
+class Duplicates(fob.BrainMethod):
+    def get_fields(self, samples, brain_key):
+        fields = []
+        if self.config.patches_field is not None:
+            fields.append(self.config.patches_field)
+
+        return fields
+
+    def cleanup(self, samples, brain_key):
+        pass
 
 
 def _ensure_neighbors(results):
@@ -541,6 +546,106 @@ def _remove_duplicates_count(
     return keep, thresh
 
 
+def _plot_distances_plotly(dists, metric, thresh, bins, log, **kwargs):
+    import plotly.graph_objects as go
+    import fiftyone.core.plots.plotly as fop
+
+    counts, edges = np.histogram(dists, bins=bins)
+    left_edges = edges[:-1]
+    widths = edges[1:] - edges[:-1]
+    customdata = np.stack((edges[:-1], edges[1:]), axis=1)
+
+    hover_lines = [
+        "<b>count: %{y}</b>",
+        "distance: [%{customdata[0]:.2f}, %{customdata[1]:.2f}]",
+    ]
+    hovertemplate = "<br>".join(hover_lines) + "<extra></extra>"
+
+    bar = go.Bar(
+        x=left_edges,
+        y=counts,
+        width=widths,
+        customdata=customdata,
+        offset=0,
+        marker_color="#FF6D04",
+        hovertemplate=hovertemplate,
+        showlegend=False,
+    )
+
+    traces = [bar]
+
+    if thresh is not None:
+        line = go.Scatter(
+            x=[thresh, thresh],
+            y=[0, max(counts)],
+            mode="lines",
+            line=dict(color="#17191C", width=3),
+            hovertemplate="<b>thresh: %{x}</b><extra></extra>",
+            showlegend=False,
+        )
+        traces.append(line)
+
+    figure = go.Figure(traces)
+
+    figure.update_layout(
+        xaxis_title="nearest neighbor distance (%s)" % metric,
+        yaxis_title="count",
+        hovermode="x",
+        yaxis_rangemode="tozero",
+    )
+
+    if log:
+        figure.update_layout(yaxis_type="log")
+
+    figure.update_layout(**fop._DEFAULT_LAYOUT)
+    figure.update_layout(**kwargs)
+
+    if foc.is_jupyter_context():
+        figure = fop.PlotlyNotebookPlot(figure)
+
+    return figure
+
+
+def _plot_distances_mpl(
+    dists, metric, thresh, bins, log, ax=None, figsize=None, **kwargs
+):
+    import matplotlib.pyplot as plt
+
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.figure
+
+    counts, edges = np.histogram(dists, bins=bins)
+    left_edges = edges[:-1]
+    widths = edges[1:] - edges[:-1]
+
+    ax.bar(
+        left_edges,
+        counts,
+        width=widths,
+        align="edge",
+        color="#FF6D04",
+        **kwargs,
+    )
+
+    if thresh is not None:
+        ax.vlines(thresh, 0, max(counts), color="#17191C", linewidth=3)
+
+    if log:
+        ax.set_yscale("log")
+
+    ax.set_xlabel("nearest neighbor distance (%s)" % metric)
+    ax.set_ylabel("count")
+
+    if figsize is not None:
+        fig.set_size_inches(*figsize)
+
+    plt.tight_layout()
+
+    return fig
+
+
 def _compute_filehashes(samples, method):
     # ids, filepaths = samples.values(["id", "filepath"])
     ids, filepaths = samples.aggregate(
@@ -593,21 +698,3 @@ def _do_compute_filehash(args):
         filehash = None
 
     return _id, filehash
-
-
-class Duplicates(fob.BrainMethod):
-    """Duplicates method.
-
-    Args:
-        config: a :class:`fiftyone.brain.duplicates.DuplicatesConfig`
-    """
-
-    def get_fields(self, samples, brain_key):
-        fields = []
-        if self.config.patches_field is not None:
-            fields.append(self.config.patches_field)
-
-        return fields
-
-    def cleanup(self, samples, brain_key):
-        pass

@@ -37,6 +37,7 @@ def compute_similarity(
     patches_field,
     embeddings,
     brain_key,
+    metric,
     model,
     batch_size,
     force_square,
@@ -61,6 +62,7 @@ def compute_similarity(
         embeddings_field=embeddings_field,
         model=model,
         patches_field=patches_field,
+        metric=metric,
     )
     brain_method = config.build()
     if brain_key is not None:
@@ -110,16 +112,16 @@ def compute_similarity(
 def sort_by_similarity(
     samples,
     embeddings,
+    patches_field,
+    metric,
     query_ids,
     sample_ids,
-    label_ids=None,
-    patches_field=None,
-    filter_ids=False,
-    k=None,
-    reverse=False,
-    metric="euclidean",
-    aggregation="mean",
-    mongo=False,
+    label_ids,
+    filter_ids,
+    k,
+    reverse,
+    aggregation,
+    mongo,
 ):
     if etau.is_str(query_ids):
         query_ids = [query_ids]
@@ -260,18 +262,7 @@ def sort_by_similarity(
     return view
 
 
-def _unique_no_sort(values):
-    seen = set()
-    return [v for v in values if v not in seen and not seen.add(v)]
-
-
 class Similarity(fob.BrainMethod):
-    """Similarity method.
-
-    Args:
-        config: a :class:`fiftyone.brain.similarity.SimilarityConfig`
-    """
-
     def get_fields(self, samples, brain_key):
         fields = []
         if self.config.patches_field is not None:
@@ -281,3 +272,8 @@ class Similarity(fob.BrainMethod):
 
     def cleanup(self, samples, brain_key):
         pass
+
+
+def _unique_no_sort(values):
+    seen = set()
+    return [v for v in values if v not in seen and not seen.add(v)]

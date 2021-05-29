@@ -41,7 +41,6 @@ class SimilarityResults(fob.BrainResults):
         k=None,
         reverse=False,
         samples=None,
-        metric="euclidean",
         aggregation="mean",
         mongo=False,
     ):
@@ -58,9 +57,6 @@ class SimilarityResults(fob.BrainResults):
                 the samples to include in the sort. If provided, the returned
                 view will only include samples from this collection that were
                 indexed. If not provided, all indexed samples are used
-            metric ("euclidean"): the distance metric to use. This parameter is
-                passed directly to
-                ``sklearn.metrics.pairwise_distances(..., metric=metric)``
             aggregation ("mean"): the aggregation method to use to compute
                 composite similarities. Only applicable when ``query_ids``
                 contains multiple IDs. Supported values are
@@ -70,8 +66,7 @@ class SimilarityResults(fob.BrainResults):
                 :class:`fiftyone.core.view.DatasetView`
 
         Returns:
-            a :class:`fiftyone.core.view.DatasetView`, or, if
-            ``mongo == True``, a MongoDB aggregation pipeline (list of dicts)
+            a :class:`fiftyone.core.view.DatasetView`
         """
         if samples is not None and samples != self._samples:
             filter_ids = True
@@ -82,16 +77,16 @@ class SimilarityResults(fob.BrainResults):
         return fbs.sort_by_similarity(
             samples,
             self.embeddings,
+            self.config.patches_field,
+            self.config.metric,
             query_ids,
             self._sample_ids,
-            label_ids=self._label_ids,
-            patches_field=self.config.patches_field,
-            filter_ids=filter_ids,
-            k=k,
-            reverse=reverse,
-            metric=metric,
-            aggregation=aggregation,
-            mongo=mongo,
+            self._label_ids,
+            filter_ids,
+            k,
+            reverse,
+            aggregation,
+            mongo,
         )
 
     @classmethod
@@ -111,10 +106,16 @@ class SimilarityConfig(fob.BrainMethodConfig):
             the model that was used to compute embeddings, if one was provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
+        metric (None): the embedding distance metric used
     """
 
     def __init__(
-        self, embeddings_field=None, model=None, patches_field=None, **kwargs
+        self,
+        embeddings_field=None,
+        model=None,
+        patches_field=None,
+        metric=None,
+        **kwargs,
     ):
         if model is not None and not etau.is_str(model):
             model = etau.get_class_name(model)
@@ -122,6 +123,7 @@ class SimilarityConfig(fob.BrainMethodConfig):
         self.embeddings_field = embeddings_field
         self.model = model
         self.patches_field = patches_field
+        self.metric = metric
         super().__init__(**kwargs)
 
     @property
