@@ -13,6 +13,7 @@ import fiftyone.core.brain as fob
 import fiftyone.core.utils as fou
 
 fbs = fou.lazy_import("fiftyone.brain.internal.core.similarity")
+fbu = fou.lazy_import("fiftyone.brain.internal.core.utils")
 
 
 class SimilarityResults(fob.BrainResults):
@@ -25,9 +26,17 @@ class SimilarityResults(fob.BrainResults):
     """
 
     def __init__(self, samples, embeddings, config):
-        sample_ids, label_ids = _get_ids_for_embeddings(
-            embeddings, samples, patches_field=config.patches_field
+        sample_ids, label_ids = fbu.get_ids(
+            samples, patches_field=config.patches_field
         )
+
+        if len(sample_ids) != len(embeddings):
+            ptype = "label" if config.patches_field is not None else "sample"
+            raise ValueError(
+                "Number of %s IDs (%d) does not match number of embeddings "
+                "(%d). You may have missing data/labels that you need to omit "
+                "from your view" % (ptype, len(sample_ids), len(embeddings))
+            )
 
         self._samples = samples
         self.embeddings = embeddings
@@ -35,12 +44,46 @@ class SimilarityResults(fob.BrainResults):
 
         self._sample_ids = sample_ids
         self._label_ids = label_ids
+        self._neighbors_helper = None
+        self._visualization = None
         self._thresh = None
         self._unique_ids = None
         self._duplicate_ids = None
         self._neighbors_map = None
-        self._neighbors = None
-        self._visualization = None
+
+        self._curr_view = samples
+        self._curr_sample_ids = sample_ids
+        self._curr_label_ids = label_ids
+        self._curr_keep_inds = None
+
+        self._last_view = None
+
+    def __enter__(self):
+        self._last_view = self.view
+        return self
+
+    def __exit__(self, *args):
+        self.use_view(self._last_view)
+        self._last_view = None
+
+    @property
+    def index_size(self):
+        """The number of examples in the index.
+
+        If :meth:`use_view` has been called to restrict the index, this
+        property will reflect the size of the active index.
+        """
+        return len(self._curr_sample_ids)
+
+    @property
+    def view(self):
+        """The :class:`fiftyone.core.collections.SampleCollection` against
+        which results are currently being generated.
+
+        If :meth:`use_view` has been called, this view may be a subset of the
+        collection on which the full index was generated.
+        """
+        return self._curr_view
 
     @property
     def thresh(self):
@@ -69,6 +112,67 @@ class SimilarityResults(fob.BrainResults):
         :meth:`find_duplicates`.
         """
         return self._neighbors_map
+
+    def use_view(self, view):
+        """Restricts the index to the provided view, which must be a subset of
+        the full index's collection.
+
+        Subsequent calls to methods on this instance will only contain results
+        from the specified view rather than the full index.
+
+        Use :meth:`clear_view` to reset to the full index. Or, equivalently,
+        use the context manager interface as demonstrated below to
+        automatically reset the view when the context exits.
+
+        Example usage::
+
+            import fiftyone as fo
+            import fiftyone.brain as fob
+            import fiftyone.zoo as foz
+
+            dataset = foz.load_zoo_dataset("quickstart")
+
+            results = fob.compute_similarity(dataset)
+            print(results.index_size)  # 200
+
+            view = dataset.take(50)
+
+            with results.use_view(view):
+                print(results.index_size)  # 50
+
+                results.find_unique(10)
+
+                plot = results.visualize_unique()
+                plot.show()
+
+        Args:
+            view: a :class:`fiftyone.core.collections.SampleCollection`
+                defining a subset of this index to use
+
+        Returns:
+            self
+        """
+        view, sample_ids, label_ids, keep_inds = fbu.filter_ids(
+            view,
+            self._samples,
+            self._sample_ids,
+            self._label_ids,
+            patches_field=self.config.patches_field,
+        )
+
+        self._curr_view = view
+        self._curr_sample_ids = sample_ids
+        self._curr_label_ids = label_ids
+        self._curr_keep_inds = keep_inds
+
+        return self
+
+    def clear_view(self):
+        """Clears the view set by :meth:`use_view`, if any.
+
+        Subsequent operations will be performed on the full index.
+        """
+        self.use_view(self._samples)
 
     def plot_distances(self, bins=100, log=False, backend="plotly", **kwargs):
         """Plots a histogram of the distance between each example and its
@@ -113,8 +217,7 @@ class SimilarityResults(fob.BrainResults):
             reverse (False): whether to sort by least similarity
             samples (None): an optional
                 :class:`fiftyone.core.collections.SampleCollection` defining
-                the samples to include in the query. If not provided, all
-                indexed samples are included
+                the examples to include in the query
             aggregation ("mean"): the aggregation method to use to compute
                 composite similarities. Only applicable when ``query_ids``
                 contains multiple IDs. Supported values are
@@ -130,7 +233,7 @@ class SimilarityResults(fob.BrainResults):
             self, query_ids, k, reverse, samples, aggregation, mongo,
         )
 
-    def find_duplicates(self, thresh=None, fraction=None, samples=None):
+    def find_duplicates(self, thresh=None, fraction=None):
         """Queries the index to find near-duplicate examples based on the
         provided parameters.
 
@@ -147,14 +250,10 @@ class SimilarityResults(fob.BrainResults):
                 duplicates, in ``[0, 1]``. If provided, ``thresh`` is
                 automatically tuned to achieve the desired fraction of
                 duplicates
-            samples (None): an optional
-                :class:`fiftyone.core.collections.SampleCollection` defining
-                the samples to include in the query. If not provided, all
-                indexed samples are included
         """
-        return fbs.find_duplicates(self, thresh, fraction, samples)
+        return fbs.find_duplicates(self, thresh, fraction)
 
-    def find_unique(self, count, samples=None):
+    def find_unique(self, count):
         """Queries the index to select a subset of examples of the specified
         size that are maximally unique with respect to each other.
 
@@ -167,12 +266,8 @@ class SimilarityResults(fob.BrainResults):
 
         Args:
             count: the desired number of unique examples
-            samples (None): an optional
-                :class:`fiftyone.core.collections.SampleCollection` defining
-                the samples to include in the query. If not provided, all
-                indexed samples are included
         """
-        return fbs.find_unique(self, count, samples)
+        return fbs.find_unique(self, count)
 
     def duplicates_view(self, field):
         """Returns a view that contains only the duplicate examples and their
@@ -353,28 +448,3 @@ class SimilarityConfig(fob.BrainMethodConfig):
     def run_cls(self):
         run_cls_name = self.__class__.__name__[: -len("Config")]
         return getattr(fbs, run_cls_name)
-
-
-def _get_ids_for_embeddings(embeddings, samples, patches_field=None):
-    if patches_field is not None:
-        sample_ids = []
-        label_ids = []
-        for l in samples._get_selected_labels(fields=patches_field):
-            sample_ids.append(l["sample_id"])
-            label_ids.append(l["label_id"])
-
-        sample_ids = np.array(sample_ids)
-        label_ids = np.array(label_ids)
-    else:
-        sample_ids = np.array(samples.values("id"))
-        label_ids = None
-
-    if len(sample_ids) != len(embeddings):
-        ptype = "label" if patches_field is not None else "sample"
-        raise ValueError(
-            "Number of %s IDs (%d) does not match number of embeddings "
-            "(%d). You may have missing data/labels that you need to omit "
-            "from your view" % (ptype, len(sample_ids), len(embeddings))
-        )
-
-    return sample_ids, label_ids

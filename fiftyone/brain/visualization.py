@@ -13,6 +13,7 @@ import fiftyone.core.brain as fob
 import fiftyone.core.plots as fop
 import fiftyone.core.utils as fou
 
+fbu = fou.lazy_import("fiftyone.brain.internal.core.utils")
 fbv = fou.lazy_import("fiftyone.brain.internal.core.visualization")
 
 
@@ -27,9 +28,124 @@ class VisualizationResults(fob.BrainResults):
     """
 
     def __init__(self, samples, points, config):
+        sample_ids, label_ids = fbu.get_ids(
+            samples, patches_field=config.patches_field
+        )
+
+        if len(sample_ids) != len(points):
+            ptype = "label" if config.patches_field is not None else "sample"
+            raise ValueError(
+                "Number of %s IDs (%d) does not match number of points (%d). "
+                "You may have missing data/labels that you need to omit from "
+                "your view" % (ptype, len(sample_ids), len(points))
+            )
+
         self._samples = samples
         self.points = points
         self.config = config
+
+        self._sample_ids = sample_ids
+        self._label_ids = label_ids
+
+        self._curr_view = samples
+        self._curr_sample_ids = sample_ids
+        self._curr_label_ids = label_ids
+        self._curr_keep_inds = None
+        self._curr_points = points
+
+        self._last_view = None
+
+    def __enter__(self):
+        self._last_view = self.view
+        return self
+
+    def __exit__(self, *args):
+        self.use_view(self._last_view)
+        self._last_view = None
+
+    @property
+    def index_size(self):
+        """The number of examples in the index.
+
+        If :meth:`use_view` has been called to restrict the index, this
+        property will reflect the size of the active index.
+        """
+        return len(self._curr_sample_ids)
+
+    @property
+    def view(self):
+        """The :class:`fiftyone.core.collections.SampleCollection` against
+        which results are currently being generated.
+
+        If :meth:`use_view` has been called, this view may be a subset of the
+        collection on which the full index was generated.
+        """
+        return self._curr_view
+
+    def use_view(self, view):
+        """Restricts the index to the provided view, which must be a subset of
+        the full index's collection.
+
+        Subsequent calls to methods on this instance will only contain results
+        from the specified view rather than the full index.
+
+        Use :meth:`clear_view` to reset to the full index. Or, equivalently,
+        use the context manager interface as demonstrated below to
+        automatically reset the view when the context exits.
+
+        Example usage::
+
+            import fiftyone as fo
+            import fiftyone.brain as fob
+            import fiftyone.zoo as foz
+
+            dataset = foz.load_zoo_dataset("quickstart")
+
+            results = fob.compute_visualization(dataset)
+            print(results.index_size)  # 200
+
+            view = dataset.take(50)
+
+            with results.use_view(view):
+                print(results.index_size)  # 50
+
+                plot = results.visualize()
+                plot.show()
+
+        Args:
+            view: a :class:`fiftyone.core.collections.SampleCollection`
+                defining a subset of this index to use
+
+        Returns:
+            self
+        """
+        view, sample_ids, label_ids, keep_inds = fbu.filter_ids(
+            view,
+            self._samples,
+            self._sample_ids,
+            self._label_ids,
+            patches_field=self.config.patches_field,
+        )
+
+        if keep_inds is not None:
+            points = self.points[keep_inds, :]
+        else:
+            points = self.points
+
+        self._curr_view = view
+        self._curr_sample_ids = sample_ids
+        self._curr_label_ids = label_ids
+        self._curr_keep_inds = keep_inds
+        self._curr_points = points
+
+        return self
+
+    def clear_view(self):
+        """Clears the view set by :meth:`use_view`, if any.
+
+        Subsequent operations will be performed on the full index.
+        """
+        self.use_view(self._samples)
 
     def visualize(
         self,
@@ -93,8 +209,8 @@ class VisualizationResults(fob.BrainResults):
             an :class:`fiftyone.core.plots.base.InteractivePlot`
         """
         return fop.scatterplot(
-            self.points,
-            samples=self._samples,
+            self._curr_points,
+            samples=self._curr_view,
             link_field=self.config.patches_field,
             labels=labels,
             sizes=sizes,

@@ -26,6 +26,7 @@ import fiftyone.core.validation as fov
 import fiftyone.zoo as foz
 
 from fiftyone.brain.similarity import SimilarityConfig, SimilarityResults
+import fiftyone.brain.internal.core.utils as fbu
 
 
 logger = logging.getLogger(__name__)
@@ -115,14 +116,6 @@ def compute_similarity(
         embeddings = np.concatenate(embeddings, axis=0)
 
     results = SimilarityResults(samples, embeddings, config)
-
-    logger.info("Generating index...")
-
-    neighbors = init_neighbors(embeddings, metric)
-    results._neighbors = neighbors
-
-    logger.info("Index complete")
-
     brain_method.save_run_results(samples, brain_key, results)
 
     return results
@@ -140,52 +133,67 @@ class Similarity(fob.BrainMethod):
         pass
 
 
-def init_neighbors(embeddings, metric):
-    # Center embeddings
-    embeddings = np.asarray(embeddings)
-    embeddings -= embeddings.mean(axis=0, keepdims=True)
+class NeighborsHelper(object):
+    def __init__(self, metric, dists=None, embeddings=None):
+        self.metric = metric
+        self.num_embeddings = None
+        self.precomputed = None
+        self.cosine_hack = None
+        self.dists = None
+        self.neighbors = None
 
-    # For small datasets, compute entire distance matrix
-    num_embeddings = len(embeddings)
-    if num_embeddings <= _MAX_PRECOMPUTE_DISTS:
-        embeddings = skm.pairwise_distances(embeddings, metric=metric)
-        metric = "precomputed"
-    else:
-        logger.info(
-            "Computing neighbors for %d embeddings; this may take awhile...",
-            num_embeddings,
-        )
+        self._init(dists, embeddings)
 
-    #
-    # For large datasets, use ``NearestNeighbors``
-    #
-    # @todo upper-bound number of allowed dimensions here? For many samples
-    # with many dimensions, this will be impractically slow...
-    #
+    def _init(self, dists, embeddings):
+        if dists is not None:
+            num_embeddings = dists.shape[0]
+        else:
+            num_embeddings = len(embeddings)
 
-    # Nearest neighbors does not directly support cosine distance, so we
-    # approximate via euclidean distance on unit-norm embeddings
-    if metric == "cosine":
-        cosine_hack = True
-        embeddings = skp.normalize(embeddings, axis=1)
-        metric = "euclidean"
-    else:
-        cosine_hack = False
+            # Center embeddings
+            embeddings = np.asarray(embeddings)
+            embeddings -= embeddings.mean(axis=0, keepdims=True)
 
-    neighbors = skn.NearestNeighbors(metric=metric)
-    setattr(neighbors, _COSINE_HACK_ATTR, cosine_hack)
+            if num_embeddings <= _MAX_PRECOMPUTE_DISTS:
+                dists = skm.pairwise_distances(embeddings, metric=self.metric)
+            else:
+                dists = None
 
-    neighbors.fit(embeddings)
+        if dists is not None:
+            precomputed = True
+            cosine_hack = False
 
-    return neighbors
+            neighbors = skn.NearestNeighbors(metric="precomputed")
+            neighbors.fit(dists)
+        else:
+            precomputed = False
+            metric = self.metric
+
+            # Nearest neighbors does not directly support cosine distance, so
+            # we approximate via euclidean distance on unit-norm embeddings
+            if metric == "cosine":
+                cosine_hack = True
+                embeddings = skp.normalize(embeddings, axis=1)
+                metric = "euclidean"
+
+            neighbors = skn.NearestNeighbors(metric=metric)
+            neighbors.fit(embeddings)
+
+        self.num_embeddings = num_embeddings
+        self.precomputed = precomputed
+        self.cosine_hack = cosine_hack
+        self.dists = dists
+        self.neighbors = neighbors
 
 
 def plot_distances(results, bins, log, backend, **kwargs):
     _ensure_neighbors(results)
 
-    dists, _ = results._neighbors.kneighbors(n_neighbors=1)
+    neighbors = results._neighbors_helper.neighbors
     metric = results.config.metric
     thresh = results.thresh
+
+    dists, _ = neighbors.kneighbors(n_neighbors=1)
 
     if backend == "matplotlib":
         return _plot_distances_mpl(dists, metric, thresh, bins, log, **kwargs)
@@ -240,21 +248,27 @@ def sort_by_similarity(
     #
 
     # Filter results, if necessary
-    samples, keep, sample_ids, label_ids = _filter_results(results, samples)
+    samples, sample_ids, label_ids, keep_inds = fbu.filter_ids(
+        samples,
+        results.view,
+        results._curr_sample_ids,
+        results._curr_label_ids,
+        patches_field=patches_field,
+    )
 
     if num_embeddings <= _MAX_PRECOMPUTE_DISTS:
         _ensure_neighbors(results)
 
         # Use pre-computed distances
-        dists = results._neighbors._fit_X
-        if keep is not None:
-            dists = dists[keep, :]
+        dists = results._neighbors_helper.dists
+        if keep_inds is not None:
+            dists = dists[keep_inds, :]
 
         dists = dists[:, query_inds]
     else:
         index_embeddings = results.embeddings
-        if keep is not None:
-            index_embeddings = index_embeddings[keep]
+        if keep_inds is not None:
+            index_embeddings = index_embeddings[keep_inds]
 
         query_embeddings = results.embeddings[query_inds]
         dists = skm.pairwise_distances(
@@ -310,25 +324,16 @@ def sort_by_similarity(
     return view
 
 
-def find_duplicates(results, thresh, fraction, samples):
+def find_duplicates(results, thresh, fraction):
     _ensure_neighbors(results)
 
-    neighbors = results._neighbors
+    neighbors = results._neighbors_helper.neighbors
     embeddings = results.embeddings
     metric = results.config.metric
     patches_field = results.config.patches_field
-
-    num_embeddings = len(embeddings)
+    num_embeddings = results.index_size
 
     logger.info("Computing duplicates...")
-
-    # Filter results, if necessary
-    _, keep, sample_ids, label_ids = _filter_results(results, samples)
-
-    if keep is not None:
-        support = set(np.nonzero(keep)[0])
-    else:
-        support = None
 
     #
     # Detect duplicates
@@ -337,21 +342,15 @@ def find_duplicates(results, thresh, fraction, samples):
     if fraction is not None:
         num_keep = int(round(min(max(0, 1.0 - fraction), 1) * num_embeddings))
         keep, thresh = _remove_duplicates_count(
-            neighbors,
-            num_keep,
-            num_embeddings,
-            support=support,
-            init_thresh=thresh,
+            neighbors, num_keep, num_embeddings, init_thresh=thresh,
         )
     else:
-        keep = _remove_duplicates_thresh(
-            neighbors, thresh, num_embeddings, support=support
-        )
+        keep = _remove_duplicates_thresh(neighbors, thresh, num_embeddings)
 
     if patches_field is not None:
-        ids = label_ids
+        ids = results._curr_label_ids
     else:
-        ids = sample_ids
+        ids = results._curr_sample_ids
 
     #
     # Locate nearest non-duplicate for each duplicate
@@ -359,14 +358,7 @@ def find_duplicates(results, thresh, fraction, samples):
 
     unique_inds = sorted(keep)
 
-    if support is not None:
-        dup_inds = [
-            idx
-            for idx in range(num_embeddings)
-            if idx not in keep and idx in support
-        ]
-    else:
-        dup_inds = [idx for idx in range(num_embeddings) if idx not in keep]
+    dup_inds = [idx for idx in range(num_embeddings) if idx not in keep]
 
     unique_inds = np.array(unique_inds)
     dup_inds = np.array(dup_inds)
@@ -383,15 +375,7 @@ def find_duplicates(results, thresh, fraction, samples):
         )
 
     unique_ids = [_id for idx, _id in enumerate(ids) if idx in keep]
-
-    if support is not None:
-        duplicate_ids = [
-            _id
-            for idx, _id in enumerate(ids)
-            if idx not in keep and idx in support
-        ]
-    else:
-        duplicate_ids = [_id for idx, _id in enumerate(ids) if idx not in keep]
+    duplicate_ids = [_id for idx, _id in enumerate(ids) if idx not in keep]
 
     neighbors_map = defaultdict(list)
     for dup_id, min_ind in zip(duplicate_ids, min_inds):
@@ -406,43 +390,25 @@ def find_duplicates(results, thresh, fraction, samples):
     logger.info("Duplicates computation complete")
 
 
-def find_unique(results, count, samples):
+def find_unique(results, count):
     _ensure_neighbors(results)
 
-    neighbors = results._neighbors
+    neighbors = results._neighbors_helper
     patches_field = results.config.patches_field
-    num_embeddings = len(results.embeddings)
+    num_embeddings = results.index_size
 
     logger.info("Computing uniques...")
 
-    # Filter results, if necessary
-    _, keep, sample_ids, label_ids = _filter_results(results, samples)
-
-    if keep is not None:
-        support = set(np.nonzero(keep)[0])
-    else:
-        support = None
-
     # Find uniques
-    keep, thresh = _remove_duplicates_count(
-        neighbors, count, num_embeddings, support=support
-    )
+    keep, thresh = _remove_duplicates_count(neighbors, count, num_embeddings)
 
     if patches_field is not None:
-        ids = label_ids
+        ids = results._curr_label_ids
     else:
-        ids = sample_ids
+        ids = results._curr_sample_ids
 
     unique_ids = [_id for idx, _id in enumerate(ids) if idx in keep]
-
-    if support is not None:
-        duplicate_ids = [
-            _id
-            for idx, _id in enumerate(ids)
-            if idx not in keep and idx in support
-        ]
-    else:
-        duplicate_ids = [_id for idx, _id in enumerate(ids) if idx not in keep]
+    duplicate_ids = [_id for idx, _id in enumerate(ids) if idx not in keep]
 
     results._thresh = thresh
     results._unique_ids = unique_ids
@@ -453,7 +419,7 @@ def find_unique(results, count, samples):
 
 
 def duplicates_view(results, field):
-    samples = results._samples
+    samples = results.view
     patches_field = results.config.patches_field
     neighbors_map = results.neighbors_map
 
@@ -482,7 +448,7 @@ def duplicates_view(results, field):
 
 
 def unique_view(results):
-    samples = results._samples
+    samples = results.view
     patches_field = results.config.patches_field
     unique_ids = results.unique_ids
 
@@ -495,7 +461,7 @@ def unique_view(results):
 def visualize_duplicates(results, viz_results, backend, **kwargs):
     _ensure_visualization(results, viz_results)
 
-    samples = results._samples
+    samples = results.view
     visualization = results._visualization
     duplicate_ids = results.duplicate_ids
     neighbors_map = results.neighbors_map
@@ -521,18 +487,19 @@ def visualize_duplicates(results, viz_results, backend, **kwargs):
         kwargs["edges"] = _build_edges(ids, neighbors_map)
         kwargs["edges_title"] = "neighbors"
 
-    return visualization.visualize(
-        labels=labels,
-        classes=["unique", "nearest", "duplicate"],
-        backend=backend,
-        **kwargs,
-    )
+    with visualization.use_view(samples):
+        return visualization.visualize(
+            labels=labels,
+            classes=["unique", "nearest", "duplicate"],
+            backend=backend,
+            **kwargs,
+        )
 
 
 def visualize_unique(results, viz_results, backend, **kwargs):
     _ensure_visualization(results, viz_results)
 
-    samples = results._samples
+    samples = results.view
     visualization = results._visualization
     unique_ids = results.unique_ids
 
@@ -549,9 +516,13 @@ def visualize_unique(results, viz_results, backend, **kwargs):
 
         labels.append(label)
 
-    return visualization.visualize(
-        labels=labels, classes=["other", "unique"], backend=backend, **kwargs,
-    )
+    with visualization.use_view(samples):
+        return visualization.visualize(
+            labels=labels,
+            classes=["other", "unique"],
+            backend=backend,
+            **kwargs,
+        )
 
 
 def _unique_no_sort(values):
@@ -559,65 +530,26 @@ def _unique_no_sort(values):
     return [v for v in values if v not in seen and not seen.add(v)]
 
 
-def _filter_results(results, samples):
-    patches_field = results.config.patches_field
-    sample_ids = results._sample_ids
-    label_ids = results._label_ids
-
-    # No filtering required
-    if samples is None or samples == results._samples:
-        return results._samples, None, sample_ids, label_ids
-
-    # Filter samples
-    if patches_field is None:
-        possible_ids = set(samples.values("id"))
-        keep = np.array([_id in possible_ids for _id in sample_ids])
-        sample_ids = sample_ids[keep]
-        return samples, keep, sample_ids, None
-
-    # Filter labels in non-patches view
-    if not isinstance(samples, (fop.PatchesView, fop.EvaluationPatchesView)):
-        possible_ids = set(
-            l["label_id"]
-            for l in samples._get_selected_labels(fields=patches_field)
-        )
-        keep = np.array([_id in possible_ids for _id in label_ids])
-        sample_ids = sample_ids[keep]
-        label_ids = label_ids[keep]
-        return samples, keep, sample_ids, label_ids
-
-    # Filter labels in patches view
-
-    if (
-        isinstance(samples, fop.PatchesView)
-        and patches_field != samples.patches_field
-    ):
-        raise ValueError(
-            "This patches view contains labels from field '%s', not "
-            "'%s'" % (samples.patches_field, patches_field)
-        )
-
-    if isinstance(
-        samples, fop.EvaluationPatchesView
-    ) and patches_field not in (samples.gt_field, samples.pred_field):
-        raise ValueError(
-            "This evaluation patches view contains patches from "
-            "fields '%s' and '%s', not '%s'"
-            % (samples.gt_field, samples.pred_field, patches_field)
-        )
-
-    ids_map = samples._get_ids_map(patches_field)
-    keep = np.array([label_id in ids_map for label_id in label_ids])
-    label_ids = label_ids[keep]
-    sample_ids = np.array([ids_map[_id] for _id in label_ids])
-    return samples, keep, sample_ids, label_ids
-
-
 def _ensure_neighbors(results):
-    if results._neighbors is None:
-        results._neighbors = init_neighbors(
-            results.embeddings, results.config.metric
+    if results._neighbors_helper is None:
+        metric = results.config.metric
+        embeddings = results.embeddings
+        num_embeddings = len(embeddings)
+
+        logger.info("Generating index...")
+
+        if num_embeddings > _MAX_PRECOMPUTE_DISTS:
+            logger.info(
+                "Computing neighbors for %d embeddings; this may take "
+                "awhile...",
+                num_embeddings,
+            )
+
+        results._neighbors_helper = NeighborsHelper(
+            metric, embeddings=embeddings
         )
+
+        logger.info("Index complete")
 
 
 def _ensure_visualization(results, viz_results):
@@ -661,23 +593,17 @@ def _build_edges(ids, neighbors_map):
     return np.array(edges)
 
 
-def _remove_duplicates_thresh(neighbors, thresh, num_embeddings, support=None):
+def _remove_duplicates_thresh(neighbors, thresh, num_embeddings):
     # When not using brute force, we approximate cosine distance by computing
     # Euclidean distance on unit-norm embeddings. ED = sqrt(2 * CD), so we need
     # to scale the threshold appropriately
     if getattr(neighbors, _COSINE_HACK_ATTR, False):
         thresh = np.sqrt(2.0 * thresh)
 
-    if support is None:
-        keep = set(range(num_embeddings))
-        candidates = range(num_embeddings)
-    else:
-        keep = support.copy()
-        candidates = sorted(support)
-
     inds = neighbors.radius_neighbors(radius=thresh, return_distance=False)
 
-    for ind in candidates:
+    keep = set(range(num_embeddings))
+    for ind in range(num_embeddings):
         if ind in keep:
             keep -= {i for i in inds[ind] if i > ind}
 
@@ -685,7 +611,7 @@ def _remove_duplicates_thresh(neighbors, thresh, num_embeddings, support=None):
 
 
 def _remove_duplicates_count(
-    neighbors, num_keep, num_embeddings, support=None, init_thresh=None
+    neighbors, num_keep, num_embeddings, init_thresh=None
 ):
     if init_thresh is not None:
         thresh = init_thresh
@@ -697,9 +623,7 @@ def _remove_duplicates_count(
     num_keep = -1
 
     while True:
-        keep = _remove_duplicates_thresh(
-            neighbors, thresh, num_embeddings, support=support
-        )
+        keep = _remove_duplicates_thresh(neighbors, thresh, num_embeddings)
         num_keep_last = num_keep
         num_keep = len(keep)
 
