@@ -235,7 +235,6 @@ def compute_visualization(
     brain_key=None,
     num_dims=2,
     method="umap",
-    config=None,
     model=None,
     batch_size=None,
     force_square=False,
@@ -248,6 +247,18 @@ def compute_visualization(
 
     If no ``embeddings`` or ``model`` is provided, a default model is used to
     generate embeddings.
+
+    You can use the ``method`` parameter to select the dimensionality-reduction
+    method to use, and you can optionally customize the method by passing
+    additional parameters for the method's
+    :class:`fiftyone.brain.visualization.VisualizationConfig` class as
+    ``kwargs``.
+
+    The supported ``method`` values and their associated config classes are:
+
+    -   ``"umap"``: :class:`fiftyone.brain.visualization.UMAPVisualizationConfig`
+    -   ``"tsne"``: :class:`fiftyone.brain.visualization.TSNEVisualizationConfig`
+    -   ``"pca"``: :class:`fiftyone.brain.visualization.PCAVisualizationConfig`
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
@@ -270,10 +281,6 @@ def compute_visualization(
         num_dims (2): the dimension of the visualization space
         method ("umap"): the dimensionality-reduction method to use. Supported
             values are ``("umap", "tsne", "pca")``
-        config (None): a
-            :class:`fiftyone.brain.visualization.VisualizationConfig`
-            specifying the parameters to use. If provided, takes precedence
-            over other parameters
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/index.html>`_
@@ -307,7 +314,6 @@ def compute_visualization(
         brain_key,
         num_dims,
         method,
-        config,
         model,
         batch_size,
         force_square,
