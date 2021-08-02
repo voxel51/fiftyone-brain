@@ -39,7 +39,6 @@ def compute_visualization(
     brain_key,
     num_dims,
     method,
-    config,
     model,
     batch_size,
     force_square,
@@ -62,13 +61,7 @@ def compute_visualization(
         embeddings_field = None
 
     config = _parse_config(
-        config,
-        embeddings_field,
-        model,
-        patches_field,
-        method,
-        num_dims,
-        **kwargs,
+        embeddings_field, model, patches_field, method, num_dims, **kwargs
     )
     brain_method = config.build()
     if brain_key is not None:
@@ -188,11 +181,8 @@ class PCAVisualization(Visualization):
 
 
 def _parse_config(
-    config, embeddings_field, model, patches_field, method, num_dims, **kwargs
+    embeddings_field, model, patches_field, method, num_dims, **kwargs
 ):
-    if config is not None:
-        return config
-
     if method is None or method == "umap":
         config_cls = UMAPVisualizationConfig
     elif method == "tsne":
