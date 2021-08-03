@@ -133,35 +133,61 @@ class Similarity(fob.BrainMethod):
         pass
 
 
+# @todo finish this
 class NeighborsHelper(object):
-    def __init__(self, metric, dists=None, embeddings=None):
+    def __init__(self, embeddings, metric):
+        self.embeddings = embeddings
         self.metric = metric
-        self.num_embeddings = None
-        self.precomputed = None
-        self.cosine_hack = None
-        self.dists = None
-        self.neighbors = None
 
-        self._init(dists, embeddings)
+        self._initialized = False
+        self._dists = None
+        self._neighbors = None
 
-    def _init(self, dists, embeddings):
-        if dists is not None:
-            num_embeddings = dists.shape[0]
+        self._curr_keep_inds = None
+        self._curr_dists = None
+        self._curr_neighbors = None
+
+    def get_distances(self, keep_inds=None):
+        if not self._initialized:
+            self._init()
+
+        return self._dists
+
+    def get_neighbors(self, keep_inds=None):
+        if not self._initialized:
+            self._init()
+
+        neighbors = None
+        dists = neighbors._fit_X
+        return neighbors, dists
+
+    def _init(self):
+        embeddings = self.embeddings
+
+        num_embeddings = len(embeddings)
+
+        logger.info("Generating index...")
+
+        if num_embeddings > _MAX_PRECOMPUTE_DISTS:
+            logger.info(
+                "Generating neighbors graph for %d embeddings; this may "
+                "take awhile...",
+                num_embeddings,
+            )
+
+        # Center embeddings
+        embeddings = np.asarray(embeddings)
+        embeddings -= embeddings.mean(axis=0, keepdims=True)
+
+        if num_embeddings <= _MAX_PRECOMPUTE_DISTS:
+            # Number of embeddings is small enough that we'll precompute
+            # all pairwise distances
+            dists = skm.pairwise_distances(embeddings, metric=self.metric)
         else:
-            num_embeddings = len(embeddings)
-
-            # Center embeddings
-            embeddings = np.asarray(embeddings)
-            embeddings -= embeddings.mean(axis=0, keepdims=True)
-
-            if num_embeddings <= _MAX_PRECOMPUTE_DISTS:
-                dists = skm.pairwise_distances(embeddings, metric=self.metric)
-            else:
-                dists = None
+            dists = None
 
         if dists is not None:
             precomputed = True
-            cosine_hack = False
 
             neighbors = skn.NearestNeighbors(metric="precomputed")
             neighbors.fit(dists)
@@ -169,27 +195,33 @@ class NeighborsHelper(object):
             precomputed = False
             metric = self.metric
 
-            # Nearest neighbors does not directly support cosine distance, so
-            # we approximate via euclidean distance on unit-norm embeddings
             if metric == "cosine":
+                # Nearest neighbors does not directly support cosine distance,
+                # so we approximate via euclidean distance on unit-norm
+                # embeddings
                 cosine_hack = True
                 embeddings = skp.normalize(embeddings, axis=1)
                 metric = "euclidean"
+            else:
+                cosine_hack = False
 
             neighbors = skn.NearestNeighbors(metric=metric)
             neighbors.fit(embeddings)
 
-        self.num_embeddings = num_embeddings
-        self.precomputed = precomputed
-        self.cosine_hack = cosine_hack
-        self.dists = dists
-        self.neighbors = neighbors
+            setattr(neighbors, _COSINE_HACK_ATTR, cosine_hack)
+
+        logger.info("Index complete")
+
+        self._initialized = True
+        self._dists = dists
+        self._neighbors = neighbors
 
 
 def plot_distances(results, bins, log, backend, **kwargs):
     _ensure_neighbors(results)
 
-    neighbors = results._neighbors_helper.neighbors
+    keep_inds = results._curr_keep_inds
+    neighbors, _ = results._neighbors_helper.get_neighbors(keep_inds=keep_inds)
     metric = results.config.metric
     thresh = results.thresh
 
@@ -201,12 +233,15 @@ def plot_distances(results, bins, log, backend, **kwargs):
     return _plot_distances_plotly(dists, metric, thresh, bins, log, **kwargs)
 
 
-def sort_by_similarity(
-    results, query_ids, k, reverse, samples, aggregation, mongo,
-):
+def sort_by_similarity(results, query_ids, k, reverse, aggregation, mongo):
+    _ensure_neighbors(results)
+
+    samples = results.view
+    sample_ids = results._curr_sample_ids
+    label_ids = results._curr_label_ids
+    keep_inds = results._curr_keep_inds
     patches_field = results.config.patches_field
     metric = results.config.metric
-    num_embeddings = len(results.embeddings)
 
     if etau.is_str(query_ids):
         query_ids = [query_ids]
@@ -247,23 +282,9 @@ def sort_by_similarity(
     # Perform sorting
     #
 
-    # Filter results, if necessary
-    samples, sample_ids, label_ids, keep_inds = fbu.filter_ids(
-        samples,
-        results.view,
-        results._curr_sample_ids,
-        results._curr_label_ids,
-        patches_field=patches_field,
-    )
+    dists = results._neighbors_helper.get_distances(keep_inds=keep_inds)
 
-    if num_embeddings <= _MAX_PRECOMPUTE_DISTS:
-        _ensure_neighbors(results)
-
-        # Use pre-computed distances
-        dists = results._neighbors_helper.dists
-        if keep_inds is not None:
-            dists = dists[keep_inds, :]
-
+    if dists is not None:
         dists = dists[:, query_inds]
     else:
         index_embeddings = results.embeddings
@@ -327,11 +348,24 @@ def sort_by_similarity(
 def find_duplicates(results, thresh, fraction):
     _ensure_neighbors(results)
 
-    neighbors = results._neighbors_helper.neighbors
+    keep_inds = results._curr_keep_inds
     embeddings = results.embeddings
     metric = results.config.metric
     patches_field = results.config.patches_field
-    num_embeddings = results.index_size
+
+    neighbors, dists = results._neighbors_helper.get_neighbors(
+        keep_inds=keep_inds
+    )
+
+    if keep_inds is not None:
+        embeddings = embeddings[keep_inds]
+
+    if patches_field is not None:
+        ids = results._curr_label_ids
+    else:
+        ids = results._curr_sample_ids
+
+    num_embeddings = len(embeddings)
 
     logger.info("Computing duplicates...")
 
@@ -347,11 +381,6 @@ def find_duplicates(results, thresh, fraction):
     else:
         keep = _remove_duplicates_thresh(neighbors, thresh, num_embeddings)
 
-    if patches_field is not None:
-        ids = results._curr_label_ids
-    else:
-        ids = results._curr_sample_ids
-
     #
     # Locate nearest non-duplicate for each duplicate
     #
@@ -363,10 +392,9 @@ def find_duplicates(results, thresh, fraction):
     unique_inds = np.array(unique_inds)
     dup_inds = np.array(dup_inds)
 
-    if num_embeddings <= _MAX_PRECOMPUTE_DISTS:
+    if dists is not None:
         # Use pre-computed distances
-        dists = neighbors._fit_X[unique_inds, :][:, dup_inds]
-        min_inds = np.argmin(dists, axis=0)
+        min_inds = np.argmin(dists[unique_inds, :][:, dup_inds], axis=0)
     else:
         neighbors = skn.NearestNeighbors(metric=metric)
         neighbors.fit(embeddings[unique_inds, :])
@@ -393,19 +421,20 @@ def find_duplicates(results, thresh, fraction):
 def find_unique(results, count):
     _ensure_neighbors(results)
 
-    neighbors = results._neighbors_helper
+    keep_inds = results._curr_keep_inds
+    neighbors, _ = results._neighbors_helper.get_neighbors(keep_inds=keep_inds)
     patches_field = results.config.patches_field
     num_embeddings = results.index_size
-
-    logger.info("Computing uniques...")
-
-    # Find uniques
-    keep, thresh = _remove_duplicates_count(neighbors, count, num_embeddings)
 
     if patches_field is not None:
         ids = results._curr_label_ids
     else:
         ids = results._curr_sample_ids
+
+    logger.info("Computing uniques...")
+
+    # Find uniques
+    keep, thresh = _remove_duplicates_count(neighbors, count, num_embeddings)
 
     unique_ids = [_id for idx, _id in enumerate(ids) if idx in keep]
     duplicate_ids = [_id for idx, _id in enumerate(ids) if idx not in keep]
@@ -531,25 +560,12 @@ def _unique_no_sort(values):
 
 
 def _ensure_neighbors(results):
-    if results._neighbors_helper is None:
-        metric = results.config.metric
-        embeddings = results.embeddings
-        num_embeddings = len(embeddings)
+    if results._neighbors_helper is not None:
+        return
 
-        logger.info("Generating index...")
-
-        if num_embeddings > _MAX_PRECOMPUTE_DISTS:
-            logger.info(
-                "Computing neighbors for %d embeddings; this may take "
-                "awhile...",
-                num_embeddings,
-            )
-
-        results._neighbors_helper = NeighborsHelper(
-            metric, embeddings=embeddings
-        )
-
-        logger.info("Index complete")
+    metric = results.config.metric
+    embeddings = results.embeddings
+    results._neighbors_helper = NeighborsHelper(embeddings, metric)
 
 
 def _ensure_visualization(results, viz_results):
@@ -576,7 +592,12 @@ def _generate_visualization(results):
         return fb.VisualizationResults(samples, embeddings, config)
 
     return fb.compute_visualization(
-        samples, patches_field=patches_field, embeddings=embeddings, num_dims=2
+        samples,
+        patches_field=patches_field,
+        embeddings=embeddings,
+        num_dims=2,
+        seed=51,
+        verbose=True,
     )
 
 

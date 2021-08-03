@@ -54,12 +54,17 @@ class SimilarityResults(fob.BrainResults):
         self._curr_view = samples
         self._curr_sample_ids = sample_ids
         self._curr_label_ids = label_ids
+        self._curr_keep_inds = None
+
+        self._last_view = None
 
     def __enter__(self):
+        self._last_view = self.view
         return self
 
     def __exit__(self, *args):
-        self.clear_view()
+        self.use_view(self._last_view)
+        self._last_view = None
 
     @property
     def index_size(self):
@@ -147,7 +152,7 @@ class SimilarityResults(fob.BrainResults):
         Returns:
             self
         """
-        view, sample_ids, label_ids, _ = fbu.filter_ids(
+        view, sample_ids, label_ids, keep_inds = fbu.filter_ids(
             view,
             self._samples,
             self._sample_ids,
@@ -158,6 +163,7 @@ class SimilarityResults(fob.BrainResults):
         self._curr_view = view
         self._curr_sample_ids = sample_ids
         self._curr_label_ids = label_ids
+        self._curr_keep_inds = keep_inds
 
         return self
 
@@ -197,34 +203,30 @@ class SimilarityResults(fob.BrainResults):
         query_ids,
         k=None,
         reverse=False,
-        samples=None,
         aggregation="mean",
-        mongo=False,
+        _mongo=False,
     ):
-        """Returns a view that sorts the samples/labels in the collection by
+        """Returns a view that sorts the samples/labels in :meth:`view` by
         visual similarity to the specified query.
+
+        The query IDs can be any IDs in the full index of this instance, even
+        if the current :meth:`view` contains a subset of the full index.
 
         Args:
             query_ids: an ID or iterable of query IDs
-            k (None): the number of matches to return. By default, all samples
-                are sorted
+            k (None): the number of matches to return. By default, all
+                samples/labels are included
             reverse (False): whether to sort by least similarity
-            samples (None): an optional
-                :class:`fiftyone.core.collections.SampleCollection` defining
-                the examples to include in the query
             aggregation ("mean"): the aggregation method to use to compute
                 composite similarities. Only applicable when ``query_ids``
                 contains multiple IDs. Supported values are
                 ``("mean", "min", "max")``
-            mongo (False): whether to return the aggregation pipeline defining
-                the sort rather than constructing the actual
-                :class:`fiftyone.core.view.DatasetView`
 
         Returns:
             a :class:`fiftyone.core.view.DatasetView`
         """
         return fbs.sort_by_similarity(
-            self, query_ids, k, reverse, samples, aggregation, mongo,
+            self, query_ids, k, reverse, aggregation, _mongo
         )
 
     def find_duplicates(self, thresh=None, fraction=None):
