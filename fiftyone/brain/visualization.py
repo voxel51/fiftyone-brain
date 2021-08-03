@@ -50,18 +50,13 @@ class VisualizationResults(fob.BrainResults):
         self._curr_view = samples
         self._curr_sample_ids = sample_ids
         self._curr_label_ids = label_ids
-        self._curr_keep_inds = None
         self._curr_points = points
 
-        self._last_view = None
-
     def __enter__(self):
-        self._last_view = self.view
         return self
 
     def __exit__(self, *args):
-        self.use_view(self._last_view)
-        self._last_view = None
+        self.clear_view()
 
     @property
     def index_size(self):
@@ -135,7 +130,6 @@ class VisualizationResults(fob.BrainResults):
         self._curr_view = view
         self._curr_sample_ids = sample_ids
         self._curr_label_ids = label_ids
-        self._curr_keep_inds = keep_inds
         self._curr_points = points
 
         return self

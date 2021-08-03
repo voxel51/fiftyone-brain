@@ -54,17 +54,12 @@ class SimilarityResults(fob.BrainResults):
         self._curr_view = samples
         self._curr_sample_ids = sample_ids
         self._curr_label_ids = label_ids
-        self._curr_keep_inds = None
-
-        self._last_view = None
 
     def __enter__(self):
-        self._last_view = self.view
         return self
 
     def __exit__(self, *args):
-        self.use_view(self._last_view)
-        self._last_view = None
+        self.clear_view()
 
     @property
     def index_size(self):
@@ -152,7 +147,7 @@ class SimilarityResults(fob.BrainResults):
         Returns:
             self
         """
-        view, sample_ids, label_ids, keep_inds = fbu.filter_ids(
+        view, sample_ids, label_ids, _ = fbu.filter_ids(
             view,
             self._samples,
             self._sample_ids,
@@ -163,7 +158,6 @@ class SimilarityResults(fob.BrainResults):
         self._curr_view = view
         self._curr_sample_ids = sample_ids
         self._curr_label_ids = label_ids
-        self._curr_keep_inds = keep_inds
 
         return self
 
