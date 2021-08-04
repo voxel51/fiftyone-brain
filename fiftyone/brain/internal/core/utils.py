@@ -26,8 +26,8 @@ def get_ids(samples, patches_field=None):
 
 def filter_ids(view, samples, sample_ids, label_ids, patches_field=None):
     # No filtering required
-    if view is None or view == samples:
-        return samples, sample_ids, label_ids, None
+    if view == samples or view.view() == samples.view():
+        return view, sample_ids, label_ids, None
 
     if patches_field is None:
         _sample_ids = view.values("id")
@@ -63,6 +63,9 @@ def filter_ids(view, samples, sample_ids, label_ids, patches_field=None):
 
 
 def _get_keep_inds(ids, ref_ids):
+    if len(ids) == len(ref_ids) and list(ids) == list(ref_ids):
+        return None
+
     inds_map = {_id: idx for idx, _id in enumerate(ref_ids)}
 
     keep_inds = []

@@ -146,11 +146,7 @@ class NeighborsHelper(object):
     def get_distances(self, keep_inds=None):
         self._init()
 
-        if (
-            isinstance(self._curr_keep_inds, np.ndarray)
-            and isinstance(keep_inds, np.ndarray)
-            and (keep_inds == self._curr_keep_inds).all()
-        ):
+        if self._same_keep_inds(keep_inds):
             return self._curr_dists
 
         if keep_inds is not None:
@@ -167,16 +163,10 @@ class NeighborsHelper(object):
     def get_neighbors(self, keep_inds=None):
         self._init()
 
-        if self._curr_neighbors is not None:
-            if self._curr_keep_inds is None and keep_inds is None:
-                return self._curr_neighbors, self._curr_dists
-
-            if (
-                isinstance(self._curr_keep_inds, np.ndarray)
-                and isinstance(keep_inds, np.ndarray)
-                and (keep_inds == self._curr_keep_inds).all()
-            ):
-                return self._curr_neighbors, self._curr_dists
+        if self._curr_neighbors is not None and self._same_keep_inds(
+            keep_inds
+        ):
+            return self._curr_neighbors, self._curr_dists
 
         dists, neighbors = self._build(keep_inds=keep_inds)
 
@@ -185,6 +175,20 @@ class NeighborsHelper(object):
         self._curr_neighbors = neighbors
 
         return neighbors, dists
+
+    def _same_keep_inds(self, keep_inds):
+        if keep_inds is None and self._curr_keep_inds is None:
+            return True
+
+        if (
+            isinstance(keep_inds, np.ndarray)
+            and isinstance(self._curr_keep_inds, np.ndarray)
+            and keep_inds.size == self._curr_keep_inds.size
+            and (keep_inds == self._curr_keep_inds).all()
+        ):
+            return True
+
+        return False
 
     def _init(self):
         if self._initialized:
@@ -200,12 +204,15 @@ class NeighborsHelper(object):
 
         self._initialized = True
         self._full_dists = dists
+        self._curr_keep_inds = None
+        self._curr_dists = dists
+        self._curr_neighbors = None
 
     def _build(self, keep_inds=None, build_neighbors=True):
         # Use full distance matrix if available
         if self._full_dists is not None:
             if keep_inds is not None:
-                dists = self._full_dists[keep_inds, keep_inds]
+                dists = self._full_dists[keep_inds, :][:, keep_inds]
             else:
                 dists = self._full_dists
 
@@ -349,9 +356,12 @@ def sort_by_similarity(results, query_ids, k, reverse, aggregation, mongo):
     # Perform sorting
     #
 
-    dists = results._neighbors_helper.get_distances(keep_inds=keep_inds)
+    dists = results._neighbors_helper.get_distances()
 
     if dists is not None:
+        if keep_inds is not None:
+            dists = dists[keep_inds, :]
+
         dists = dists[:, query_inds]
     else:
         index_embeddings = results.embeddings
@@ -429,12 +439,12 @@ def find_duplicates(results, thresh, fraction):
 
     if patches_field is not None:
         ids = results._curr_label_ids
+        logger.info("Computing duplicate patches...")
     else:
         ids = results._curr_sample_ids
+        logger.info("Computing duplicate samples...")
 
     num_embeddings = len(embeddings)
-
-    logger.info("Computing duplicates...")
 
     #
     # Detect duplicates
@@ -495,10 +505,10 @@ def find_unique(results, count):
 
     if patches_field is not None:
         ids = results._curr_label_ids
+        logger.info("Computing unique patches...")
     else:
         ids = results._curr_sample_ids
-
-    logger.info("Computing uniques...")
+        logger.info("Computing unique samples...")
 
     # Find uniques
     keep, thresh = _remove_duplicates_count(neighbors, count, num_embeddings)
@@ -511,7 +521,7 @@ def find_unique(results, count):
     results._duplicate_ids = duplicate_ids
     results._neighbors_map = None
 
-    logger.info("Unique computation complete")
+    logger.info("Uniqueness computation complete")
 
 
 def duplicates_view(results, field):
@@ -630,8 +640,8 @@ def _ensure_neighbors(results):
     if results._neighbors_helper is not None:
         return
 
-    metric = results.config.metric
     embeddings = results.embeddings
+    metric = results.config.metric
     results._neighbors_helper = NeighborsHelper(embeddings, metric)
 
 

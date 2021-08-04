@@ -46,14 +46,14 @@ class VisualizationResults(fob.BrainResults):
 
         self._sample_ids = sample_ids
         self._label_ids = label_ids
-
-        self._curr_view = samples
-        self._curr_sample_ids = sample_ids
-        self._curr_label_ids = label_ids
-        self._curr_keep_inds = None
-        self._curr_points = points
-
         self._last_view = None
+        self._curr_view = None
+        self._curr_sample_ids = None
+        self._curr_label_ids = None
+        self._curr_keep_inds = None
+        self._curr_points = None
+
+        self.use_view(samples)
 
     def __enter__(self):
         self._last_view = self.view
@@ -82,7 +82,7 @@ class VisualizationResults(fob.BrainResults):
         """
         return self._curr_view
 
-    def use_view(self, view):
+    def use_view(self, sample_collection):
         """Restricts the index to the provided view, which must be a subset of
         the full index's collection.
 
@@ -113,14 +113,15 @@ class VisualizationResults(fob.BrainResults):
                 plot.show()
 
         Args:
-            view: a :class:`fiftyone.core.collections.SampleCollection`
-                defining a subset of this index to use
+            sample_collection: a
+                :class:`fiftyone.core.collections.SampleCollection` defining a
+                subset of this index to use
 
         Returns:
             self
         """
         view, sample_ids, label_ids, keep_inds = fbu.filter_ids(
-            view,
+            sample_collection,
             self._samples,
             self._sample_ids,
             self._label_ids,
