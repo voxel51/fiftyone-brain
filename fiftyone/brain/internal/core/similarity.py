@@ -26,7 +26,6 @@ import fiftyone.core.validation as fov
 import fiftyone.zoo as foz
 
 from fiftyone.brain.similarity import SimilarityConfig, SimilarityResults
-import fiftyone.brain.internal.core.utils as fbu
 
 
 logger = logging.getLogger(__name__)
@@ -133,88 +132,156 @@ class Similarity(fob.BrainMethod):
         pass
 
 
-# @todo finish this
 class NeighborsHelper(object):
     def __init__(self, embeddings, metric):
         self.embeddings = embeddings
         self.metric = metric
 
         self._initialized = False
-        self._dists = None
-        self._neighbors = None
-
+        self._full_dists = None
         self._curr_keep_inds = None
         self._curr_dists = None
         self._curr_neighbors = None
 
     def get_distances(self, keep_inds=None):
-        if not self._initialized:
-            self._init()
+        self._init()
 
-        return self._dists
+        if (
+            isinstance(self._curr_keep_inds, np.ndarray)
+            and isinstance(keep_inds, np.ndarray)
+            and (keep_inds == self._curr_keep_inds).all()
+        ):
+            return self._curr_dists
+
+        if keep_inds is not None:
+            dists, _ = self._build(keep_inds=keep_inds, build_neighbors=False)
+        else:
+            dists = self._full_dists
+
+        self._curr_keep_inds = keep_inds
+        self._curr_dists = dists
+        self._curr_neighbors = None
+
+        return dists
 
     def get_neighbors(self, keep_inds=None):
-        if not self._initialized:
-            self._init()
+        self._init()
 
-        neighbors = None
-        dists = neighbors._fit_X
+        if self._curr_neighbors is not None:
+            if self._curr_keep_inds is None and keep_inds is None:
+                return self._curr_neighbors, self._curr_dists
+
+            if (
+                isinstance(self._curr_keep_inds, np.ndarray)
+                and isinstance(keep_inds, np.ndarray)
+                and (keep_inds == self._curr_keep_inds).all()
+            ):
+                return self._curr_neighbors, self._curr_dists
+
+        dists, neighbors = self._build(keep_inds=keep_inds)
+
+        self._curr_keep_inds = keep_inds
+        self._curr_dists = dists
+        self._curr_neighbors = neighbors
+
         return neighbors, dists
 
     def _init(self):
+        if self._initialized:
+            return
+
+        # Pre-compute all pairwise distances if number of embeddings is small
+        if len(self.embeddings) <= _MAX_PRECOMPUTE_DISTS:
+            dists, _ = self._build_precomputed(
+                self.embeddings, build_neighbors=False
+            )
+        else:
+            dists = None
+
+        self._initialized = True
+        self._full_dists = dists
+
+    def _build(self, keep_inds=None, build_neighbors=True):
+        # Use full distance matrix if available
+        if self._full_dists is not None:
+            if keep_inds is not None:
+                dists = self._full_dists[keep_inds, keep_inds]
+            else:
+                dists = self._full_dists
+
+            if build_neighbors:
+                neighbors = skn.NearestNeighbors(metric="precomputed")
+                neighbors.fit(dists)
+            else:
+                neighbors = None
+
+            return dists, neighbors
+
+        # Must build index
         embeddings = self.embeddings
 
-        num_embeddings = len(embeddings)
+        if keep_inds is not None:
+            embeddings = embeddings[keep_inds]
 
-        logger.info("Generating index...")
-
-        if num_embeddings > _MAX_PRECOMPUTE_DISTS:
-            logger.info(
-                "Generating neighbors graph for %d embeddings; this may "
-                "take awhile...",
-                num_embeddings,
+        if len(embeddings) <= _MAX_PRECOMPUTE_DISTS:
+            dists, neighbors = self._build_precomputed(
+                embeddings, build_neighbors=build_neighbors
             )
+        else:
+            dists = None
+            neighbors = self._build_graph(embeddings)
+
+        return dists, neighbors
+
+    def _build_precomputed(self, embeddings, build_neighbors=True):
+        logger.info("Generating index...")
 
         # Center embeddings
         embeddings = np.asarray(embeddings)
         embeddings -= embeddings.mean(axis=0, keepdims=True)
 
-        if num_embeddings <= _MAX_PRECOMPUTE_DISTS:
-            # Number of embeddings is small enough that we'll precompute
-            # all pairwise distances
-            dists = skm.pairwise_distances(embeddings, metric=self.metric)
-        else:
-            dists = None
+        dists = skm.pairwise_distances(embeddings, metric=self.metric)
 
-        if dists is not None:
-            precomputed = True
-
+        if build_neighbors:
             neighbors = skn.NearestNeighbors(metric="precomputed")
             neighbors.fit(dists)
         else:
-            precomputed = False
-            metric = self.metric
-
-            if metric == "cosine":
-                # Nearest neighbors does not directly support cosine distance,
-                # so we approximate via euclidean distance on unit-norm
-                # embeddings
-                cosine_hack = True
-                embeddings = skp.normalize(embeddings, axis=1)
-                metric = "euclidean"
-            else:
-                cosine_hack = False
-
-            neighbors = skn.NearestNeighbors(metric=metric)
-            neighbors.fit(embeddings)
-
-            setattr(neighbors, _COSINE_HACK_ATTR, cosine_hack)
+            neighbors = None
 
         logger.info("Index complete")
 
-        self._initialized = True
-        self._dists = dists
-        self._neighbors = neighbors
+        return dists, neighbors
+
+    def _build_graph(self, embeddings):
+        logger.info(
+            "Generating neighbors graph for %d embeddings; this may take "
+            "awhile...",
+            len(embeddings),
+        )
+
+        # Center embeddings
+        embeddings = np.asarray(embeddings)
+        embeddings -= embeddings.mean(axis=0, keepdims=True)
+
+        metric = self.metric
+
+        if metric == "cosine":
+            # Nearest neighbors does not directly support cosine distance, so
+            # we approximate via euclidean distance on unit-norm embeddings
+            cosine_hack = True
+            embeddings = skp.normalize(embeddings, axis=1)
+            metric = "euclidean"
+        else:
+            cosine_hack = False
+
+        neighbors = skn.NearestNeighbors(metric=metric)
+        neighbors.fit(embeddings)
+
+        setattr(neighbors, _COSINE_HACK_ATTR, cosine_hack)
+
+        logger.info("Index complete")
+
+        return neighbors
 
 
 def plot_distances(results, bins, log, backend, **kwargs):
