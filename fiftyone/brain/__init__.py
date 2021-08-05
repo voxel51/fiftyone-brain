@@ -207,8 +207,8 @@ def compute_uniqueness(
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``roi_field`` are specified
         alpha (None): an optional expansion/contraction to apply to the patches
-            before extracting them, in ``[-1, \infty)``. If provided, the
-            length and width of the box are expanded (or contracted, when
+            before extracting them, in ``[-1, inf)``. If provided, the length
+            and width of the box are expanded (or contracted, when
             ``alpha < 0``) by ``(100 * alpha)%``. For example, set
             ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
             to contract the boxes by 10%. Only applicable when a ``model`` and
@@ -296,8 +296,8 @@ def compute_visualization(
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``patches_field`` are specified
         alpha (None): an optional expansion/contraction to apply to the patches
-            before extracting them, in ``[-1, \infty)``. If provided, the
-            length and width of the box are expanded (or contracted, when
+            before extracting them, in ``[-1, inf)``. If provided, the length
+            and width of the box are expanded (or contracted, when
             ``alpha < 0``) by ``(100 * alpha)%``. For example, set
             ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
             to contract the boxes by 10%. Only applicable when a ``model`` and
@@ -391,8 +391,8 @@ def compute_similarity(
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``patches_field`` are specified
         alpha (None): an optional expansion/contraction to apply to the patches
-            before extracting them, in ``[-1, \infty)``. If provided, the
-            length and width of the box are expanded (or contracted, when
+            before extracting them, in ``[-1, inf)``. If provided, the length
+            and width of the box are expanded (or contracted, when
             ``alpha < 0``) by ``(100 * alpha)%``. For example, set
             ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
             to contract the boxes by 10%. Only applicable when a ``model`` and
