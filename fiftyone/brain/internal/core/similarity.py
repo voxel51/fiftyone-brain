@@ -564,11 +564,10 @@ def unique_view(results):
     return samples.select(unique_ids)
 
 
-def visualize_duplicates(results, viz_results, backend, **kwargs):
-    _ensure_visualization(results, viz_results)
+def visualize_duplicates(results, visualization, backend, **kwargs):
+    visualization = _ensure_visualization(results, visualization)
 
     samples = results.view
-    visualization = results._visualization
     duplicate_ids = results.duplicate_ids
     neighbors_map = results.neighbors_map
 
@@ -602,11 +601,10 @@ def visualize_duplicates(results, viz_results, backend, **kwargs):
         )
 
 
-def visualize_unique(results, viz_results, backend, **kwargs):
-    _ensure_visualization(results, viz_results)
+def visualize_unique(results, visualization, backend, **kwargs):
+    visualization = _ensure_visualization(results, visualization)
 
     samples = results.view
-    visualization = results._visualization
     unique_ids = results.unique_ids
 
     ids = samples.values("id")
@@ -645,17 +643,10 @@ def _ensure_neighbors(results):
     results._neighbors_helper = NeighborsHelper(embeddings, metric)
 
 
-def _ensure_visualization(results, viz_results):
-    if viz_results is None:
-        if results._visualization is None:
-            viz_results = _generate_visualization(results)
-        else:
-            viz_results = results._visualization
+def _ensure_visualization(results, visualization):
+    if visualization is not None:
+        return visualization
 
-    results._visualization = viz_results
-
-
-def _generate_visualization(results):
     import fiftyone.brain as fb
 
     samples = results._samples
