@@ -244,7 +244,7 @@ class SimilarityResults(fob.BrainResults):
         Args:
             thresh (None): a distance threshold to use to determine duplicates
             fraction (None): a desired fraction of images/patches to tag as
-                duplicates, in ``[0, 1]``. If provided, ``thresh`` is
+                duplicates, in ``[0, 1]``. In this case ``thresh`` is
                 automatically tuned to achieve the desired fraction of
                 duplicates
         """
@@ -277,12 +277,12 @@ class SimilarityResults(fob.BrainResults):
         The examples are organized so that each non-duplicate is immediately
         followed by all duplicate(s) that are nearest to it.
 
-        The specified ``field`` will also be populated with "nearest" for each
-        non-duplicate and "duplicate" for each duplicate.
+        The specified ``field`` will also be populated with ``"nearest"`` for
+        each non-duplicate and ``"duplicate"`` for each duplicate.
 
         Args:
-            field: the name of a field in which to store "nearest" and
-                "duplicate" labels
+            field: the name of a string field in which to store "nearest" and
+                "duplicate" labels. The field is created if necessary
 
         Returns:
             a :class:`fiftyone.core.view.DatasetView`
