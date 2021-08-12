@@ -471,26 +471,32 @@ def find_duplicates(results, thresh, fraction):
 
     if dists is not None:
         # Use pre-computed distances
-        min_inds = np.argmin(dists[unique_inds, :][:, dup_inds], axis=0)
+        _dists = dists[unique_inds, :][:, dup_inds]
+        min_inds = np.argmin(_dists, axis=0)
+        min_dists = _dists[min_inds, range(len(dup_inds))]
     else:
         neighbors = skn.NearestNeighbors(metric=metric)
         neighbors.fit(embeddings[unique_inds, :])
-        min_inds = neighbors.kneighbors(
-            embeddings[dup_inds, :], n_neighbors=1, return_distance=False
+        min_dists, min_inds = neighbors.kneighbors(
+            embeddings[dup_inds, :], n_neighbors=1
         )
 
     unique_ids = [_id for idx, _id in enumerate(ids) if idx in keep]
     duplicate_ids = [_id for idx, _id in enumerate(ids) if idx not in keep]
 
     neighbors_map = defaultdict(list)
-    for dup_id, min_ind in zip(duplicate_ids, min_inds):
+    for dup_id, min_ind, min_dist in zip(duplicate_ids, min_inds, min_dists):
         nearest_id = ids[unique_inds[min_ind]]
-        neighbors_map[nearest_id].append(dup_id)
+        neighbors_map[nearest_id].append((dup_id, min_dist))
+
+    neighbors_map = {
+        k: sorted(v, key=lambda t: t[1]) for k, v in neighbors_map.items()
+    }
 
     results._thresh = thresh
     results._unique_ids = unique_ids
     results._duplicate_ids = duplicate_ids
-    results._neighbors_map = dict(neighbors_map)
+    results._neighbors_map = neighbors_map
 
     logger.info("Duplicates computation complete")
 
@@ -524,7 +530,9 @@ def find_unique(results, count):
     logger.info("Uniqueness computation complete")
 
 
-def duplicates_view(results, field):
+def duplicates_view(
+    results, type_field, id_field, dist_field, sort_by, reverse
+):
     samples = results.view
     patches_field = results.config.patches_field
     neighbors_map = results.neighbors_map
@@ -532,23 +540,54 @@ def duplicates_view(results, field):
     if patches_field is not None and not isinstance(samples, fop.PatchesView):
         samples = samples.to_patches(patches_field)
 
+    if sort_by == "distance":
+        key = lambda kv: min(e[1] for e in kv[1])
+    elif sort_by == "count":
+        key = lambda kv: len(kv[1])
+    else:
+        raise ValueError(
+            "Invalid sort_by='%s'; supported values are %s"
+            % (sort_by, ("distance", "count"))
+        )
+
+    existing_ids = set(samples.values("id"))
+    neighbors = [(k, v) for k, v in neighbors_map.items() if k in existing_ids]
+
     ids = []
-    labels = []
-    for _id in samples.values("id"):
-        _dup_ids = neighbors_map.get(_id, None)
-        if _dup_ids is None:
-            continue
-
+    types = []
+    nearest_ids = []
+    dists = []
+    for _id, duplicates in sorted(neighbors, key=key, reverse=reverse):
         ids.append(_id)
-        labels.append("nearest")
+        types.append("nearest")
+        nearest_ids.append(_id)
+        dists.append(0)
 
-        ids.extend(_dup_ids)
-        labels.extend(["duplicate"] * len(_dup_ids))
+        for dup_id, dist in duplicates:
+            ids.append(dup_id)
+            types.append("duplicate")
+            nearest_ids.append(_id)
+            dists.append(dist)
 
     dups_view = samples.select(ids, ordered=True)
 
-    dups_view._dataset._add_sample_field_if_necessary(field, fof.StringField)
-    dups_view.set_values(field, labels)
+    if type_field is not None:
+        dups_view._dataset._add_sample_field_if_necessary(
+            type_field, fof.StringField
+        )
+        dups_view.set_values(type_field, types)
+
+    if id_field is not None:
+        dups_view._dataset._add_sample_field_if_necessary(
+            id_field, fof.StringField
+        )
+        dups_view.set_values(id_field, nearest_ids)
+
+    if dist_field is not None:
+        dups_view._dataset._add_sample_field_if_necessary(
+            dist_field, fof.FloatField
+        )
+        dups_view.set_values(dist_field, dists)
 
     return dups_view
 
@@ -573,24 +612,24 @@ def visualize_duplicates(results, visualization, backend, **kwargs):
 
     ids = samples.values("id")
 
-    _dup_ids = set(duplicate_ids)
-    _nearest_ids = set(neighbors_map.keys())
+    dup_ids = set(duplicate_ids)
+    nearest_ids = set(neighbors_map.keys())
 
     labels = []
     for _id in ids:
-        if _id in _dup_ids:
+        if _id in dup_ids:
             label = "duplicate"
-        elif _id in _nearest_ids:
+        elif _id in nearest_ids:
             label = "nearest"
         else:
             label = "unique"
 
         labels.append(label)
 
-    # Only plotly backend supports drawing edges
     if backend == "plotly":
         kwargs["edges"] = _build_edges(ids, neighbors_map)
         kwargs["edges_title"] = "neighbors"
+        kwargs["labels_title"] = "type"
 
     with visualization.use_view(samples):
         return visualization.visualize(
@@ -673,9 +712,9 @@ def _build_edges(ids, neighbors_map):
     inds_map = {_id: idx for idx, _id in enumerate(ids)}
 
     edges = []
-    for nearest_id, dup_ids in neighbors_map.items():
+    for nearest_id, duplicates in neighbors_map.items():
         nearest_ind = inds_map[nearest_id]
-        for dup_id in dup_ids:
+        for dup_id, _ in duplicates:
             dup_ind = inds_map[dup_id]
             edges.append((dup_ind, nearest_ind))
 
