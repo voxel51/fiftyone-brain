@@ -171,8 +171,8 @@ def compute_uniqueness(
     This function only uses the pixel data and can therefore process labeled or
     unlabeled samples.
 
-    You can provide your own embeddings to seed this method by specifying
-    either the ``embeddings`` or ``model`` arguments.
+    If no ``embeddings`` or ``model`` is provided, a default model is used to
+    generate embeddings.
 
     .. note::
 
