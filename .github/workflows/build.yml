@@ -8,20 +8,31 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version:
+        platform:
+          - linux-x86_64
+          - linux-aarch64
+          - mac-x86_64
+          - mac-aarch64
+          - win
+        python:
           - 3.6
           - 3.7
           - 3.8
           - 3.9
+        exclude:
+          - platform: mac-aarch64
+            python: 3.6
+          - platform: mac-aarch64
+            python: 3.7
     steps:
       - name: Clone fiftyone-brain
         uses: actions/checkout@v1
         with:
           submodules: true
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@v2
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.python }}
       - name: Check Python version
         run: |
           python --version
@@ -39,39 +50,12 @@ jobs:
           fi
       - name: Build wheel
         run: |
-          python setup.py bdist_wheel
-      - name: Build wheel (linux-x86_64)
-        run: |
-          python setup.py bdist_wheel --plat-name linux-x86_64
-      - name: Build wheel (linux-aarch64)
-        run: |
-          python setup.py bdist_wheel --plat-name linux-aarch64
-      - name: Build wheel (macOS)
-        run: |
-          python setup.py bdist_wheel --plat-name mac
-      - name: Build wheel (Windows)
-        run: |
-          python setup.py bdist_wheel --plat-name win
-      - name: Upload wheel (linux-x86_64)
+          python setup.py bdist_wheel --plat-name ${{ matrix.platform }}
+      - name: Upload wheel
         uses: actions/upload-artifact@v2
         with:
-          name: wheel-linux-x86_64-${{ matrix.python-version }}
-          path: dist/*linux*x86_64.whl
-      - name: Upload wheel (linux-aarch64)
-        uses: actions/upload-artifact@v2
-        with:
-          name: wheel-linux-aarch64-${{ matrix.python-version }}
-          path: dist/*linux*aarch64.whl
-      - name: Upload wheel (macOS)
-        uses: actions/upload-artifact@v2
-        with:
-          name: wheel-macos-${{ matrix.python-version }}
-          path: dist/*macos*.whl
-      - name: Upload wheel (Windows)
-        uses: actions/upload-artifact@v2
-        with:
-          name: wheel-windows-${{ matrix.python-version }}
-          path: dist/*win*.whl
+          name: wheel-${{ matrix.platform }}-${{ matrix.python-version }}
+          path: dist/*.whl
 
   test:
     needs: [build]
