@@ -58,10 +58,10 @@ class CustomBdistWheel(bdist_wheel):
         elif self.plat_name.startswith("linux-aarch64"):
             self.plat_name = "manylinux2014_aarch64"
             pyarmor_platform = "linux.aarch64"
-        elif self.plat_name.startswith("mac-arm"):
+        elif self.plat_name.startswith("mac-aarch64"):
             self.plat_name = "macosx_11_0_arm64"
             pyarmor_platform = "darwin.aarch64"
-        elif self.plat_name.startswith("mac-intel"):
+        elif self.plat_name.startswith("mac-x86_64"):
             self.plat_name = "macosx_10_11_x86_64"
             pyarmor_platform = "darwin.x86_64"
         elif self.plat_name.startswith("win"):
