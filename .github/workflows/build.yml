@@ -9,10 +9,10 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - linux-x86_64
           - linux-aarch64
-          - mac-x86_64
+          - linux-x86_64
           - mac-arm64
+          - mac-x86_64
           - win-amd64
         python:
           - 3.6
