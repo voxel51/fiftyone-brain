@@ -61,7 +61,7 @@ def compute_visualization(
         embeddings_field = None
 
     config = _parse_config(
-        embeddings_field, patches_field, method, num_dims, **kwargs
+        embeddings_field, model, patches_field, method, num_dims, **kwargs
     )
     brain_method = config.build()
     if brain_key is not None:
@@ -112,21 +112,7 @@ def compute_visualization(
 
 
 class Visualization(fob.BrainMethod):
-    """Base class for embedding visualization methods.
-
-    Args:
-        config: a :class:`fiftyone.brain.visualization.VisualizationConfig`
-    """
-
     def fit(self, embeddings):
-        """Computes visualization coordinates for the given embeddings.
-
-        Args:
-            embeddings: a ``num_samples x num_features`` array of embeddings
-
-        Returns:
-            a ``num_samples x num_dims`` array of coordinates
-        """
         raise NotImplementedError("subclass must implement fit()")
 
     def get_fields(self, samples, brain_key):
@@ -141,13 +127,6 @@ class Visualization(fob.BrainMethod):
 
 
 class UMAPVisualization(Visualization):
-    """Uniform Manifold Approximation and Projection (UMAP) embedding
-    visualization.
-
-    Args:
-        config: a :class:`fiftyone.brain.visualization.UMAPVisualizationConfig`
-    """
-
     def fit(self, embeddings):
         _ensure_umap()
 
@@ -165,12 +144,6 @@ class UMAPVisualization(Visualization):
 
 
 class TSNEVisualization(Visualization):
-    """t-distributed Stochastic Neighbor Embedding (t-SNE) visualization.
-
-    Args:
-        config: a :class:`fiftyone.brain.visualization.TSNEVisualizationConfig`
-    """
-
     def fit(self, embeddings):
         if self.config.pca_dims is not None:
             _pca = skd.PCA(
@@ -198,12 +171,6 @@ class TSNEVisualization(Visualization):
 
 
 class PCAVisualization(Visualization):
-    """Principal component analysis (PCA) embedding visualization.
-
-    Args:
-        config: a :class:`fiftyone.brain.visualization.PCAVisualizationConfig`
-    """
-
     def fit(self, embeddings):
         _pca = skd.PCA(
             n_components=self.config.num_dims,
@@ -213,7 +180,9 @@ class PCAVisualization(Visualization):
         return _pca.fit_transform(embeddings)
 
 
-def _parse_config(embeddings_field, patches_field, method, num_dims, **kwargs):
+def _parse_config(
+    embeddings_field, model, patches_field, method, num_dims, **kwargs
+):
     if method is None or method == "umap":
         config_cls = UMAPVisualizationConfig
     elif method == "tsne":
@@ -225,6 +194,7 @@ def _parse_config(embeddings_field, patches_field, method, num_dims, **kwargs):
 
     return config_cls(
         embeddings_field=embeddings_field,
+        model=model,
         patches_field=patches_field,
         num_dims=num_dims,
         **kwargs,
