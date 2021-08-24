@@ -1,6 +1,15 @@
 name: Build
 
-on: pull_request
+on:
+  pull_request:
+    branches:
+      - develop
+    types: [opened, synchronize]
+  push:
+    branches:
+      - develop
+    tags:
+      - v*
 
 jobs:
   build:
