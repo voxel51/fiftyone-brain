@@ -53,7 +53,7 @@ class CustomBdistWheel(bdist_wheel):
 
         platform = self.plat_name
         is_platform = lambda os, isa=None: platform.startswith(os) and (
-            not isa or platform.ends_with(isa)
+            not isa or platform.endswith(isa)
         )
 
         # rewrite platform names - we currently only support 64-bit targets
