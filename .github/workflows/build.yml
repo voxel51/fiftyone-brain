@@ -2,9 +2,14 @@ name: Build
 
 on:
   pull_request:
+    branches:
+      - develop
     types: [opened, synchronize]
-  tags:
-    - v*
+  push:
+    branches:
+      - develop
+    tags:
+      - v*
 
 jobs:
   build:
