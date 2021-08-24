@@ -105,7 +105,7 @@ def compute_visualization(
     logger.info("Generating visualization...")
     points = brain_method.fit(embeddings)
 
-    results = VisualizationResults(samples, points, config)
+    results = VisualizationResults(samples, config, points)
     brain_method.save_run_results(samples, brain_key, results)
 
     return results

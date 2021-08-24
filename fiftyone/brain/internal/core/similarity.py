@@ -114,7 +114,7 @@ def compute_similarity(
         embeddings = [e for e in embeddings if e is not None and e.size > 0]
         embeddings = np.concatenate(embeddings, axis=0)
 
-    results = SimilarityResults(samples, embeddings, config)
+    results = SimilarityResults(samples, config, embeddings)
     brain_method.save_run_results(samples, brain_key, results)
 
     return results
@@ -696,7 +696,7 @@ def _ensure_visualization(results, visualization):
         config = fb.VisualizationConfig(
             patches_field=patches_field, num_dims=2
         )
-        return fb.VisualizationResults(samples, embeddings, config)
+        return fb.VisualizationResults(samples, config, embeddings)
 
     return fb.compute_visualization(
         samples,

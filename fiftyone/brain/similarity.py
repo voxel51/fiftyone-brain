@@ -21,11 +21,11 @@ class SimilarityResults(fob.BrainResults):
 
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
-        embeddings: a ``num_embeddings x num_dims`` array of embeddings
         config: the :class:`SimilarityConfig` used
+        embeddings: a ``num_embeddings x num_dims`` array of embeddings
     """
 
-    def __init__(self, samples, embeddings, config):
+    def __init__(self, samples, config, embeddings):
         sample_ids, label_ids = fbu.get_ids(
             samples, patches_field=config.patches_field
         )
@@ -38,10 +38,10 @@ class SimilarityResults(fob.BrainResults):
                 "from your view" % (ptype, len(sample_ids), len(embeddings))
             )
 
-        self._samples = samples
         self.embeddings = embeddings
-        self.config = config
 
+        self._samples = samples
+        self._config = config
         self._sample_ids = sample_ids
         self._label_ids = label_ids
         self._last_view = None
@@ -64,6 +64,11 @@ class SimilarityResults(fob.BrainResults):
     def __exit__(self, *args):
         self.use_view(self._last_view)
         self._last_view = None
+
+    @property
+    def config(self):
+        """The :class:`SimilarityConfig` for the results."""
+        return self._config
 
     @property
     def index_size(self):
@@ -158,7 +163,7 @@ class SimilarityResults(fob.BrainResults):
             self._samples,
             self._sample_ids,
             self._label_ids,
-            patches_field=self.config.patches_field,
+            patches_field=self._config.patches_field,
         )
 
         self._curr_view = view
@@ -428,10 +433,9 @@ class SimilarityResults(fob.BrainResults):
         return fbs.visualize_unique(self, visualization, backend, **kwargs)
 
     @classmethod
-    def _from_dict(cls, d, samples):
+    def _from_dict(cls, d, samples, config):
         embeddings = np.array(d["embeddings"])
-        config = SimilarityConfig.from_dict(d["config"])
-        return cls(samples, embeddings, config)
+        return cls(samples, config, embeddings)
 
 
 class SimilarityConfig(fob.BrainMethodConfig):

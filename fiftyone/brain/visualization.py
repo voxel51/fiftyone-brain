@@ -23,11 +23,11 @@ class VisualizationResults(fob.BrainResults):
 
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
-        points: a ``num_points x num_dims`` array of visualization points
         config: the :class:`VisualizationConfig` used
+        points: a ``num_points x num_dims`` array of visualization points
     """
 
-    def __init__(self, samples, points, config):
+    def __init__(self, samples, config, points):
         sample_ids, label_ids = fbu.get_ids(
             samples, patches_field=config.patches_field
         )
@@ -40,10 +40,10 @@ class VisualizationResults(fob.BrainResults):
                 "your view" % (ptype, len(sample_ids), len(points))
             )
 
-        self._samples = samples
         self.points = points
-        self.config = config
 
+        self._samples = samples
+        self._config = config
         self._sample_ids = sample_ids
         self._label_ids = label_ids
         self._last_view = None
@@ -62,6 +62,11 @@ class VisualizationResults(fob.BrainResults):
     def __exit__(self, *args):
         self.use_view(self._last_view)
         self._last_view = None
+
+    @property
+    def config(self):
+        """The :class:`VisualizationConfig` for the results."""
+        return self._config
 
     @property
     def index_size(self):
@@ -125,7 +130,7 @@ class VisualizationResults(fob.BrainResults):
             self._samples,
             self._sample_ids,
             self._label_ids,
-            patches_field=self.config.patches_field,
+            patches_field=self._config.patches_field,
         )
 
         if keep_inds is not None:
@@ -212,7 +217,7 @@ class VisualizationResults(fob.BrainResults):
         return fop.scatterplot(
             self._curr_points,
             samples=self._curr_view,
-            link_field=self.config.patches_field,
+            link_field=self._config.patches_field,
             labels=labels,
             sizes=sizes,
             classes=classes,
@@ -221,10 +226,9 @@ class VisualizationResults(fob.BrainResults):
         )
 
     @classmethod
-    def _from_dict(cls, d, samples):
+    def _from_dict(cls, d, samples, config):
         points = np.array(d["points"])
-        config = VisualizationConfig.from_dict(d["config"])
-        return cls(samples, points, config)
+        return cls(samples, config, points)
 
 
 class VisualizationConfig(fob.BrainMethodConfig):
