@@ -696,7 +696,7 @@ def _ensure_visualization(results, visualization):
         config = fb.VisualizationConfig(
             patches_field=patches_field, num_dims=2
         )
-        return fb.VisualizationResults(samples, embeddings, config)
+        return fb.VisualizationResults(samples, config, embeddings)
 
     return fb.compute_visualization(
         samples,
