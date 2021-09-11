@@ -51,19 +51,25 @@ class CustomBdistWheel(bdist_wheel):
         # not pure Python - pytransform shared lib from pyarmor is OS-dependent
         self.root_is_pure = False
 
+        platform = self.plat_name
+        is_platform = lambda os, isa=None: platform.startswith(os) and (
+            not isa or platform.endswith(isa)
+        )
+
         # rewrite platform names - we currently only support 64-bit targets
-        if self.plat_name.startswith("linux-x86_64"):
+        if is_platform("linux", "x86_64"):
             self.plat_name = "manylinux1_x86_64"
             pyarmor_platform = "linux.x86_64"
-        elif self.plat_name.startswith("linux-aarch64"):
+        elif is_platform("linux", "aarch64"):
             self.plat_name = "manylinux2014_aarch64"
             pyarmor_platform = "linux.aarch64"
-        elif self.plat_name.startswith("mac"):
-            # unclear what minimum version PyArmor requires, but the .dylib was
-            # built on 10.11 per https://pyarmor.readthedocs.io/en/latest/platforms.html#platform-tables
+        elif is_platform("mac", "arm64"):
+            self.plat_name = "macosx_11_0_arm64"
+            pyarmor_platform = "darwin.aarch64"
+        elif is_platform("mac", "x86_64"):
             self.plat_name = "macosx_10_11_x86_64"
             pyarmor_platform = "darwin.x86_64"
-        elif self.plat_name.startswith("win"):
+        elif is_platform("win"):
             self.plat_name = "win_amd64"
             pyarmor_platform = "windows.x86_64"
         else:
@@ -95,7 +101,7 @@ with open("LICENSE", "r") as fh:
     long_description += "\n## License\n\n" + fh.read()
 
 
-VERSION = "0.6.1"
+VERSION = "0.7.1"
 
 
 def get_version():
@@ -145,5 +151,8 @@ setup(
     ],
     scripts=[],
     python_requires=">=3.6",
-    cmdclass={"build": CustomBuild, "bdist_wheel": CustomBdistWheel,},
+    cmdclass={
+        "build": CustomBuild,
+        "bdist_wheel": CustomBdistWheel,
+    },
 )

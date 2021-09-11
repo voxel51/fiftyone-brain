@@ -9,15 +9,15 @@ See https://github.com/voxel51/fiftyone for more information.
 |
 """
 from .similarity import (
-    SimilarityResults,
     SimilarityConfig,
+    SimilarityResults,
 )
 from .visualization import (
-    VisualizationResults,
     VisualizationConfig,
     UMAPVisualizationConfig,
     TSNEVisualizationConfig,
     PCAVisualizationConfig,
+    VisualizationResults,
 )
 
 
@@ -171,8 +171,8 @@ def compute_uniqueness(
     This function only uses the pixel data and can therefore process labeled or
     unlabeled samples.
 
-    You can provide your own embeddings to seed this method by specifying
-    either the ``embeddings`` or ``model`` arguments.
+    If no ``embeddings`` or ``model`` is provided, a default model is used to
+    generate embeddings.
 
     .. note::
 
@@ -207,8 +207,8 @@ def compute_uniqueness(
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``roi_field`` are specified
         alpha (None): an optional expansion/contraction to apply to the patches
-            before extracting them, in ``[-1, \infty)``. If provided, the
-            length and width of the box are expanded (or contracted, when
+            before extracting them, in ``[-1, inf)``. If provided, the length
+            and width of the box are expanded (or contracted, when
             ``alpha < 0``) by ``(100 * alpha)%``. For example, set
             ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
             to contract the boxes by 10%. Only applicable when a ``model`` and
@@ -296,7 +296,6 @@ def compute_visualization(
     brain_key=None,
     num_dims=2,
     method="umap",
-    config=None,
     model=None,
     batch_size=None,
     force_square=False,
@@ -304,11 +303,27 @@ def compute_visualization(
     **kwargs,
 ):
     """Computes a low-dimensional representation of the samples' media or their
-    patches that can be interactively visualized and manipulated via the
-    returned :class:`fiftyone.brain.visualization.VisualizationResults` object.
+    patches that can be interactively visualized.
+
+    The representation can be visualized by calling the
+    :meth:`sort_by_similarity() <fiftyone.brain.similarity.SimilarityResults.sort_by_similarity>`
+    method of the returned
+    :class:`fiftyone.brain.visualization.VisualizationResults` object.
 
     If no ``embeddings`` or ``model`` is provided, a default model is used to
     generate embeddings.
+
+    You can use the ``method`` parameter to select the dimensionality-reduction
+    method to use, and you can optionally customize the method by passing
+    additional parameters for the method's
+    :class:`fiftyone.brain.visualization.VisualizationConfig` class as
+    ``kwargs``.
+
+    The supported ``method`` values and their associated config classes are:
+
+    -   ``"umap"``: :class:`fiftyone.brain.visualization.UMAPVisualizationConfig`
+    -   ``"tsne"``: :class:`fiftyone.brain.visualization.TSNEVisualizationConfig`
+    -   ``"pca"``: :class:`fiftyone.brain.visualization.PCAVisualizationConfig`
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
@@ -331,10 +346,6 @@ def compute_visualization(
         num_dims (2): the dimension of the visualization space
         method ("umap"): the dimensionality-reduction method to use. Supported
             values are ``("umap", "tsne", "pca")``
-        config (None): a
-            :class:`fiftyone.brain.visualization.VisualizationConfig`
-            specifying the parameters to use. If provided, takes precedence
-            over other parameters
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/index.html>`_
@@ -346,8 +357,8 @@ def compute_visualization(
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``patches_field`` are specified
         alpha (None): an optional expansion/contraction to apply to the patches
-            before extracting them, in ``[-1, \infty)``. If provided, the
-            length and width of the box are expanded (or contracted, when
+            before extracting them, in ``[-1, inf)``. If provided, the length
+            and width of the box are expanded (or contracted, when
             ``alpha < 0``) by ``(100 * alpha)%``. For example, set
             ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
             to contract the boxes by 10%. Only applicable when a ``model`` and
@@ -368,7 +379,6 @@ def compute_visualization(
         brain_key,
         num_dims,
         method,
-        config,
         model,
         batch_size,
         force_square,
@@ -382,14 +392,31 @@ def compute_similarity(
     patches_field=None,
     embeddings=None,
     brain_key=None,
+    metric="euclidean",
     model=None,
     batch_size=None,
     force_square=False,
     alpha=None,
 ):
     """Uses embeddings to index the samples or their patches so that you can
-    query/sort by visual similarity via the returned
-    :class:`fiftyone.brain.similarity.SimilarityResults` object.
+    query/sort by visual similarity.
+
+    Calling this method (or loading existing results) only generates the index.
+    You can then call the methods exposed on the retuned
+    :class:`fiftyone.brain.similarity.SimilarityResults` object to perform the
+    following operations:
+
+    -   :meth:`sort_by_similarity() <fiftyone.brain.similarity.SimilarityResults.sort_by_similarity>`:
+        Sort the samples in the collection by visual similarity to a specific
+        example or example(s)
+
+    -   :meth:`find_duplicates() <fiftyone.brain.similarity.SimilarityResults.find_duplicates>`:
+        Query the index to find all examples with near-duplicates in the
+        collection
+
+    -   :meth:`find_unique() <fiftyone.brain.similarity.SimilarityResults.find_unique>`:
+        Query the index to select a subset of examples of a specified size that
+        are maximally unique with respect to each other
 
     If no ``embeddings`` or ``model`` is provided, a default model is used to
     generate embeddings.
@@ -412,6 +439,8 @@ def compute_similarity(
 
         brain_key (None): a brain key under which to store the results of this
             method
+        metric ("euclidean"): the embedding distance metric to use. See
+            ``sklearn.metrics.pairwise_distance`` for supported values
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/index.html>`_
@@ -423,8 +452,8 @@ def compute_similarity(
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``patches_field`` are specified
         alpha (None): an optional expansion/contraction to apply to the patches
-            before extracting them, in ``[-1, \infty)``. If provided, the
-            length and width of the box are expanded (or contracted, when
+            before extracting them, in ``[-1, inf)``. If provided, the length
+            and width of the box are expanded (or contracted, when
             ``alpha < 0``) by ``(100 * alpha)%``. For example, set
             ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
             to contract the boxes by 10%. Only applicable when a ``model`` and
@@ -440,8 +469,34 @@ def compute_similarity(
         patches_field,
         embeddings,
         brain_key,
+        metric,
         model,
         batch_size,
         force_square,
         alpha,
     )
+
+
+def compute_exact_duplicates(samples, num_workers=None, skip_failures=True):
+    """Detects duplicate media in a sample collection.
+
+    This method detects exact duplicates with the same filehash. Use
+    :meth:`compute_similarity` to detect near-duplicate images.
+
+    If duplicates are found, the first instance in ``samples`` will be the key
+    in the returned dictionary, while the subsequent duplicates will be the
+    values in the corresponding list.
+
+    Args:
+        samples: a :class:`fiftyone.core.collections.SampleCollection`
+        num_workers (None): an optional number of processes to use
+        skip_failures (True): whether to gracefully ignore samples whose
+            filehash cannot be computed
+
+    Returns:
+        a dictionary mapping IDs of samples with exact duplicates to lists of
+        IDs of the duplicates for the corresponding sample
+    """
+    import fiftyone.brain.internal.core.duplicates as fbd
+
+    return fbd.compute_exact_duplicates(samples, num_workers, skip_failures)

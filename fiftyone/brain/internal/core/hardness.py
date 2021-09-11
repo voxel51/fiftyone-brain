@@ -1,5 +1,5 @@
 """
-Methods that compute insights related to sample hardness.
+Hardness methods.
 
 | Copyright 2017-2021, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -58,11 +58,12 @@ def compute_hardness(samples, label_field, hardness_field):
     logger.info("Hardness computation complete")
 
 
+# @todo move to `fiftyone/brain/hardness.py`
 class HardnessConfig(fob.BrainMethodConfig):
     def __init__(self, label_field, hardness_field, **kwargs):
-        super().__init__(**kwargs)
         self.label_field = label_field
         self.hardness_field = hardness_field
+        super().__init__(**kwargs)
 
     @property
     def method(self):

@@ -1,27 +1,47 @@
 name: Build
 
-on: push
+on:
+  pull_request:
+    branches:
+      - develop
+    types: [opened, synchronize]
+  push:
+    branches:
+      - develop
+    tags:
+      - v*
 
 jobs:
   build:
-    runs-on: ubuntu-18.04 # needed for pre-built python versions
+    runs-on: ubuntu-20.04
     strategy:
       fail-fast: false
       matrix:
-        python-version:
+        platform:
+          - linux-aarch64
+          - linux-x86_64
+          - mac-arm64
+          - mac-x86_64
+          - win-amd64
+        python:
           - 3.6
           - 3.7
           - 3.8
           - 3.9
+        exclude:
+          - platform: mac-arm64
+            python: 3.6
+          - platform: mac-arm64
+            python: 3.7
     steps:
       - name: Clone fiftyone-brain
         uses: actions/checkout@v1
         with:
           submodules: true
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@v2
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.python }}
       - name: Check Python version
         run: |
           python --version
@@ -39,49 +59,22 @@ jobs:
           fi
       - name: Build wheel
         run: |
-          python setup.py bdist_wheel
-      - name: Build wheel (linux-x86_64)
-        run: |
-          python setup.py bdist_wheel --plat-name linux-x86_64
-      - name: Build wheel (linux-aarch64)
-        run: |
-          python setup.py bdist_wheel --plat-name linux-aarch64
-      - name: Build wheel (macOS)
-        run: |
-          python setup.py bdist_wheel --plat-name mac
-      - name: Build wheel (Windows)
-        run: |
-          python setup.py bdist_wheel --plat-name win
-      - name: Upload wheel (linux-x86_64)
+          python setup.py bdist_wheel --plat-name ${{ matrix.platform }}
+      - name: Upload wheel
         uses: actions/upload-artifact@v2
         with:
-          name: wheel-linux-x86_64-${{ matrix.python-version }}
-          path: dist/*linux*x86_64.whl
-      - name: Upload wheel (linux-aarch64)
-        uses: actions/upload-artifact@v2
-        with:
-          name: wheel-linux-aarch64-${{ matrix.python-version }}
-          path: dist/*linux*aarch64.whl
-      - name: Upload wheel (macOS)
-        uses: actions/upload-artifact@v2
-        with:
-          name: wheel-macos-${{ matrix.python-version }}
-          path: dist/*macos*.whl
-      - name: Upload wheel (Windows)
-        uses: actions/upload-artifact@v2
-        with:
-          name: wheel-windows-${{ matrix.python-version }}
-          path: dist/*win*.whl
+          name: wheel-${{ matrix.platform }}-${{ matrix.python }}
+          path: dist/*.whl
 
   test:
     needs: [build]
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
     env:
       FIFTYONE_DO_NOT_TRACK: true
     strategy:
       fail-fast: false
       matrix:
-        python-version:
+        python:
           - 3.6
           - 3.9
     steps:
@@ -89,17 +82,17 @@ jobs:
         uses: actions/checkout@v1
         with:
           submodules: true
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@v2
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.python }}
       - name: Install dependencies
         run: |
           pip install --upgrade pip setuptools wheel
       - name: Download fiftyone-brain wheel
         uses: actions/download-artifact@v2
         with:
-          name: wheel-linux-x86_64-${{ matrix.python-version }}
+          name: wheel-linux-x86_64-${{ matrix.python }}
           path: downloads
       - name: Install fiftyone
         run: |
@@ -129,7 +122,7 @@ jobs:
   publish:
     needs: [build, test]
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
     steps:
       - name: Download wheels
         uses: actions/download-artifact@v2

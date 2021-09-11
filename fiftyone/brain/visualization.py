@@ -11,25 +11,147 @@ import eta.core.utils as etau
 
 import fiftyone.core.brain as fob
 import fiftyone.core.plots as fop
+import fiftyone.core.utils as fou
 
-
-_INTERNAL_MODULE = "fiftyone.brain.internal.core.visualization"
+fbu = fou.lazy_import("fiftyone.brain.internal.core.utils")
+fbv = fou.lazy_import("fiftyone.brain.internal.core.visualization")
 
 
 class VisualizationResults(fob.BrainResults):
-    """Class for visualizing the results of :meth:`compute_visualization`.
+    """Class storing the results of
+    :meth:`fiftyone.brain.compute_visualization`.
 
     Args:
-        samples: the :class:`fiftyone.core.collections.SampleCollection` for
-            which this visualization was computed
+        samples: the :class:`fiftyone.core.collections.SampleCollection` used
+        config: the :class:`VisualizationConfig` used
         points: a ``num_points x num_dims`` array of visualization points
-        config: the :class:`VisualizationConfig` used to generate the points
     """
 
-    def __init__(self, samples, points, config):
-        self._samples = samples
+    def __init__(self, samples, config, points):
+        sample_ids, label_ids = fbu.get_ids(
+            samples, patches_field=config.patches_field
+        )
+
+        if len(sample_ids) != len(points):
+            ptype = "label" if config.patches_field is not None else "sample"
+            raise ValueError(
+                "Number of %s IDs (%d) does not match number of points (%d). "
+                "You may have missing data/labels that you need to omit from "
+                "your view" % (ptype, len(sample_ids), len(points))
+            )
+
         self.points = points
-        self.config = config
+
+        self._samples = samples
+        self._config = config
+        self._sample_ids = sample_ids
+        self._label_ids = label_ids
+        self._last_view = None
+        self._curr_view = None
+        self._curr_sample_ids = None
+        self._curr_label_ids = None
+        self._curr_keep_inds = None
+        self._curr_points = None
+
+        self.use_view(samples)
+
+    def __enter__(self):
+        self._last_view = self.view
+        return self
+
+    def __exit__(self, *args):
+        self.use_view(self._last_view)
+        self._last_view = None
+
+    @property
+    def config(self):
+        """The :class:`VisualizationConfig` for the results."""
+        return self._config
+
+    @property
+    def index_size(self):
+        """The number of examples in the index.
+
+        If :meth:`use_view` has been called to restrict the index, this
+        property will reflect the size of the active index.
+        """
+        return len(self._curr_sample_ids)
+
+    @property
+    def view(self):
+        """The :class:`fiftyone.core.collections.SampleCollection` against
+        which results are currently being generated.
+
+        If :meth:`use_view` has been called, this view may be a subset of the
+        collection on which the full index was generated.
+        """
+        return self._curr_view
+
+    def use_view(self, sample_collection):
+        """Restricts the index to the provided view, which must be a subset of
+        the full index's collection.
+
+        Subsequent calls to methods on this instance will only contain results
+        from the specified view rather than the full index.
+
+        Use :meth:`clear_view` to reset to the full index. Or, equivalently,
+        use the context manager interface as demonstrated below to
+        automatically reset the view when the context exits.
+
+        Example usage::
+
+            import fiftyone as fo
+            import fiftyone.brain as fob
+            import fiftyone.zoo as foz
+
+            dataset = foz.load_zoo_dataset("quickstart")
+
+            results = fob.compute_visualization(dataset)
+            print(results.index_size)  # 200
+
+            view = dataset.take(50)
+
+            with results.use_view(view):
+                print(results.index_size)  # 50
+
+                plot = results.visualize()
+                plot.show()
+
+        Args:
+            sample_collection: a
+                :class:`fiftyone.core.collections.SampleCollection` defining a
+                subset of this index to use
+
+        Returns:
+            self
+        """
+        view, sample_ids, label_ids, keep_inds = fbu.filter_ids(
+            sample_collection,
+            self._samples,
+            self._sample_ids,
+            self._label_ids,
+            patches_field=self._config.patches_field,
+        )
+
+        if keep_inds is not None:
+            points = self.points[keep_inds, :]
+        else:
+            points = self.points
+
+        self._curr_view = view
+        self._curr_sample_ids = sample_ids
+        self._curr_label_ids = label_ids
+        self._curr_keep_inds = keep_inds
+        self._curr_points = points
+
+        return self
+
+    def clear_view(self):
+        """Clears the view set by :meth:`use_view`, if any.
+
+        Subsequent operations will be performed on the full index.
+        """
+        self.use_view(self._samples)
 
     def visualize(
         self,
@@ -93,9 +215,9 @@ class VisualizationResults(fob.BrainResults):
             an :class:`fiftyone.core.plots.base.InteractivePlot`
         """
         return fop.scatterplot(
-            self.points,
-            samples=self._samples,
-            link_field=self.config.patches_field,
+            self._curr_points,
+            samples=self._curr_view,
+            link_field=self._config.patches_field,
             labels=labels,
             sizes=sizes,
             classes=classes,
@@ -104,34 +226,45 @@ class VisualizationResults(fob.BrainResults):
         )
 
     @classmethod
-    def _from_dict(cls, d, samples):
+    def _from_dict(cls, d, samples, config):
         points = np.array(d["points"])
-        config = VisualizationConfig.from_dict(d["config"])
-        return cls(samples, points, config)
+        return cls(samples, config, points)
 
 
 class VisualizationConfig(fob.BrainMethodConfig):
     """Base class for configuring visualization methods.
 
     Args:
-        embeddings_field (None): the sample field containing the embeddings
-        patches_field (None): the sample field defining the patches we're
-            visualizing
+        embeddings_field (None): the sample field containing the embeddings,
+            if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or class name of
+            the model that was used to compute embeddings, if one was provided
+        patches_field (None): the sample field defining the patches being
+            analyzed, if any
         num_dims (2): the dimension of the visualization space
     """
 
     def __init__(
-        self, embeddings_field=None, patches_field=None, num_dims=2, **kwargs
+        self,
+        embeddings_field=None,
+        model=None,
+        patches_field=None,
+        num_dims=2,
+        **kwargs,
     ):
-        super().__init__(**kwargs)
+        if model is not None and not etau.is_str(model):
+            model = etau.get_class_name(model)
+
         self.embeddings_field = embeddings_field
+        self.model = model
         self.patches_field = patches_field
         self.num_dims = num_dims
+        super().__init__(**kwargs)
 
     @property
     def run_cls(self):
         run_cls_name = self.__class__.__name__[: -len("Config")]
-        return etau.get_class(_INTERNAL_MODULE + "." + run_cls_name)
+        return getattr(fbv, run_cls_name)
 
 
 class UMAPVisualizationConfig(VisualizationConfig):
@@ -142,9 +275,12 @@ class UMAPVisualizationConfig(VisualizationConfig):
     supported parameters.
 
     Args:
-        embeddings_field (None): the sample field containing the embeddings
-        patches_field (None): the sample field defining the patches we're
-            visualizing
+        embeddings_field (None): the sample field containing the embeddings,
+            if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or class name of
+            the model that was used to compute embeddings, if one was provided
+        patches_field (None): the sample field defining the patches being
+            analyzed, if any
         num_dims (2): the dimension of the visualization space
         num_neighbors (15): the number of neighboring points used in local
             approximations of manifold structure. Larger values will result in
@@ -159,23 +295,25 @@ class UMAPVisualizationConfig(VisualizationConfig):
             optimise more accurately with regard to local structure. Typical
             values are in ``[0.001, 0.5]``
         seed (None): a random seed
-        verbose (False): whether to log progress
+        verbose (True): whether to log progress
     """
 
     def __init__(
         self,
         embeddings_field=None,
+        model=None,
         patches_field=None,
         num_dims=2,
         num_neighbors=15,
         metric="euclidean",
         min_dist=0.1,
         seed=None,
-        verbose=False,
+        verbose=True,
         **kwargs,
     ):
         super().__init__(
             embeddings_field=embeddings_field,
+            model=model,
             patches_field=patches_field,
             num_dims=num_dims,
             **kwargs,
@@ -199,9 +337,12 @@ class TSNEVisualizationConfig(VisualizationConfig):
     for more information about the supported parameters.
 
     Args:
-        embeddings_field (None): the sample field containing the embeddings
-        patches_field (None): the sample field defining the patches we're
-            visualizing
+        embeddings_field (None): the sample field containing the embeddings,
+            if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or class name of
+            the model that was used to compute embeddings, if one was provided
+        patches_field (None): the sample field defining the patches being
+            analyzed, if any
         num_dims (2): the dimension of the visualization space
         pca_dims (50): the number of PCA dimensions to compute prior to running
             t-SNE. It is highly recommended to reduce the number of dimensions
@@ -227,12 +368,13 @@ class TSNEVisualizationConfig(VisualizationConfig):
         max_iters (1000): the maximum number of iterations to run. Should be at
             least 250
         seed (None): a random seed
-        verbose (False): whether to log progress
+        verbose (True): whether to log progress
     """
 
     def __init__(
         self,
         embeddings_field=None,
+        model=None,
         patches_field=None,
         num_dims=2,
         pca_dims=50,
@@ -242,11 +384,12 @@ class TSNEVisualizationConfig(VisualizationConfig):
         learning_rate=200.0,
         max_iters=1000,
         seed=None,
-        verbose=False,
+        verbose=True,
         **kwargs,
     ):
         super().__init__(
             embeddings_field=embeddings_field,
+            model=model,
             patches_field=patches_field,
             num_dims=num_dims,
             **kwargs,
@@ -273,9 +416,12 @@ class PCAVisualizationConfig(VisualizationConfig):
     for more information about the supported parameters.
 
     Args:
-        embeddings_field (None): the sample field containing the embeddings
-        patches_field (None): the sample field defining the patches we're
-            visualizing
+        embeddings_field (None): the sample field containing the embeddings,
+            if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or class name of
+            the model that was used to compute embeddings, if one was provided
+        patches_field (None): the sample field defining the patches being
+            analyzed, if any
         num_dims (2): the dimension of the visualization space
         svd_solver ("randomized"): the SVD solver to use. Consult the sklearn
             docmentation for details
@@ -285,6 +431,7 @@ class PCAVisualizationConfig(VisualizationConfig):
     def __init__(
         self,
         embeddings_field=None,
+        model=None,
         patches_field=None,
         num_dims=2,
         svd_solver="randomized",
@@ -293,6 +440,7 @@ class PCAVisualizationConfig(VisualizationConfig):
     ):
         super().__init__(
             embeddings_field=embeddings_field,
+            model=model,
             patches_field=patches_field,
             num_dims=num_dims,
             **kwargs,
