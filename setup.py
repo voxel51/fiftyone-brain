@@ -56,7 +56,7 @@ class CustomBdistWheel(bdist_wheel):
             not isa or platform.endswith(isa)
         )
 
-        if is_platform("linux1", "i686"):
+        if is_platform("linux", "i686"):
             self.plat_name = "manylinux1_i686"
             pyarmor_platform = "linux.x86"
         elif is_platform("linux", "x86_64"):
