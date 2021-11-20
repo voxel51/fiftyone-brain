@@ -77,6 +77,7 @@ def compute_similarity(
         metric=metric,
     )
     brain_method = config.build()
+    brain_method.ensure_requirements()
 
     if brain_key is not None:
         brain_method.register_run(samples, brain_key)
@@ -100,6 +101,9 @@ def compute_similarity(
 
 
 class Similarity(fob.BrainMethod):
+    def ensure_requirements(self):
+        pass
+
     def get_fields(self, samples, brain_key):
         fields = []
         if self.config.patches_field is not None:

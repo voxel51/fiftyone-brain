@@ -69,7 +69,6 @@ def compute_visualization(
         embeddings_field, model, patches_field, method, num_dims, **kwargs
     )
     brain_method = config.build()
-
     brain_method.ensure_requirements()
 
     if brain_key is not None:
@@ -97,6 +96,9 @@ def compute_visualization(
 
 
 class Visualization(fob.BrainMethod):
+    def ensure_requirements(self):
+        pass
+
     def fit(self, embeddings):
         raise NotImplementedError("subclass must implement fit()")
 

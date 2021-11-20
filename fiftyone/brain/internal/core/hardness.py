@@ -41,6 +41,7 @@ def compute_hardness(samples, label_field, hardness_field):
     config = HardnessConfig(label_field, hardness_field)
     brain_key = hardness_field
     brain_method = config.build()
+    brain_method.ensure_requirements()
     brain_method.register_run(samples, brain_key)
 
     samples = samples.select_fields(label_field)
@@ -71,6 +72,9 @@ class HardnessConfig(fob.BrainMethodConfig):
 
 
 class Hardness(fob.BrainMethod):
+    def ensure_requirements(self):
+        pass
+
     def get_fields(self, samples, brain_key):
         return [self.config.label_field, self.config.hardness_field]
 
