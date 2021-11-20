@@ -239,6 +239,7 @@ def compute_visualization(
     batch_size=None,
     force_square=False,
     alpha=None,
+    skip_failures=True,
     **kwargs,
 ):
     """Computes a low-dimensional representation of the samples' media or their
@@ -302,6 +303,8 @@ def compute_visualization(
             ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
             to contract the boxes by 10%. Only applicable when a ``model`` and
             ``patches_field`` are specified
+        skip_failures (True): whether to gracefully continue without raising an
+            error if embeddings cannot be generated for a sample
         **kwargs: optional keyword arguments for the constructor of the
             :class:`fiftyone.brain.visualization.VisualizationConfig`
             being used
@@ -322,6 +325,7 @@ def compute_visualization(
         batch_size,
         force_square,
         alpha,
+        skip_failures,
         **kwargs,
     )
 
@@ -336,6 +340,7 @@ def compute_similarity(
     batch_size=None,
     force_square=False,
     alpha=None,
+    skip_failures=True,
 ):
     """Uses embeddings to index the samples or their patches so that you can
     query/sort by visual similarity.
@@ -397,6 +402,8 @@ def compute_similarity(
             ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
             to contract the boxes by 10%. Only applicable when a ``model`` and
             ``patches_field`` are specified
+        skip_failures (True): whether to gracefully continue without raising an
+            error if embeddings cannot be generated for a sample
 
     Returns:
         a :class:`fiftyone.brain.similarity.SimilarityResults`
@@ -413,6 +420,7 @@ def compute_similarity(
         batch_size,
         force_square,
         alpha,
+        skip_failures,
     )
 
 

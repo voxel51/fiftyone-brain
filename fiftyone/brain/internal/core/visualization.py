@@ -14,6 +14,7 @@ import sklearn.manifold as skm
 import eta.core.utils as etau
 
 import fiftyone.core.brain as fob
+import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 import fiftyone.zoo as foz
 
@@ -23,6 +24,9 @@ from fiftyone.brain.visualization import (
     TSNEVisualizationConfig,
     PCAVisualizationConfig,
 )
+import fiftyone.brain.internal.core.utils as fbu
+
+umap = fou.lazy_import("umap")
 
 
 logger = logging.getLogger(__name__)
@@ -43,6 +47,7 @@ def compute_visualization(
     batch_size,
     force_square,
     alpha,
+    skip_failures,
     **kwargs,
 ):
     """See ``fiftyone/brain/__init__.py``."""
@@ -64,43 +69,23 @@ def compute_visualization(
         embeddings_field, model, patches_field, method, num_dims, **kwargs
     )
     brain_method = config.build()
+
+    brain_method.ensure_requirements()
+
     if brain_key is not None:
         brain_method.register_run(samples, brain_key)
 
-    if model is not None:
-        if etau.is_str(model):
-            model = foz.load_zoo_model(model)
-
-        if patches_field is not None:
-            logger.info("Computing patch embeddings...")
-            embeddings = samples.compute_patch_embeddings(
-                model,
-                patches_field,
-                embeddings_field=embeddings_field,
-                batch_size=batch_size,
-                force_square=force_square,
-                alpha=alpha,
-            )
-        else:
-            logger.info("Computing embeddings...")
-            embeddings = samples.compute_embeddings(
-                model,
-                embeddings_field=embeddings_field,
-                batch_size=batch_size,
-            )
-
-    if embeddings_field is not None:
-        embeddings = samples.values(embeddings_field)
-        embeddings = [e for e in embeddings if e is not None and e.size > 0]
-        if patches_field is not None:
-            embeddings = np.concatenate(embeddings, axis=0)
-        else:
-            embeddings = np.stack(embeddings)
-
-    if isinstance(embeddings, dict):
-        embeddings = [embeddings[_id] for _id in samples.values("id")]
-        embeddings = [e for e in embeddings if e is not None and e.size > 0]
-        embeddings = np.concatenate(embeddings, axis=0)
+    embeddings = fbu.get_embeddings(
+        samples,
+        model=model,
+        patches_field=patches_field,
+        embeddings_field=embeddings_field,
+        embeddings=embeddings,
+        batch_size=batch_size,
+        force_square=force_square,
+        alpha=alpha,
+        skip_failures=skip_failures,
+    )
 
     logger.info("Generating visualization...")
     points = brain_method.fit(embeddings)
@@ -127,11 +112,18 @@ class Visualization(fob.BrainMethod):
 
 
 class UMAPVisualization(Visualization):
+    def ensure_requirements(self):
+        fou.ensure_package(
+            "umap-learn",
+            error_msg=(
+                "You must install the `umap-learn` package in order to use "
+                "UMAP-based visualization. This is recommended, as UMAP is "
+                "awesome! If you do not wish to install UMAP, try "
+                "`method='tsne'` instead"
+            ),
+        )
+
     def fit(self, embeddings):
-        _ensure_umap()
-
-        import umap
-
         _umap = umap.UMAP(
             n_components=self.config.num_dims,
             n_neighbors=self.config.num_neighbors,
@@ -199,15 +191,3 @@ def _parse_config(
         num_dims=num_dims,
         **kwargs,
     )
-
-
-def _ensure_umap():
-    try:
-        etau.ensure_package("umap-learn")
-    except:
-        raise ImportError(
-            "You must install the `umap-learn` package in order to use "
-            "UMAP-based visualization. This is recommended, as UMAP is "
-            "awesome! If you do not wish to install UMAP, try `method='tsne'` "
-            "instead"
-        )
