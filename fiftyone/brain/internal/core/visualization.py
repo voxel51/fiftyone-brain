@@ -23,6 +23,7 @@ from fiftyone.brain.visualization import (
     UMAPVisualizationConfig,
     TSNEVisualizationConfig,
     PCAVisualizationConfig,
+    ManualVisualizationConfig,
 )
 import fiftyone.brain.internal.core.utils as fbu
 
@@ -40,6 +41,7 @@ def compute_visualization(
     samples,
     patches_field,
     embeddings,
+    points,
     brain_key,
     num_dims,
     method,
@@ -54,7 +56,18 @@ def compute_visualization(
 
     fov.validate_collection(samples)
 
-    if model is None and embeddings is None:
+    if method == "manual" and points is None:
+        raise ValueError(
+            "You must provide your own `points` when `method='manual'`"
+        )
+
+    if points is not None:
+        method = "manual"
+        model = None
+        embeddings = None
+        embeddings_field = None
+        num_dims = points.shape[1]
+    elif model is None and embeddings is None:
         model = foz.load_zoo_model(_DEFAULT_MODEL)
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
@@ -68,26 +81,28 @@ def compute_visualization(
     config = _parse_config(
         embeddings_field, model, patches_field, method, num_dims, **kwargs
     )
+
     brain_method = config.build()
     brain_method.ensure_requirements()
 
     if brain_key is not None:
         brain_method.register_run(samples, brain_key)
 
-    embeddings = fbu.get_embeddings(
-        samples,
-        model=model,
-        patches_field=patches_field,
-        embeddings_field=embeddings_field,
-        embeddings=embeddings,
-        batch_size=batch_size,
-        force_square=force_square,
-        alpha=alpha,
-        skip_failures=skip_failures,
-    )
+    if points is None:
+        embeddings = fbu.get_embeddings(
+            samples,
+            model=model,
+            patches_field=patches_field,
+            embeddings_field=embeddings_field,
+            embeddings=embeddings,
+            batch_size=batch_size,
+            force_square=force_square,
+            alpha=alpha,
+            skip_failures=skip_failures,
+        )
 
-    logger.info("Generating visualization...")
-    points = brain_method.fit(embeddings)
+        logger.info("Generating visualization...")
+        points = brain_method.fit(embeddings)
 
     results = VisualizationResults(samples, config, points)
     brain_method.save_run_results(samples, brain_key, results)
@@ -116,11 +131,11 @@ class Visualization(fob.BrainMethod):
 class UMAPVisualization(Visualization):
     def ensure_requirements(self):
         fou.ensure_package(
-            "umap-learn",
+            "umap-learn>=0.5",
             error_msg=(
-                "You must install the `umap-learn` package in order to use "
-                "UMAP-based visualization. This is recommended, as UMAP is "
-                "awesome! If you do not wish to install UMAP, try "
+                "You must install the `umap-learn>=0.5` package in order to "
+                "use UMAP-based visualization. This is recommended, as UMAP "
+                "is awesome! If you do not wish to install UMAP, try "
                 "`method='tsne'` instead"
             ),
         )
@@ -174,6 +189,14 @@ class PCAVisualization(Visualization):
         return _pca.fit_transform(embeddings)
 
 
+class ManualVisualization(Visualization):
+    def fit(self, embeddings):
+        raise NotImplementedError(
+            "The low-dimensional representation must be manually provided "
+            "when using this method"
+        )
+
+
 def _parse_config(
     embeddings_field, model, patches_field, method, num_dims, **kwargs
 ):
@@ -183,6 +206,8 @@ def _parse_config(
         config_cls = TSNEVisualizationConfig
     elif method == "pca":
         config_cls = PCAVisualizationConfig
+    elif method == "manual":
+        config_cls = ManualVisualizationConfig
     else:
         raise ValueError("Unsupported method '%s'" % method)
 
