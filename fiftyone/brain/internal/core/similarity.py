@@ -36,9 +36,6 @@ _AGGREGATIONS = {"mean": np.mean, "min": np.min, "max": np.max}
 _DEFAULT_MODEL = "mobilenet-v2-imagenet-torch"
 _DEFAULT_BATCH_SIZE = None
 
-# _DEFAULT_MODEL = "simple-resnet-cifar10"
-# _DEFAULT_BATCH_SIZE = 16
-
 _MAX_PRECOMPUTE_DISTS = 15000  # ~1.7GB to store distance matrix in-memory
 _COSINE_HACK_ATTR = "_cosine_hack"
 
