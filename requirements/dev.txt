@@ -7,5 +7,5 @@ pandas==1.1.5
 pre-commit==2.0.1
 pylint==2.3.1
 pytest==5.4.3
-pyarmor==6.5.5
+pyarmor==6.8.1
 twine>=3
