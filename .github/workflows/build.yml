@@ -49,7 +49,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip setuptools wheel
-          pip install pyarmor twine
+          pip install pyarmor==6.5.5 twine
       - name: Set environment
         env:
           RELEASE_TAG: ${{ github.ref }}
