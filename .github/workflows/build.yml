@@ -49,7 +49,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip setuptools wheel
-          pip install - requirements/build.txt
+          pip install -r requirements/build.txt
       - name: Set environment
         env:
           RELEASE_TAG: ${{ github.ref }}
