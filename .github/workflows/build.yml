@@ -49,7 +49,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip setuptools wheel
-          pip install pyarmor twine
+          pip install -r requirements/build.txt
       - name: Set environment
         env:
           RELEASE_TAG: ${{ github.ref }}
@@ -101,6 +101,14 @@ jobs:
           python setup.py bdist_wheel
           pip install voxel51-eta[storage] fiftyone-db
           pip install ./dist/*.whl
+      - name: Install ETA from source
+        if: ${{ !startsWith(github.ref, 'refs/heads/rel') && !startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          echo "Installing ETA from source because github.ref = ${{ github.ref }} (not a release)"
+          git clone https://github.com/voxel51/eta eta --depth 1 --branch develop
+          cd eta
+          python setup.py bdist_wheel
+          pip install ./dist/*.whl --force-reinstall
       - name: Reinstall fiftyone-brain
         run: |
           pip install --force-reinstall --no-deps downloads/*.whl

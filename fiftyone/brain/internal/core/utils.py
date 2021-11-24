@@ -5,9 +5,18 @@ Utilities.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+import logging
+
 import numpy as np
 
+import eta.core.utils as etau
+
 import fiftyone.core.patches as fop
+import fiftyone.zoo as foz
+from fiftyone import ViewField as F
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_ids(samples, patches_field=None):
@@ -92,3 +101,110 @@ def _get_keep_inds(ids, ref_ids):
         )
 
     return np.array(keep_inds)
+
+
+def get_embeddings(
+    samples,
+    model=None,
+    patches_field=None,
+    embeddings_field=None,
+    embeddings=None,
+    batch_size=None,
+    force_square=False,
+    alpha=None,
+    skip_failures=True,
+):
+    if model is not None:
+        if etau.is_str(model):
+            model = foz.load_zoo_model(model)
+
+        if patches_field is not None:
+            logger.info("Computing patch embeddings...")
+            embeddings = samples.compute_patch_embeddings(
+                model,
+                patches_field,
+                embeddings_field=embeddings_field,
+                handle_missing="skip",
+                batch_size=batch_size,
+                force_square=force_square,
+                alpha=alpha,
+                skip_failures=skip_failures,
+            )
+        else:
+            logger.info("Computing embeddings...")
+            embeddings = samples.compute_embeddings(
+                model,
+                embeddings_field=embeddings_field,
+                batch_size=batch_size,
+                skip_failures=skip_failures,
+            )
+    elif embeddings_field is not None:
+        embeddings = samples.values(embeddings_field)
+
+    if embeddings is None:
+        raise ValueError(
+            "One of `model`, `embeddings_field`, or `embeddings` must be "
+            "provided"
+        )
+
+    if isinstance(embeddings, dict):
+        embeddings = [
+            embeddings.get(_id, None) for _id in samples.values("id")
+        ]
+
+    if patches_field is not None:
+        _handle_missing_patch_embeddings(embeddings, samples, patches_field)
+        embeddings = np.concatenate(embeddings, axis=0)
+    else:
+        _handle_missing_embeddings(embeddings)
+        embeddings = np.stack(embeddings)
+
+    return embeddings
+
+
+def _handle_missing_embeddings(embeddings):
+    if isinstance(embeddings, np.ndarray):
+        return
+
+    missing_inds = []
+    num_dims = None
+    for idx, embedding in enumerate(embeddings):
+        if embedding is None:
+            missing_inds.append(idx)
+        elif num_dims is None:
+            num_dims = embedding.size
+
+    if not missing_inds:
+        return
+
+    missing_embedding = np.zeros(num_dims or 16)
+    for idx in missing_inds:
+        embeddings[idx] = missing_embedding.copy()
+
+    logger.warning("Using zeros for %d missing embeddings", len(missing_inds))
+
+
+def _handle_missing_patch_embeddings(embeddings, samples, patches_field):
+    missing_inds = []
+    num_dims = None
+    for idx, embedding in enumerate(embeddings):
+        if embedding is None:
+            missing_inds.append(idx)
+        elif num_dims is None:
+            num_dims = embedding.shape[1]
+
+    if not missing_inds:
+        return
+
+    missing_embedding = np.zeros(num_dims or 16)
+
+    _, labels_path = samples._get_label_field_path(patches_field)
+    patch_counts = samples.values(F(labels_path).length())
+
+    num_missing = 0
+    for idx in missing_inds:
+        count = patch_counts[idx]
+        embeddings[idx] = np.tile(missing_embedding, (count, 1))
+        num_missing += count
+
+    logger.warning("Using zeros for %d missing patch embeddings", num_missing)

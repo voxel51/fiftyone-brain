@@ -451,3 +451,22 @@ class PCAVisualizationConfig(VisualizationConfig):
     @property
     def method(self):
         return "pca"
+
+
+class ManualVisualizationConfig(VisualizationConfig):
+    """Configuration for manually-provided low-dimensional visualizations.
+
+    Args:
+        patches_field (None): the sample field defining the patches being
+            analyzed, if any
+        num_dims (2): the dimension of the visualization space
+    """
+
+    def __init__(self, patches_field=None, num_dims=2, **kwargs):
+        super().__init__(
+            patches_field=patches_field, num_dims=num_dims, **kwargs
+        )
+
+    @property
+    def method(self):
+        return "manual"

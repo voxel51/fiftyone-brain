@@ -87,6 +87,7 @@ def compute_mistakenness(
 
     brain_key = mistakenness_field
     brain_method = config.build()
+    brain_method.ensure_requirements()
     brain_method.register_run(samples, brain_key)
 
     if is_detections:
@@ -166,6 +167,9 @@ class MistakennessMethodConfig(fob.BrainMethodConfig):
 
 
 class MistakennessMethod(fob.BrainMethod):
+    def ensure_requirements(self):
+        pass
+
     def _validate_run(self, samples, brain_key, existing_info):
         self._validate_fields_match(brain_key, "pred_field", existing_info)
         self._validate_fields_match(brain_key, "label_field", existing_info)

@@ -87,6 +87,7 @@ def compute_uniqueness(
     )
     brain_key = uniqueness_field
     brain_method = config.build()
+    brain_method.ensure_requirements()
     brain_method.register_run(samples, brain_key)
 
     #
@@ -203,6 +204,9 @@ class UniquenessConfig(fob.BrainMethodConfig):
 
 
 class Uniqueness(fob.BrainMethod):
+    def ensure_requirements(self):
+        pass
+
     def get_fields(self, samples, brain_key):
         fields = [self.config.uniqueness_field]
         if self.config.roi_field is not None:

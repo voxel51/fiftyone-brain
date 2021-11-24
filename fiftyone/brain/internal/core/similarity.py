@@ -26,6 +26,7 @@ import fiftyone.core.validation as fov
 import fiftyone.zoo as foz
 
 from fiftyone.brain.similarity import SimilarityConfig, SimilarityResults
+import fiftyone.brain.internal.core.utils as fbu
 
 
 logger = logging.getLogger(__name__)
@@ -34,9 +35,6 @@ _AGGREGATIONS = {"mean": np.mean, "min": np.min, "max": np.max}
 
 _DEFAULT_MODEL = "mobilenet-v2-imagenet-torch"
 _DEFAULT_BATCH_SIZE = None
-
-# _DEFAULT_MODEL = "simple-resnet-cifar10"
-# _DEFAULT_BATCH_SIZE = 16
 
 _MAX_PRECOMPUTE_DISTS = 15000  # ~1.7GB to store distance matrix in-memory
 _COSINE_HACK_ATTR = "_cosine_hack"
@@ -52,6 +50,7 @@ def compute_similarity(
     batch_size,
     force_square,
     alpha,
+    skip_failures,
 ):
     """See ``fiftyone/brain/__init__.py``."""
 
@@ -75,44 +74,22 @@ def compute_similarity(
         metric=metric,
     )
     brain_method = config.build()
+    brain_method.ensure_requirements()
+
     if brain_key is not None:
         brain_method.register_run(samples, brain_key)
 
-    if model is not None:
-        if etau.is_str(model):
-            model = foz.load_zoo_model(model)
-
-        if patches_field is not None:
-            logger.info("Computing patch embeddings...")
-            embeddings = samples.compute_patch_embeddings(
-                model,
-                patches_field,
-                embeddings_field=embeddings_field,
-                handle_missing="skip",
-                batch_size=batch_size,
-                force_square=force_square,
-                alpha=alpha,
-            )
-        else:
-            logger.info("Computing embeddings...")
-            embeddings = samples.compute_embeddings(
-                model,
-                embeddings_field=embeddings_field,
-                batch_size=batch_size,
-            )
-
-    if embeddings_field is not None:
-        embeddings = samples.values(embeddings_field)
-        embeddings = [e for e in embeddings if e is not None and e.size > 0]
-        if patches_field is not None:
-            embeddings = np.concatenate(embeddings, axis=0)
-        else:
-            embeddings = np.stack(embeddings)
-
-    if isinstance(embeddings, dict):
-        embeddings = [embeddings[_id] for _id in samples.values("id")]
-        embeddings = [e for e in embeddings if e is not None and e.size > 0]
-        embeddings = np.concatenate(embeddings, axis=0)
+    embeddings = fbu.get_embeddings(
+        samples,
+        model=model,
+        patches_field=patches_field,
+        embeddings_field=embeddings_field,
+        embeddings=embeddings,
+        batch_size=batch_size,
+        force_square=force_square,
+        alpha=alpha,
+        skip_failures=skip_failures,
+    )
 
     results = SimilarityResults(samples, config, embeddings)
     brain_method.save_run_results(samples, brain_key, results)
@@ -121,6 +98,9 @@ def compute_similarity(
 
 
 class Similarity(fob.BrainMethod):
+    def ensure_requirements(self):
+        pass
+
     def get_fields(self, samples, brain_key):
         fields = []
         if self.config.patches_field is not None:
