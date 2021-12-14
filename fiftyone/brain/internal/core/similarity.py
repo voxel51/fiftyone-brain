@@ -460,6 +460,8 @@ def find_duplicates(results, thresh, fraction):
         min_dists, min_inds = neighbors.kneighbors(
             embeddings[dup_inds, :], n_neighbors=1
         )
+        min_dists = min_dists.ravel()
+        min_inds = min_inds.ravel()
 
     unique_ids = [_id for idx, _id in enumerate(ids) if idx in keep]
     duplicate_ids = [_id for idx, _id in enumerate(ids) if idx not in keep]
