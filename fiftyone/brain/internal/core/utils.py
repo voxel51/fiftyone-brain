@@ -207,4 +207,7 @@ def _handle_missing_patch_embeddings(embeddings, samples, patches_field):
         embeddings[idx] = np.tile(missing_embedding, (count, 1))
         num_missing += count
 
-    logger.warning("Using zeros for %d missing patch embeddings", num_missing)
+    if num_missing > 0:
+        logger.warning(
+            "Using zeros for %d missing patch embeddings", num_missing
+        )
