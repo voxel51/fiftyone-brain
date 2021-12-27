@@ -165,6 +165,7 @@ def compute_uniqueness(
     batch_size=None,
     force_square=False,
     alpha=None,
+    skip_failures=True,
 ):
     """Adds a uniqueness field to each sample scoring how unique it is with
     respect to the rest of the samples.
@@ -214,6 +215,8 @@ def compute_uniqueness(
             ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
             to contract the boxes by 10%. Only applicable when a ``model`` and
             ``roi_field`` are specified
+        skip_failures (True): whether to gracefully continue without raising an
+            error if embeddings cannot be generated for a sample
     """
     import fiftyone.brain.internal.core.uniqueness as fbu
 
@@ -226,6 +229,7 @@ def compute_uniqueness(
         batch_size,
         force_square,
         alpha,
+        skip_failures,
     )
 
 

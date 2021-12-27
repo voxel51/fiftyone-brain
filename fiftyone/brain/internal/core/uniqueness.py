@@ -18,8 +18,8 @@ import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
 import fiftyone.core.media as fom
 import fiftyone.core.validation as fov
-import fiftyone.zoo as foz
 
+import fiftyone.brain.internal.core.utils as fbu
 import fiftyone.brain.internal.models as fbm
 
 
@@ -48,6 +48,7 @@ def compute_uniqueness(
     batch_size,
     force_square,
     alpha,
+    skip_failures,
 ):
     """See ``fiftyone/brain/__init__.py``."""
 
@@ -73,6 +74,11 @@ def compute_uniqueness(
     if samples.media_type == fom.VIDEO:
         raise ValueError("Uniqueness does not yet support video collections")
 
+    if model is None and embeddings is None:
+        model = fbm.load_model(_DEFAULT_MODEL)
+        if batch_size is None:
+            batch_size = _DEFAULT_BATCH_SIZE
+
     if etau.is_str(embeddings):
         embeddings_field = embeddings
         embeddings = None
@@ -90,49 +96,25 @@ def compute_uniqueness(
     brain_method.ensure_requirements()
     brain_method.register_run(samples, brain_key)
 
-    #
-    # Get embeddings
-    #
+    if roi_field is not None:
+        # @todo experiment with mean(), max(), abs().max(), etc
+        agg_fcn = lambda e: np.mean(e, axis=0)
+    else:
+        agg_fcn = None
 
-    if model is not None or (embeddings is None and embeddings_field is None):
-        if etau.is_str(model):
-            model = foz.load_zoo_model(model)
-        elif model is None:
-            model = fbm.load_model(_DEFAULT_MODEL)
-            if batch_size is None:
-                batch_size = _DEFAULT_BATCH_SIZE
-
-        logger.info("Generating embeddings...")
-
-        if roi_field is None:
-            embeddings = samples.compute_embeddings(
-                model, batch_size=batch_size
-            )
-        else:
-            embeddings = samples.compute_patch_embeddings(
-                model,
-                roi_field,
-                handle_missing="image",
-                batch_size=batch_size,
-                force_square=force_square,
-                alpha=alpha,
-            )
-
-    if embeddings_field is not None:
-        # extracts a potentially huge number of embedding vectors/arrays
-        embeddings = samples.values(embeddings_field)
-
-    if isinstance(embeddings, dict):
-        _embeddings = []
-        for _id in samples.values("id"):
-            e = embeddings[_id]
-            if roi_field is not None:
-                # @todo experiment with mean(), max(), abs().max(), etc
-                e = e.max(axis=0)
-
-            _embeddings.append(e)
-
-        embeddings = np.stack(_embeddings)
+    embeddings = fbu.get_embeddings(
+        samples,
+        model=model,
+        patches_field=roi_field,
+        embeddings_field=embeddings_field,
+        embeddings=embeddings,
+        batch_size=batch_size,
+        force_square=force_square,
+        alpha=alpha,
+        skip_failures=skip_failures,
+        handle_missing="image",
+        agg_fcn=agg_fcn,
+    )
 
     logger.info("Computing uniqueness...")
     uniqueness = _compute_uniqueness(embeddings)
