@@ -22,10 +22,11 @@ class SimilarityResults(fob.BrainResults):
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
         config: the :class:`SimilarityConfig` used
+        brain_key: the brain key
         embeddings: a ``num_embeddings x num_dims`` array of embeddings
     """
 
-    def __init__(self, samples, config, embeddings):
+    def __init__(self, samples, config, brain_key, embeddings):
         sample_ids, label_ids = fbu.get_ids(
             samples, patches_field=config.patches_field
         )
@@ -42,6 +43,7 @@ class SimilarityResults(fob.BrainResults):
 
         self._samples = samples
         self._config = config
+        self._brain_key = brain_key
         self._sample_ids = sample_ids
         self._label_ids = label_ids
         self._last_view = None
@@ -69,6 +71,11 @@ class SimilarityResults(fob.BrainResults):
     def config(self):
         """The :class:`SimilarityConfig` for the results."""
         return self._config
+
+    @property
+    def brain_key(self):
+        """The brain key for the results."""
+        return self._brain_key
 
     @property
     def index_size(self):
@@ -433,9 +440,9 @@ class SimilarityResults(fob.BrainResults):
         return fbs.visualize_unique(self, visualization, backend, **kwargs)
 
     @classmethod
-    def _from_dict(cls, d, samples, config):
+    def _from_dict(cls, d, samples, config, brain_key):
         embeddings = np.array(d["embeddings"])
-        return cls(samples, config, embeddings)
+        return cls(samples, config, brain_key, embeddings)
 
 
 class SimilarityConfig(fob.BrainMethodConfig):

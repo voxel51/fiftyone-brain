@@ -24,10 +24,11 @@ class VisualizationResults(fob.BrainResults):
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
         config: the :class:`VisualizationConfig` used
+        brain_key: the brain key
         points: a ``num_points x num_dims`` array of visualization points
     """
 
-    def __init__(self, samples, config, points):
+    def __init__(self, samples, config, brain_key, points):
         sample_ids, label_ids = fbu.get_ids(
             samples, patches_field=config.patches_field
         )
@@ -44,6 +45,7 @@ class VisualizationResults(fob.BrainResults):
 
         self._samples = samples
         self._config = config
+        self._brain_key = brain_key
         self._sample_ids = sample_ids
         self._label_ids = label_ids
         self._last_view = None
@@ -67,6 +69,11 @@ class VisualizationResults(fob.BrainResults):
     def config(self):
         """The :class:`VisualizationConfig` for the results."""
         return self._config
+
+    @property
+    def brain_key(self):
+        """The brain key for the results."""
+        return self._brain_key
 
     @property
     def index_size(self):
@@ -226,9 +233,9 @@ class VisualizationResults(fob.BrainResults):
         )
 
     @classmethod
-    def _from_dict(cls, d, samples, config):
+    def _from_dict(cls, d, samples, config, brain_key):
         points = np.array(d["points"])
-        return cls(samples, config, points)
+        return cls(samples, config, brain_key, points)
 
 
 class VisualizationConfig(fob.BrainMethodConfig):
