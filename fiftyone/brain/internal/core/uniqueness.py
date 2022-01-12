@@ -45,9 +45,10 @@ def compute_uniqueness(
     roi_field,
     embeddings,
     model,
-    batch_size,
     force_square,
     alpha,
+    batch_size,
+    num_workers,
     skip_failures,
 ):
     """See ``fiftyone/brain/__init__.py``."""
@@ -108,12 +109,13 @@ def compute_uniqueness(
         patches_field=roi_field,
         embeddings_field=embeddings_field,
         embeddings=embeddings,
-        batch_size=batch_size,
         force_square=force_square,
         alpha=alpha,
-        skip_failures=skip_failures,
         handle_missing="image",
         agg_fcn=agg_fcn,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        skip_failures=skip_failures,
     )
 
     logger.info("Computing uniqueness...")
