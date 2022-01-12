@@ -440,42 +440,45 @@ def find_duplicates(results, thresh, fraction):
     else:
         keep = _remove_duplicates_thresh(neighbors, thresh, num_embeddings)
 
+    unique_ids = [_id for idx, _id in enumerate(ids) if idx in keep]
+    duplicate_ids = [_id for idx, _id in enumerate(ids) if idx not in keep]
+
     #
     # Locate nearest non-duplicate for each duplicate
     #
 
-    unique_inds = sorted(keep)
-
-    dup_inds = [idx for idx in range(num_embeddings) if idx not in keep]
-
-    unique_inds = np.array(unique_inds)
-    dup_inds = np.array(dup_inds)
-
-    if dists is not None:
-        # Use pre-computed distances
-        _dists = dists[unique_inds, :][:, dup_inds]
-        min_inds = np.argmin(_dists, axis=0)
-        min_dists = _dists[min_inds, range(len(dup_inds))]
-    else:
-        neighbors = skn.NearestNeighbors(metric=metric)
-        neighbors.fit(embeddings[unique_inds, :])
-        min_dists, min_inds = neighbors.kneighbors(
-            embeddings[dup_inds, :], n_neighbors=1
+    if unique_ids and duplicate_ids:
+        unique_inds = np.array(sorted(keep))
+        dup_inds = np.array(
+            [idx for idx in range(num_embeddings) if idx not in keep]
         )
-        min_dists = min_dists.ravel()
-        min_inds = min_inds.ravel()
 
-    unique_ids = [_id for idx, _id in enumerate(ids) if idx in keep]
-    duplicate_ids = [_id for idx, _id in enumerate(ids) if idx not in keep]
+        if dists is not None:
+            # Use pre-computed distances
+            _dists = dists[unique_inds, :][:, dup_inds]
+            min_inds = np.argmin(_dists, axis=0)
+            min_dists = _dists[min_inds, range(len(dup_inds))]
+        else:
+            neighbors = skn.NearestNeighbors(metric=metric)
+            neighbors.fit(embeddings[unique_inds, :])
+            min_dists, min_inds = neighbors.kneighbors(
+                embeddings[dup_inds, :], n_neighbors=1
+            )
+            min_dists = min_dists.ravel()
+            min_inds = min_inds.ravel()
 
-    neighbors_map = defaultdict(list)
-    for dup_id, min_ind, min_dist in zip(duplicate_ids, min_inds, min_dists):
-        nearest_id = ids[unique_inds[min_ind]]
-        neighbors_map[nearest_id].append((dup_id, min_dist))
+        neighbors_map = defaultdict(list)
+        for dup_id, min_ind, min_dist in zip(
+            duplicate_ids, min_inds, min_dists
+        ):
+            nearest_id = ids[unique_inds[min_ind]]
+            neighbors_map[nearest_id].append((dup_id, min_dist))
 
-    neighbors_map = {
-        k: sorted(v, key=lambda t: t[1]) for k, v in neighbors_map.items()
-    }
+        neighbors_map = {
+            k: sorted(v, key=lambda t: t[1]) for k, v in neighbors_map.items()
+        }
+    else:
+        neighbors_map = {}
 
     results._thresh = thresh
     results._unique_ids = unique_ids
@@ -729,6 +732,14 @@ def _remove_duplicates_count(
         thresh = init_thresh
     else:
         thresh = 1
+
+    if num_keep <= 0:
+        logger.info("threshold: -, kept: %d, target: %d", num_keep, num_keep)
+        return set(), None
+
+    if num_keep >= num_embeddings:
+        logger.info("threshold: -, kept: %d, target: %d", num_keep, num_keep)
+        return set(range(num_embeddings)), None
 
     thresh_lims = [0, None]
     num_target = num_keep
