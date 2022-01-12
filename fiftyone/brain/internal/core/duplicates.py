@@ -33,7 +33,7 @@ def compute_exact_duplicates(samples, num_workers, skip_failures):
 
     method = "md5" if samples.media_type == fom.VIDEO else None
 
-    if num_workers == 1:
+    if num_workers <= 1:
         hashes = _compute_filehashes(samples, method)
     else:
         hashes = _compute_filehashes_multi(samples, method, num_workers)
