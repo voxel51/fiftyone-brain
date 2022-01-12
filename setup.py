@@ -56,8 +56,10 @@ class CustomBdistWheel(bdist_wheel):
             not isa or platform.endswith(isa)
         )
 
-        # rewrite platform names - we currently only support 64-bit targets
-        if is_platform("linux", "x86_64"):
+        if is_platform("linux", "i686"):
+            self.plat_name = "manylinux1_i686"
+            pyarmor_platform = "linux.x86"
+        elif is_platform("linux", "x86_64"):
             self.plat_name = "manylinux1_x86_64"
             pyarmor_platform = "linux.x86_64"
         elif is_platform("linux", "aarch64"):
@@ -69,9 +71,12 @@ class CustomBdistWheel(bdist_wheel):
         elif is_platform("mac", "x86_64"):
             self.plat_name = "macosx_10_11_x86_64"
             pyarmor_platform = "darwin.x86_64"
-        elif is_platform("win"):
+        elif is_platform("win", "amd64"):
             self.plat_name = "win_amd64"
             pyarmor_platform = "windows.x86_64"
+        elif is_platform("win", "32"):
+            self.plat_name = "win32"
+            pyarmor_platform = "windows.x86"
         else:
             raise ValueError(
                 "Unsupported target platform: %r" % self.plat_name
