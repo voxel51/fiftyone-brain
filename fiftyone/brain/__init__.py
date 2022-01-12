@@ -162,9 +162,11 @@ def compute_uniqueness(
     roi_field=None,
     embeddings=None,
     model=None,
-    batch_size=None,
     force_square=False,
     alpha=None,
+    batch_size=None,
+    num_workers=None,
+    skip_failures=True,
 ):
     """Adds a uniqueness field to each sample scoring how unique it is with
     respect to the rest of the samples.
@@ -202,8 +204,6 @@ def compute_uniqueness(
             `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/models.html>`_
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
-        batch_size (None): a batch size to use when computing embeddings. Only
-            applicable when a ``model`` is provided
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``roi_field`` are specified
@@ -214,6 +214,13 @@ def compute_uniqueness(
             ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
             to contract the boxes by 10%. Only applicable when a ``model`` and
             ``roi_field`` are specified
+        batch_size (None): a batch size to use when computing embeddings. Only
+            applicable when a ``model`` is provided
+        num_workers (None): the number of workers to use when loading images.
+            Only applicable when a Torch-based model is being used to compute
+            embeddings
+        skip_failures (True): whether to gracefully continue without raising an
+            error if embeddings cannot be generated for a sample
     """
     import fiftyone.brain.internal.core.uniqueness as fbu
 
@@ -223,9 +230,11 @@ def compute_uniqueness(
         roi_field,
         embeddings,
         model,
-        batch_size,
         force_square,
         alpha,
+        batch_size,
+        num_workers,
+        skip_failures,
     )
 
 
@@ -238,9 +247,10 @@ def compute_visualization(
     num_dims=2,
     method="umap",
     model=None,
-    batch_size=None,
     force_square=False,
     alpha=None,
+    batch_size=None,
+    num_workers=None,
     skip_failures=True,
     **kwargs,
 ):
@@ -307,8 +317,6 @@ def compute_visualization(
             `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/index.html>`_
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
-        batch_size (None): an optional batch size to use when computing
-            embeddings. Only applicable when a ``model`` is provided
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``patches_field`` are specified
@@ -319,6 +327,11 @@ def compute_visualization(
             ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
             to contract the boxes by 10%. Only applicable when a ``model`` and
             ``patches_field`` are specified
+        batch_size (None): an optional batch size to use when computing
+            embeddings. Only applicable when a ``model`` is provided
+        num_workers (None): the number of workers to use when loading images.
+            Only applicable when a Torch-based model is being used to compute
+            embeddings
         skip_failures (True): whether to gracefully continue without raising an
             error if embeddings cannot be generated for a sample
         **kwargs: optional keyword arguments for the constructor of the
@@ -339,9 +352,10 @@ def compute_visualization(
         num_dims,
         method,
         model,
-        batch_size,
         force_square,
         alpha,
+        batch_size,
+        num_workers,
         skip_failures,
         **kwargs,
     )
@@ -354,9 +368,10 @@ def compute_similarity(
     brain_key=None,
     metric="euclidean",
     model=None,
-    batch_size=None,
     force_square=False,
     alpha=None,
+    batch_size=None,
+    num_workers=None,
     skip_failures=True,
 ):
     """Uses embeddings to index the samples or their patches so that you can
@@ -407,8 +422,6 @@ def compute_similarity(
             `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/index.html>`_
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
-        batch_size (None): an optional batch size to use when computing
-            embeddings. Only applicable when a ``model`` is provided
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``patches_field`` are specified
@@ -419,6 +432,11 @@ def compute_similarity(
             ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
             to contract the boxes by 10%. Only applicable when a ``model`` and
             ``patches_field`` are specified
+        batch_size (None): an optional batch size to use when computing
+            embeddings. Only applicable when a ``model`` is provided
+        num_workers (None): the number of workers to use when loading images.
+            Only applicable when a Torch-based model is being used to compute
+            embeddings
         skip_failures (True): whether to gracefully continue without raising an
             error if embeddings cannot be generated for a sample
 
@@ -434,9 +452,10 @@ def compute_similarity(
         brain_key,
         metric,
         model,
-        batch_size,
         force_square,
         alpha,
+        batch_size,
+        num_workers,
         skip_failures,
     )
 

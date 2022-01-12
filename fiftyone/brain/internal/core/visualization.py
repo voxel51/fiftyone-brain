@@ -46,9 +46,10 @@ def compute_visualization(
     num_dims,
     method,
     model,
-    batch_size,
     force_square,
     alpha,
+    batch_size,
+    num_workers,
     skip_failures,
     **kwargs,
 ):
@@ -95,9 +96,10 @@ def compute_visualization(
             patches_field=patches_field,
             embeddings_field=embeddings_field,
             embeddings=embeddings,
-            batch_size=batch_size,
             force_square=force_square,
             alpha=alpha,
+            batch_size=batch_size,
+            num_workers=num_workers,
             skip_failures=skip_failures,
         )
 

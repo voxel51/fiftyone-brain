@@ -47,9 +47,10 @@ def compute_similarity(
     brain_key,
     metric,
     model,
-    batch_size,
     force_square,
     alpha,
+    batch_size,
+    num_workers,
     skip_failures,
 ):
     """See ``fiftyone/brain/__init__.py``."""
@@ -85,9 +86,10 @@ def compute_similarity(
         patches_field=patches_field,
         embeddings_field=embeddings_field,
         embeddings=embeddings,
-        batch_size=batch_size,
         force_square=force_square,
         alpha=alpha,
+        batch_size=batch_size,
+        num_workers=num_workers,
         skip_failures=skip_failures,
     )
 

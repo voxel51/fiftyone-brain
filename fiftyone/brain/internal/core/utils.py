@@ -109,9 +109,12 @@ def get_embeddings(
     patches_field=None,
     embeddings_field=None,
     embeddings=None,
-    batch_size=None,
     force_square=False,
     alpha=None,
+    handle_missing="skip",
+    agg_fcn=None,
+    batch_size=None,
+    num_workers=None,
     skip_failures=True,
 ):
     if model is not None:
@@ -124,10 +127,11 @@ def get_embeddings(
                 model,
                 patches_field,
                 embeddings_field=embeddings_field,
-                handle_missing="skip",
-                batch_size=batch_size,
                 force_square=force_square,
                 alpha=alpha,
+                handle_missing=handle_missing,
+                batch_size=batch_size,
+                num_workers=num_workers,
                 skip_failures=skip_failures,
             )
         else:
@@ -136,6 +140,7 @@ def get_embeddings(
                 model,
                 embeddings_field=embeddings_field,
                 batch_size=batch_size,
+                num_workers=num_workers,
                 skip_failures=skip_failures,
             )
     elif embeddings_field is not None:
@@ -154,9 +159,18 @@ def get_embeddings(
 
     if patches_field is not None:
         _handle_missing_patch_embeddings(embeddings, samples, patches_field)
-        embeddings = np.concatenate(embeddings, axis=0)
+
+        if agg_fcn is not None:
+            embeddings = [agg_fcn(e) for e in embeddings]
+            embeddings = np.stack(embeddings)
+        else:
+            embeddings = np.concatenate(embeddings, axis=0)
     else:
         _handle_missing_embeddings(embeddings)
+
+        if agg_fcn is not None:
+            embeddings = [agg_fcn(e) for e in embeddings]
+
         embeddings = np.stack(embeddings)
 
     return embeddings
