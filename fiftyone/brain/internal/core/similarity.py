@@ -20,6 +20,7 @@ from fiftyone import ViewField as F
 import fiftyone.core.brain as fob
 import fiftyone.core.context as foc
 import fiftyone.core.fields as fof
+import fiftyone.core.labels as fol
 import fiftyone.core.patches as fop
 import fiftyone.core.stages as fos
 import fiftyone.core.validation as fov
@@ -289,7 +290,9 @@ def plot_distances(results, bins, log, backend, **kwargs):
     return _plot_distances_plotly(dists, metric, thresh, bins, log, **kwargs)
 
 
-def sort_by_similarity(results, query_ids, k, reverse, aggregation, mongo):
+def sort_by_similarity(
+    results, query_ids, k, reverse, aggregation, dist_field, mongo
+):
     _ensure_neighbors(results)
 
     samples = results.view
@@ -369,6 +372,30 @@ def sort_by_similarity(results, query_ids, k, reverse, aggregation, mongo):
         result_ids = list(sample_ids[inds])
     else:
         result_ids = list(label_ids[inds])
+
+    #
+    # Store query distances
+    #
+
+    if dist_field is not None:
+        if patches_field is None:
+            values = {sample_ids[ind]: dists[ind] for ind in inds}
+            samples.set_values(dist_field, values, key_field="id")
+        else:
+            label_type, path = samples._get_label_field_path(
+                patches_field, dist_field
+            )
+            if issubclass(label_type, fol._LABEL_LIST_FIELDS):
+                samples._set_list_values_by_id(
+                    path,
+                    sample_ids[inds],
+                    label_ids[inds],
+                    dists[inds],
+                    path.rsplit(".", 1)[0],
+                )
+            else:
+                values = {sample_ids[ind]: dists[ind] for ind in inds}
+                samples.set_values(path, values, key_field="id")
 
     #
     # Construct sorted view
