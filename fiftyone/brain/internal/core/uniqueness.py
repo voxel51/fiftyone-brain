@@ -164,6 +164,8 @@ def _compute_uniqueness(embeddings, metric="euclidean"):
 
 
 # @todo move to `fiftyone/brain/uniqueness.py`
+# Don't do this hastily; `get_brain_info()` on existing datasets has this
+# class's full path in it and may need migration
 class UniquenessConfig(fob.BrainMethodConfig):
     def __init__(
         self,

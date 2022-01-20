@@ -156,6 +156,8 @@ def compute_mistakenness(
 
 
 # @todo move to `fiftyone/brain/mistakenness.py`
+# Don't do this hastily; `get_brain_info()` on existing datasets has this
+# class's full path in it and may need migration
 class MistakennessMethodConfig(fob.BrainMethodConfig):
     def __init__(self, pred_field, label_field, mistakenness_field, **kwargs):
         super().__init__(**kwargs)
@@ -194,6 +196,8 @@ class MistakennessMethod(fob.BrainMethod):
 
 
 # @todo move to `fiftyone/brain/mistakenness.py`
+# Don't do this hastily; `get_brain_info()` on existing datasets has this
+# class's full path in it and may need migration
 class ClassificationMistakennessConfig(MistakennessMethodConfig):
     def __init__(
         self, pred_field, label_field, mistakenness_field, use_logits, **kwargs
@@ -256,6 +260,8 @@ class ClassificationMistakenness(MistakennessMethod):
 
 
 # @todo move to `fiftyone/brain/mistakenness.py`
+# Don't do this hastily; `get_brain_info()` on existing datasets has this
+# class's full path in it and may need migration
 class DetectionMistakennessConfig(MistakennessMethodConfig):
     def __init__(
         self,
