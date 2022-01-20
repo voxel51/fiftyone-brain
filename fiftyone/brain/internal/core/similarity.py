@@ -302,6 +302,10 @@ def sort_by_similarity(
     patches_field = results.config.patches_field
     metric = results.config.metric
 
+    selecting_samples = patches_field is None or isinstance(
+        samples, fop.PatchesView
+    )
+
     if etau.is_str(query_ids):
         query_ids = [query_ids]
 
@@ -368,17 +372,12 @@ def sort_by_similarity(
     if k is not None:
         inds = inds[:k]
 
-    if patches_field is None:
-        result_ids = list(sample_ids[inds])
-    else:
-        result_ids = list(label_ids[inds])
-
     #
     # Store query distances
     #
 
     if dist_field is not None:
-        if patches_field is None:
+        if selecting_samples:
             values = {sample_ids[ind]: dists[ind] for ind in inds}
             samples.set_values(dist_field, values, key_field="id")
         else:
@@ -403,16 +402,18 @@ def sort_by_similarity(
 
     stages = []
 
-    if patches_field is None:
-        stage = fos.Select(result_ids, ordered=True)
+    if selecting_samples:
+        stage = fos.Select(sample_ids[inds], ordered=True)
         stages.append(stage)
     else:
+        # We're sorting by object similarity but this is not a patches view, so
+        # arrange the samples in order of their first occuring label
         result_sample_ids = _unique_no_sort(sample_ids[inds])
         stage = fos.Select(result_sample_ids, ordered=True)
         stages.append(stage)
 
         if k is not None:
-            _ids = [ObjectId(_id) for _id in result_ids]
+            _ids = [ObjectId(_id) for _id in label_ids[inds]]
             stage = fos.FilterLabels(patches_field, F("_id").is_in(_ids))
             stages.append(stage)
 
