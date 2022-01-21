@@ -35,14 +35,12 @@ def compute_hardness(samples, label_field, hardness_field):
     fov.validate_collection(samples)
     fov.validate_collection_label_fields(samples, label_field, _ALLOWED_TYPES)
 
-    if samples._is_frame_field(label_field):
-        raise ValueError("Hardness does not yet support frame fields")
-
     config = HardnessConfig(label_field, hardness_field)
     brain_key = hardness_field
     brain_method = config.build()
     brain_method.ensure_requirements()
     brain_method.register_run(samples, brain_key)
+    brain_method.register_samples(samples)
 
     view = samples.select_fields(label_field)
     processing_frames = samples._is_frame_field(label_field)
@@ -56,12 +54,7 @@ def compute_hardness(samples, label_field, hardness_field):
 
         sample_hardness = []
         for image in images:
-            label = _get_data(image, label_field)
-
-            if label is not None:
-                hardness = entropy(softmax(np.asarray(label.logits)))
-            else:
-                hardness = None
+            hardness = brain_method.process_image(image)
 
             if hardness is not None:
                 sample_hardness.append(hardness)
@@ -94,8 +87,25 @@ class HardnessConfig(fob.BrainMethodConfig):
 
 
 class Hardness(fob.BrainMethod):
+    def __init__(self, config):
+        super().__init__(config)
+        self.label_field = None
+
     def ensure_requirements(self):
         pass
+
+    def register_samples(self, samples):
+        self.label_field, _ = samples._handle_frame_field(
+            self.config.label_field
+        )
+
+    def process_image(self, sample_or_frame):
+        label = _get_data(sample_or_frame, self.label_field)
+
+        if label is None:
+            return None
+
+        return entropy(softmax(np.asarray(label.logits)))
 
     def get_fields(self, samples, brain_key):
         label_field = self.config.label_field

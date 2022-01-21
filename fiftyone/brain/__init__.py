@@ -31,6 +31,10 @@ def compute_hardness(samples, label_field, hardness_field="hardness"):
     sample. This makes hardness quantitative and can be used to detect things
     like hard samples, annotation errors during noisy training, and more.
 
+    All classifications must have their
+    :attr:`logits <fiftyone.core.labels.Classification.logits>` attributes
+    populated in order to use this method.
+
     .. note::
 
         Runs of this method can be referenced later via brain key
