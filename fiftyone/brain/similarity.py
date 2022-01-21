@@ -210,6 +210,7 @@ class SimilarityResults(fob.BrainResults):
         k=None,
         reverse=False,
         aggregation="mean",
+        dist_field=None,
         _mongo=False,
     ):
         """Returns a view that sorts the samples/labels in :meth:`view` by
@@ -227,12 +228,15 @@ class SimilarityResults(fob.BrainResults):
                 composite similarities. Only applicable when ``query_ids``
                 contains multiple IDs. Supported values are
                 ``("mean", "min", "max")``
+            dist_field (None): the name of a float field in which to store the
+                distance of each example to the specified query. The field is
+                created if necessary
 
         Returns:
             a :class:`fiftyone.core.view.DatasetView`
         """
         return fbs.sort_by_similarity(
-            self, query_ids, k, reverse, aggregation, _mongo
+            self, query_ids, k, reverse, aggregation, dist_field, _mongo
         )
 
     def find_duplicates(self, thresh=None, fraction=None):
