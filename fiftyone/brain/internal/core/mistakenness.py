@@ -22,7 +22,12 @@ import fiftyone.core.validation as fov
 logger = logging.getLogger(__name__)
 
 
-_ALLOWED_TYPES = (fol.Classification, fol.Classifications, fol.Detections)
+_ALLOWED_TYPES = (
+    fol.Classification,
+    fol.Classifications,
+    fol.Detections,
+    fol.Polylines,
+)
 _MISSED_CONFIDENCE_THRESHOLD = 0.95
 _DETECTION_IOU = 0.5
 
@@ -59,15 +64,17 @@ def compute_mistakenness(
     # mistakenness.
     #
     # See the docstring above for additional handling of missing and spurious
-    # detections.
+    # detections/polylines.
     #
 
     fov.validate_collection_label_fields(
         samples, (pred_field, label_field), _ALLOWED_TYPES, same_type=True
     )
 
-    is_detections = samples._is_label_field(pred_field, fol.Detections)
-    if is_detections:
+    is_objects = samples._is_label_field(
+        pred_field, (fol.Detections, fol.Polylines)
+    )
+    if is_objects:
         eval_key = _make_eval_key(samples, mistakenness_field)
         config = DetectionMistakennessConfig(
             pred_field,
@@ -89,8 +96,9 @@ def compute_mistakenness(
     brain_method = config.build()
     brain_method.ensure_requirements()
     brain_method.register_run(samples, brain_key)
+    brain_method.register_samples(samples)
 
-    if is_detections:
+    if is_objects:
         samples.evaluate_detections(
             pred_field,
             gt_field=label_field,
@@ -99,51 +107,51 @@ def compute_mistakenness(
             iou=_DETECTION_IOU,
         )
 
-    pred_field, processing_frames = samples._handle_frame_field(pred_field)
-    label_field, _ = samples._handle_frame_field(label_field)
-
-    if not processing_frames:
-        iter_samples = samples.select_fields([label_field, pred_field])
-    else:
-        iter_samples = samples
+    view = samples.select_fields([label_field, pred_field])
+    processing_frames = samples._is_frame_field(label_field)
 
     logger.info("Computing mistakenness...")
-    with fou.ProgressBar() as pb:
-        for sample in pb(iter_samples):
-            if processing_frames:
-                images = sample.frames.values()
-            else:
-                images = [sample]
+    for sample in view.iter_samples(progress=True):
+        if processing_frames:
+            images = sample.frames.values()
+        else:
+            images = [sample]
 
-            sample_mistakenness = []
-            num_missing = 0
-            num_spurious = 0
-            for image in images:
-                if is_detections:
-                    (
-                        img_mistakenness,
-                        img_missing,
-                        img_spurious,
-                    ) = brain_method.process_image(image, eval_key)
+        sample_mistakenness = []
+        num_missing = 0
+        num_spurious = 0
+        for image in images:
+            if is_objects:
+                (
+                    img_mistakenness,
+                    img_missing,
+                    img_spurious,
+                ) = brain_method.process_image(image, eval_key)
 
-                    num_missing += img_missing
-                    num_spurious += img_spurious
-                    if processing_frames:
-                        image[missing_field] = img_missing
-                        image[spurious_field] = img_spurious
-                else:
-                    img_mistakenness = brain_method.process_image(image)
-
-                sample_mistakenness.append(img_mistakenness)
+                num_missing += img_missing
+                num_spurious += img_spurious
                 if processing_frames:
-                    image[mistakenness_field] = img_mistakenness
+                    image[missing_field] = img_missing
+                    image[spurious_field] = img_spurious
+            else:
+                img_mistakenness = brain_method.process_image(image)
 
+            if img_mistakenness is not None:
+                sample_mistakenness.append(img_mistakenness)
+
+            if processing_frames:
+                image[mistakenness_field] = img_mistakenness
+
+        if sample_mistakenness:
             sample[mistakenness_field] = np.max(sample_mistakenness)
-            if is_detections:
-                sample[missing_field] = num_missing
-                sample[spurious_field] = num_spurious
+        else:
+            sample[mistakenness_field] = None
 
-            sample.save()
+        if is_objects:
+            sample[missing_field] = num_missing
+            sample[spurious_field] = num_spurious
+
+        sample.save()
 
     if eval_key is not None:
         samples.delete_evaluation(eval_key)
@@ -154,6 +162,8 @@ def compute_mistakenness(
 
 
 # @todo move to `fiftyone/brain/mistakenness.py`
+# Don't do this hastily; `get_brain_info()` on existing datasets has this
+# class's full path in it and may need migration
 class MistakennessMethodConfig(fob.BrainMethodConfig):
     def __init__(self, pred_field, label_field, mistakenness_field, **kwargs):
         super().__init__(**kwargs)
@@ -167,8 +177,23 @@ class MistakennessMethodConfig(fob.BrainMethodConfig):
 
 
 class MistakennessMethod(fob.BrainMethod):
+    def __init__(self, config):
+        super().__init__(config)
+        self.pred_field = None
+        self.label_field = None
+        self.label_type = None
+
     def ensure_requirements(self):
         pass
+
+    def register_samples(self, samples):
+        self.pred_field, _ = samples._handle_frame_field(
+            self.config.pred_field
+        )
+        self.label_field, _ = samples._handle_frame_field(
+            self.config.label_field
+        )
+        self.label_type = samples._get_label_field_type(self.config.pred_field)
 
     def _validate_run(self, samples, brain_key, existing_info):
         self._validate_fields_match(brain_key, "pred_field", existing_info)
@@ -179,6 +204,8 @@ class MistakennessMethod(fob.BrainMethod):
 
 
 # @todo move to `fiftyone/brain/mistakenness.py`
+# Don't do this hastily; `get_brain_info()` on existing datasets has this
+# class's full path in it and may need migration
 class ClassificationMistakennessConfig(MistakennessMethodConfig):
     def __init__(
         self, pred_field, label_field, mistakenness_field, use_logits, **kwargs
@@ -189,15 +216,18 @@ class ClassificationMistakennessConfig(MistakennessMethodConfig):
 
 class ClassificationMistakenness(MistakennessMethod):
     def process_image(self, sample_or_frame):
-        pred_field = self.config.pred_field
-        label_field = self.config.label_field
         use_logits = self.config.use_logits
 
         pred_label, gt_label = _get_data(
-            sample_or_frame, pred_field, label_field, use_logits
+            sample_or_frame, self.pred_field, self.label_field, use_logits
         )
 
-        if isinstance(pred_label, fol.Classifications):
+        if pred_label is None and gt_label is None:
+            return None
+
+        if pred_label is None or gt_label is None:
+            m = 1.0
+        elif isinstance(pred_label, fol.Classifications):
             # For multilabel problems, all labels must match
             pred_labels = set(c.label for c in pred_label.classifications)
             gt_labels = set(c.label for c in gt_label.classifications)
@@ -205,7 +235,9 @@ class ClassificationMistakenness(MistakennessMethod):
         else:
             m = float(pred_label.label == gt_label.label)
 
-        if use_logits:
+        if pred_label is None:
+            mistakenness = 1.0
+        elif use_logits:
             mistakenness = _compute_mistakenness_class(pred_label.logits, m)
         else:
             mistakenness = _compute_mistakenness_class_conf(
@@ -215,25 +247,34 @@ class ClassificationMistakenness(MistakennessMethod):
         return mistakenness
 
     def get_fields(self, samples, brain_key):
+        pred_field = self.config.pred_field
+        label_field = self.config.label_field
         mistakenness_field = self.config.mistakenness_field
-        eval_fields = [mistakenness_field]
-        if samples._is_frame_field(self.config.pred_field):
-            eval_fields.append(samples._FRAMES_PREFIX + brain_key)
 
-        return eval_fields
+        fields = [pred_field, label_field, mistakenness_field]
+
+        if samples._is_frame_field(label_field):
+            fields.append(samples._FRAMES_PREFIX + mistakenness_field)
+
+        return fields
 
     def cleanup(self, samples, brain_key):
+        label_field = self.config.label_field
         mistakenness_field = self.config.mistakenness_field
+
         samples._dataset.delete_sample_fields(
             mistakenness_field, error_level=1
         )
-        if samples._is_frame_field(self.config.pred_field):
+
+        if samples._is_frame_field(label_field):
             samples._dataset.delete_frame_fields(
                 mistakenness_field, error_level=1
             )
 
 
 # @todo move to `fiftyone/brain/mistakenness.py`
+# Don't do this hastily; `get_brain_info()` on existing datasets has this
+# class's full path in it and may need migration
 class DetectionMistakennessConfig(MistakennessMethodConfig):
     def __init__(
         self,
@@ -257,8 +298,6 @@ class DetectionMistakennessConfig(MistakennessMethodConfig):
 
 class DetectionMistakenness(MistakennessMethod):
     def process_image(self, sample_or_frame, eval_key):
-        pred_field = self.config.pred_field
-        gt_field = self.config.label_field
         missing_field = self.config.missing_field
         spurious_field = self.config.spurious_field
         mistakenness_field = self.config.mistakenness_field
@@ -266,64 +305,73 @@ class DetectionMistakenness(MistakennessMethod):
         use_logits = self.config.use_logits
 
         pred_label, gt_label = _get_data(
-            sample_or_frame, pred_field, gt_field, use_logits
+            sample_or_frame, self.pred_field, self.label_field, use_logits
         )
+
+        list_field = self.label_type._LABEL_LIST_FIELD
+
+        if pred_label is None:
+            pred_label = self.label_type()
+
+        if gt_label is None:
+            gt_label = self.label_type()
 
         num_spurious = 0
         num_missing = 0
-        missing_detections = {}
+        missing_objects = {}
         image_mistakenness = []
         pred_map = {}
-        for pred_det in pred_label.detections:
-            pred_map[pred_det.id] = pred_det
-            gt_id = pred_det[eval_key + "_id"]
-            conf = pred_det.confidence
+        for pred_obj in pred_label[list_field]:
+            pred_map[pred_obj.id] = pred_obj
+            gt_id = pred_obj[eval_key + "_id"]
+            conf = pred_obj.confidence
             if gt_id == "" and conf > _MISSED_CONFIDENCE_THRESHOLD:
-                # Unmached FP with high conf are missing
-                pred_det[missing_field] = True
+                # Unmached FP with high confidence are missing
+                pred_obj[missing_field] = True
                 num_missing += 1
-                missing_detections[pred_det.id] = pred_det
+                missing_objects[pred_obj.id] = pred_obj
 
-        for gt_det in gt_label.detections:
-            # Avoid adding the same unmatched FP predictions to gt
-            # again upon multiple runs of this method
-            if copy_missing and gt_det.has_field(missing_field):
-                if gt_det.id in missing_detections:
-                    del missing_detections[gt_det.id]
+        for gt_obj in gt_label[list_field]:
+            # Avoid adding the same unmatched FP predictions upon multiple runs
+            # of this method
+            if copy_missing and gt_obj.has_field(missing_field):
+                if gt_obj.id in missing_objects:
+                    del missing_objects[gt_obj.id]
 
                 continue
 
-            pred_id = gt_det[eval_key + "_id"]
+            pred_id = gt_obj[eval_key + "_id"]
             if pred_id == "":
                 # FN may be spurious
-                gt_det[spurious_field] = True
+                gt_obj[spurious_field] = True
                 num_spurious += 1
             else:
                 # For matched FP, compute mistakenness
-                iou = gt_det[eval_key + "_iou"]
-                pred_det = pred_map[pred_id]
-                m = float(gt_det.label == pred_det.label)
+                iou = gt_obj[eval_key + "_iou"]
+                pred_obj = pred_map[pred_id]
+                m = float(gt_obj.label == pred_obj.label)
                 if use_logits:
                     mistakenness_class = _compute_mistakenness_class(
-                        pred_det.logits, m
+                        pred_obj.logits, m
                     )
                     mistakenness_loc = _compute_mistakenness_loc(
-                        pred_det.logits, iou
+                        pred_obj.logits, iou
                     )
                 else:
                     mistakenness_class = _compute_mistakenness_class_conf(
-                        pred_det.confidence, m
+                        pred_obj.confidence, m
                     )
                     mistakenness_loc = _compute_mistakenness_loc_conf(
-                        pred_det.confidence, iou
+                        pred_obj.confidence, iou
                     )
 
-                gt_det[mistakenness_field] = mistakenness_class
-                gt_det[mistakenness_field + "_loc"] = mistakenness_loc
+                gt_obj[mistakenness_field] = mistakenness_class
+                gt_obj[mistakenness_field + "_loc"] = mistakenness_loc
                 image_mistakenness.append(mistakenness_class)
 
         if copy_missing:
-            gt_label.detections.extend(missing_detections.values())
+            gt_label[list_field].extend(missing_objects.values())
+            sample_or_frame[self.label_field] = gt_label
 
         if image_mistakenness:
             mistakenness = np.max(image_mistakenness)
@@ -339,14 +387,17 @@ class DetectionMistakenness(MistakennessMethod):
         missing_field = self.config.missing_field
         spurious_field = self.config.spurious_field
 
+        label_type = samples._get_label_field_type(pred_field)
+        list_field = label_type._LABEL_LIST_FIELD
+
         fields = [
             mistakenness_field,
             missing_field,
             spurious_field,
-            "%s.detections.%s" % (label_field, mistakenness_field),
-            "%s.detections.%s_loc" % (label_field, mistakenness_field),
-            "%s.detections.%s" % (pred_field, missing_field),
-            "%s.detections.%s" % (label_field, spurious_field),
+            "%s.%s.%s" % (label_field, list_field, mistakenness_field),
+            "%s.%s.%s_loc" % (label_field, list_field, mistakenness_field),
+            "%s.%s.%s" % (pred_field, list_field, missing_field),
+            "%s.%s.%s" % (label_field, list_field, spurious_field),
         ]
 
         if samples._is_frame_field(pred_field):
@@ -361,27 +412,31 @@ class DetectionMistakenness(MistakennessMethod):
         return fields
 
     def cleanup(self, samples, brain_key):
-        eval_key = self.config.eval_key
+        pred_field = self.config.pred_field
+        label_field = self.config.label_field
         mistakenness_field = self.config.mistakenness_field
         missing_field = self.config.missing_field
         spurious_field = self.config.spurious_field
-        pred_field, is_frame_field = samples._handle_frame_field(
-            self.config.pred_field
-        )
-        label_field, _ = samples._handle_frame_field(self.config.label_field)
+        eval_key = self.config.eval_key
+
+        label_type = samples._get_label_field_type(pred_field)
+        list_field = label_type._LABEL_LIST_FIELD
+
+        pred_field, is_frame_field = samples._handle_frame_field(pred_field)
+        label_field, _ = samples._handle_frame_field(label_field)
 
         fields = [
             mistakenness_field,
             missing_field,
             spurious_field,
-            "%s.detections.%s" % (label_field, mistakenness_field),
-            "%s.detections.%s_loc" % (label_field, mistakenness_field),
-            "%s.detections.%s" % (pred_field, missing_field),
-            "%s.detections.%s" % (label_field, spurious_field),
+            "%s.%s.%s" % (label_field, list_field, mistakenness_field),
+            "%s.%s.%s_loc" % (label_field, list_field, mistakenness_field),
+            "%s.%s.%s" % (pred_field, list_field, missing_field),
+            "%s.%s.%s" % (label_field, list_field, spurious_field),
         ]
 
         if self.config.copy_missing:
-            # Remove detections that were added to `label_field`
+            # Remove objects that were added to `label_field`
             samples._dataset.filter_labels(
                 self.config.label_field, F(missing_field).exists(False)
             ).save()
@@ -419,30 +474,32 @@ def _make_eval_key(samples, brain_key):
 
 
 def _get_data(sample, pred_field, label_field, use_logits):
-    pred_label, label = fov.get_fields(
-        sample,
-        (pred_field, label_field),
-        allowed_types=_ALLOWED_TYPES,
-        same_type=True,
-        allow_none=False,
-    )
+    pred_label = sample[pred_field]
+    label = sample[label_field]
+
+    if pred_label is None:
+        return pred_label, label
 
     if isinstance(pred_label, fol.Detections):
         for det in pred_label.detections:
-            # We always need confidence for detections
             if det.confidence is None:
                 raise ValueError(
-                    "Detection '%s' in Sample '%s' field '%s' has no "
+                    "Detection '%s' in sample '%s' field '%s' has no "
                     "confidence" % (det.id, sample.id, pred_field)
                 )
-
+    elif isinstance(pred_label, fol.Polylines):
+        for poly in pred_label.polylines:
+            if poly.confidence is None:
+                raise ValueError(
+                    "Polyline '%s' in sample '%s' field '%s' has no "
+                    "confidence" % (poly.id, sample.id, pred_field)
+                )
     elif use_logits:
         if pred_label.logits is None:
             raise ValueError(
                 "Sample '%s' field '%s' has no logits"
                 % (sample.id, pred_field)
             )
-
     else:
         if pred_label.confidence is None:
             raise ValueError(
