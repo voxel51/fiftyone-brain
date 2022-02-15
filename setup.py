@@ -67,7 +67,7 @@ class CustomBdistWheel(bdist_wheel):
             pyarmor_platform = "linux.aarch64"
         elif is_platform("mac", "arm64"):
             self.plat_name = "macosx_11_0_arm64"
-            pyarmor_platform = "darwin.aarch64"
+            pyarmor_platform = "darwin.aarch64.0"
         elif is_platform("mac", "x86_64"):
             self.plat_name = "macosx_10_11_x86_64"
             pyarmor_platform = "darwin.x86_64"
@@ -106,7 +106,7 @@ with open("LICENSE", "r") as fh:
     long_description += "\n## License\n\n" + fh.read()
 
 
-VERSION = "0.8.0"
+VERSION = "0.8.1"
 
 
 def get_version():
