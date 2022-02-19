@@ -67,7 +67,7 @@ class CustomBdistWheel(bdist_wheel):
             pyarmor_platform = "linux.aarch64"
         elif is_platform("mac", "arm64"):
             self.plat_name = "macosx_11_0_arm64"
-            pyarmor_platform = "darwin.aarch64.0"
+            pyarmor_platform = "darwin.aarch.0"
         elif is_platform("mac", "x86_64"):
             self.plat_name = "macosx_10_11_x86_64"
             pyarmor_platform = "darwin.x86_64"
