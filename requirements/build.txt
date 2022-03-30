@@ -1,5 +1,4 @@
 -r common.txt
 
 pytest==5.4.3
-pyarmor==6.8.1
 twine>=3
