@@ -136,4 +136,4 @@ jobs:
           TWINE_USERNAME: __token__
           TWINE_NON_INTERACTIVE: 1
         run: |
-          python3 -m twine upload dist/*
+          python3 -m twine upload dist/artifact/*
