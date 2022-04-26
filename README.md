@@ -1,6 +1,6 @@
 # FiftyOne Brain
 
-The proprietary brains behind [FiftyOne](https://github.com/voxel51/fiftyone).
+The brains behind [FiftyOne](https://github.com/voxel51/fiftyone).
 
 ## Repository Layout
 
@@ -12,7 +12,7 @@ The proprietary brains behind [FiftyOne](https://github.com/voxel51/fiftyone).
 -   `fiftyone/brain/` definition of the `fiftyone.brain` package
 
     -   `fiftyone/brain/internal/` all propreitary internal code powering the
-        public namespace of the Brain
+        public namespace of the Brain (TODO: refactor for open source)
 
 -   `production/` work needed to generate production models, code, etc.,
     associated with the Brain. It contains scripts and such for repeatable,

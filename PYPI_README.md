@@ -4,7 +4,7 @@
     FiftyOne Brain
 </h1>
 
-**The proprietary brains behind
+**The brains behind
 [FiftyOne](https://github.com/voxel51/fiftyone).**
 
 <p align="center">
