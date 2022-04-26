@@ -91,7 +91,7 @@ jobs:
           pip install ./dist/*.whl --force-reinstall
       - name: Reinstall fiftyone-brain
         run: |
-          pip install --force-reinstall --no-deps dist/*.whl
+          pip install --force-reinstall --no-deps dist/artifact/*.whl
       - name: Set up ETA credentials
         env:
           FIFTYONE_GOOGLE_CREDENTIALS: ${{ secrets.FIFTYONE_GOOGLE_CREDENTIALS }}
