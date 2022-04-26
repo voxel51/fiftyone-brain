@@ -14,31 +14,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-20.04
-<<<<<<< HEAD
-    strategy:
-      fail-fast: false
-      matrix:
-        platform:
-          - linux-aarch64
-          - linux-i686
-          - linux-x86_64
-          - mac-arm64
-          - mac-x86_64
-          - win-32
-          - win-amd64
-        python:
-          - 3.6
-          - 3.7
-          - 3.8
-          - 3.9
-          - "3.10"
-        exclude:
-          - platform: mac-arm64
-            python: 3.6
-          - platform: mac-arm64
-            python: 3.7
-=======
->>>>>>> develop
     steps:
       - name: Clone fiftyone-brain
         uses: actions/checkout@v1
