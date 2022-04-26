@@ -14,6 +14,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-20.04
+<<<<<<< HEAD
     strategy:
       fail-fast: false
       matrix:
@@ -36,15 +37,17 @@ jobs:
             python: 3.6
           - platform: mac-arm64
             python: 3.7
+=======
+>>>>>>> develop
     steps:
       - name: Clone fiftyone-brain
         uses: actions/checkout@v1
         with:
           submodules: true
-      - name: Set up Python ${{ matrix.python }}
+      - name: Set up Python
         uses: actions/setup-python@v2
         with:
-          python-version: ${{ matrix.python }}
+          python-version: 3.8
       - name: Check Python version
         run: |
           python --version
@@ -62,12 +65,12 @@ jobs:
           fi
       - name: Build wheel
         run: |
-          python setup.py bdist_wheel --plat-name ${{ matrix.platform }}
+          python setup.py sdist bdist_wheel
       - name: Upload wheel
         uses: actions/upload-artifact@v2
         with:
-          name: wheel-${{ matrix.platform }}-${{ matrix.python }}
-          path: dist/*.whl
+          path: dist
+          retention-days: 1
 
   test:
     needs: [build]
@@ -95,8 +98,7 @@ jobs:
       - name: Download fiftyone-brain wheel
         uses: actions/download-artifact@v2
         with:
-          name: wheel-linux-x86_64-${{ matrix.python }}
-          path: downloads
+          path: dist
       - name: Install fiftyone
         run: |
           git clone https://${{ secrets.FIFTYONE_GITHUB_TOKEN }}@github.com/voxel51/fiftyone fiftyone-src --depth 1 --branch develop
@@ -114,7 +116,7 @@ jobs:
           pip install ./dist/*.whl --force-reinstall
       - name: Reinstall fiftyone-brain
         run: |
-          pip install --force-reinstall --no-deps downloads/*.whl
+          pip install --force-reinstall --no-deps dist/artifact/*.whl
       - name: Set up ETA credentials
         env:
           FIFTYONE_GOOGLE_CREDENTIALS: ${{ secrets.FIFTYONE_GOOGLE_CREDENTIALS }}
@@ -138,7 +140,7 @@ jobs:
       - name: Download wheels
         uses: actions/download-artifact@v2
         with:
-          path: downloads
+          path: dist
       - name: Install dependencies
         run: |
           pip3 install --upgrade pip setuptools wheel
@@ -159,4 +161,4 @@ jobs:
           TWINE_USERNAME: __token__
           TWINE_NON_INTERACTIVE: 1
         run: |
-          python3 -m twine upload downloads/artifact/*
+          python3 -m twine upload dist/artifact/*
