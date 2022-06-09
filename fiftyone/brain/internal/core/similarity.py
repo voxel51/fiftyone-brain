@@ -624,8 +624,13 @@ def visualize_duplicates(results, visualization, backend, **kwargs):
     samples = results.view
     duplicate_ids = results.duplicate_ids
     neighbors_map = results.neighbors_map
+    patches_field = results.config.patches_field
 
-    ids = samples.values("id")
+    if patches_field is not None:
+        _, id_path = samples._get_label_field_path(patches_field, "id")
+        ids = samples.values(id_path, unwind=True)
+    else:
+        ids = samples.values("id")
 
     dup_ids = set(duplicate_ids)
     nearest_ids = set(neighbors_map.keys())
@@ -660,8 +665,13 @@ def visualize_unique(results, visualization, backend, **kwargs):
 
     samples = results.view
     unique_ids = results.unique_ids
+    patches_field = results.config.patches_field
 
-    ids = samples.values("id")
+    if patches_field is not None:
+        _, id_path = samples._get_label_field_path(patches_field, "id")
+        ids = samples.values(id_path, unwind=True)
+    else:
+        ids = samples.values("id")
 
     _unique_ids = set(unique_ids)
 
