@@ -9,7 +9,7 @@ repos:
     rev: 19.10b0
     hooks:
       - id: black
-        language_version: python3.6
+        language_version: python3
         args: ["-l 79"]
   - repo: local
     hooks:
@@ -19,7 +19,7 @@ repos:
         files: \.py$
         entry: pylint
         args: ["--errors-only"]
-  - repo: https://github.com/prettier/prettier
-    rev: 2.0.5
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v2.6.2
     hooks:
       - id: prettier
