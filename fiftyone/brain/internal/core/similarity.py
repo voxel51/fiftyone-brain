@@ -587,21 +587,15 @@ def duplicates_view(
     dups_view = samples.select(ids, ordered=True)
 
     if type_field is not None:
-        dups_view._dataset._add_sample_field_if_necessary(
-            type_field, fof.StringField
-        )
+        dups_view._dataset.add_sample_field(type_field, fof.StringField)
         dups_view.set_values(type_field, types)
 
     if id_field is not None:
-        dups_view._dataset._add_sample_field_if_necessary(
-            id_field, fof.StringField
-        )
+        dups_view._dataset.add_sample_field(id_field, fof.StringField)
         dups_view.set_values(id_field, nearest_ids)
 
     if dist_field is not None:
-        dups_view._dataset._add_sample_field_if_necessary(
-            dist_field, fof.FloatField
-        )
+        dups_view._dataset.add_sample_field(dist_field, fof.FloatField)
         dups_view.set_values(dist_field, dists)
 
     return dups_view
