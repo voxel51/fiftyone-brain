@@ -587,21 +587,15 @@ def duplicates_view(
     dups_view = samples.select(ids, ordered=True)
 
     if type_field is not None:
-        dups_view._dataset._add_sample_field_if_necessary(
-            type_field, fof.StringField
-        )
+        dups_view._dataset.add_sample_field(type_field, fof.StringField)
         dups_view.set_values(type_field, types)
 
     if id_field is not None:
-        dups_view._dataset._add_sample_field_if_necessary(
-            id_field, fof.StringField
-        )
+        dups_view._dataset.add_sample_field(id_field, fof.StringField)
         dups_view.set_values(id_field, nearest_ids)
 
     if dist_field is not None:
-        dups_view._dataset._add_sample_field_if_necessary(
-            dist_field, fof.FloatField
-        )
+        dups_view._dataset.add_sample_field(dist_field, fof.FloatField)
         dups_view.set_values(dist_field, dists)
 
     return dups_view
@@ -624,8 +618,13 @@ def visualize_duplicates(results, visualization, backend, **kwargs):
     samples = results.view
     duplicate_ids = results.duplicate_ids
     neighbors_map = results.neighbors_map
+    patches_field = results.config.patches_field
 
-    ids = samples.values("id")
+    if patches_field is not None:
+        _, id_path = samples._get_label_field_path(patches_field, "id")
+        ids = samples.values(id_path, unwind=True)
+    else:
+        ids = samples.values("id")
 
     dup_ids = set(duplicate_ids)
     nearest_ids = set(neighbors_map.keys())
@@ -660,8 +659,13 @@ def visualize_unique(results, visualization, backend, **kwargs):
 
     samples = results.view
     unique_ids = results.unique_ids
+    patches_field = results.config.patches_field
 
-    ids = samples.values("id")
+    if patches_field is not None:
+        _, id_path = samples._get_label_field_path(patches_field, "id")
+        ids = samples.values(id_path, unwind=True)
+    else:
+        ids = samples.values("id")
 
     _unique_ids = set(unique_ids)
 
