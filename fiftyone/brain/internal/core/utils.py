@@ -100,7 +100,7 @@ def _get_keep_inds(ids, ref_ids):
             "index" % (num_bad, bad_ids[0])
         )
 
-    return np.array(keep_inds)
+    return np.array(keep_inds, dtype=np.int64)
 
 
 def get_embeddings(
