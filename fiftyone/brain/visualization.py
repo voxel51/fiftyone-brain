@@ -70,12 +70,36 @@ class VisualizationResults(fob.BrainResults):
 
     @property
     def index_size(self):
-        """The number of examples in the index.
+        """The number of data points in the index.
 
         If :meth:`use_view` has been called to restrict the index, this
         property will reflect the size of the active index.
         """
         return len(self._curr_sample_ids)
+
+    @property
+    def total_index_size(self):
+        """The total number of data points in the index.
+
+        If :meth:`use_view` has been called to restrict the index, this value
+        may be larger than the current :meth:`index_size`.
+        """
+        return len(self.points)
+
+    @property
+    def missing_size(self):
+        """The total number of data points in :meth:`view` that are missing
+        from this index.
+
+        This property is only applicable when :meth:`use_view` has been called,
+        and it will be ``None`` if no data points are missing.
+        """
+        good = self._curr_good_inds
+
+        if good is None:
+            return None
+
+        return good.size - np.count_nonzero(good)
 
     @property
     def view(self):
@@ -121,10 +145,9 @@ class VisualizationResults(fob.BrainResults):
             sample_collection: a
                 :class:`fiftyone.core.collections.SampleCollection` defining a
                 subset of this index to use
-            allow_missing (False): whether to further restrict the input
-                collection without raising an error if this index does not
-                contain data for some points (True) or whether to raise an
-                error in this case (False)
+            allow_missing (False): whether to allow the provided collection to
+                contain data points that this index does not contain (True) or
+                whether to raise an error in this case (False)
 
         Returns:
             self
