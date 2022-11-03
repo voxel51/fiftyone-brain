@@ -463,7 +463,10 @@ def find_duplicates(results, thresh, fraction):
     if fraction is not None:
         num_keep = int(round(min(max(0, 1.0 - fraction), 1) * num_embeddings))
         keep, thresh = _remove_duplicates_count(
-            neighbors, num_keep, num_embeddings, init_thresh=thresh,
+            neighbors,
+            num_keep,
+            num_embeddings,
+            init_thresh=thresh,
         )
     else:
         keep = _remove_duplicates_thresh(neighbors, thresh, num_embeddings)
@@ -645,7 +648,7 @@ def visualize_duplicates(results, visualization, backend, **kwargs):
         kwargs["edges_title"] = "neighbors"
         kwargs["labels_title"] = "type"
 
-    with visualization.use_view(samples):
+    with visualization.use_view(samples, allow_missing=True):
         return visualization.visualize(
             labels=labels,
             classes=["unique", "nearest", "duplicate"],
@@ -678,7 +681,7 @@ def visualize_unique(results, visualization, backend, **kwargs):
 
         labels.append(label)
 
-    with visualization.use_view(samples):
+    with visualization.use_view(samples, allow_missing=True):
         return visualization.visualize(
             labels=labels,
             classes=["other", "unique"],

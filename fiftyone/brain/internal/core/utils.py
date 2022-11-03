@@ -5,6 +5,7 @@ Utilities.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+import itertools
 import logging
 
 import numpy as np
@@ -33,15 +34,29 @@ def get_ids(samples, patches_field=None):
     return np.array(sample_ids), np.array(label_ids)
 
 
-def filter_ids(view, samples, sample_ids, label_ids, patches_field=None):
+def filter_ids(
+    view,
+    samples,
+    index_sample_ids,
+    index_label_ids,
+    patches_field=None,
+    allow_missing=False,
+):
     # No filtering required
     if view == samples or view.view() == samples.view():
-        return view, sample_ids, label_ids, None
+        return view, index_sample_ids, index_label_ids, None, None
 
     if patches_field is None:
-        _sample_ids = view.values("id")
-        keep_inds = _get_keep_inds(_sample_ids, sample_ids)
-        return view, np.array(_sample_ids), None, keep_inds
+        _sample_ids = np.array(view.values("id"))
+        keep_inds, good_inds, bad_ids = _parse_ids(
+            _sample_ids, index_sample_ids, allow_missing
+        )
+
+        if bad_ids is not None:
+            _sample_ids = _sample_ids[good_inds]
+            view = view.exclude(bad_ids)
+
+        return view, _sample_ids, None, keep_inds, good_inds
 
     # Filter labels in patches view
 
@@ -65,42 +80,85 @@ def filter_ids(view, samples, sample_ids, label_ids, patches_field=None):
         )
 
     labels = view._get_selected_labels(fields=patches_field)
-    _sample_ids = [l["sample_id"] for l in labels]
-    _label_ids = [l["label_id"] for l in labels]
-    keep_inds = _get_keep_inds(_label_ids, label_ids)
-    return view, np.array(_sample_ids), np.array(_label_ids), keep_inds
+    _sample_ids = np.array([l["sample_id"] for l in labels])
+    _label_ids = np.array([l["label_id"] for l in labels])
+    keep_inds, good_inds, bad_ids = _parse_ids(
+        _label_ids, index_label_ids, allow_missing
+    )
+
+    if bad_ids is not None:
+        _sample_ids = _sample_ids[good_inds]
+        _label_ids = _label_ids[good_inds]
+        view = view.exclude_labels(ids=bad_ids, fields=patches_field)
+
+    return view, _sample_ids, _label_ids, keep_inds, good_inds
 
 
-def _get_keep_inds(ids, ref_ids):
-    if len(ids) == len(ref_ids) and list(ids) == list(ref_ids):
-        return None
+def _parse_ids(ids, index_ids, allow_missing):
+    if np.array_equal(ids, index_ids):
+        return None, None, None
 
-    inds_map = {_id: idx for idx, _id in enumerate(ref_ids)}
+    inds_map = {_id: idx for idx, _id in enumerate(index_ids)}
 
     keep_inds = []
+    bad_inds = []
     bad_ids = []
-    for _id in ids:
+    for _idx, _id in enumerate(ids):
         ind = inds_map.get(_id, None)
         if ind is not None:
             keep_inds.append(ind)
         else:
+            bad_inds.append(_idx)
             bad_ids.append(_id)
 
-    num_bad = len(bad_ids)
+    keep_inds = np.array(keep_inds, dtype=np.int64)
 
-    if num_bad == 1:
+    if not bad_inds:
+        return keep_inds, None, None
+
+    if not allow_missing:
         raise ValueError(
-            "The provided view contains ID '%s' not present in the index"
-            % bad_ids[0]
+            "The provided collection contains %d IDs (eg '%s') not present in "
+            "the index" % (len(bad_ids), bad_ids[0])
         )
 
-    if num_bad > 1:
-        raise ValueError(
-            "The provided view contains %d IDs (eg '%s') not present in the "
-            "index" % (num_bad, bad_ids[0])
-        )
+    logger.warning(
+        "Ignoring %d IDs from the provided collection that are not present in "
+        "the index",
+        len(bad_ids),
+    )
 
-    return np.array(keep_inds, dtype=np.int64)
+    bad_inds = np.array(bad_inds, dtype=np.int64)
+
+    good_inds = np.full(ids.shape, True)
+    good_inds[bad_inds] = False
+
+    return keep_inds, good_inds, bad_ids
+
+
+def filter_values(values, keep_inds, patches_field=None):
+    if patches_field:
+        _values = list(itertools.chain.from_iterable(values))
+    else:
+        _values = values
+
+    _values = np.asarray(_values)
+
+    if _values.size == keep_inds.size:
+        _values = _values[keep_inds]
+    else:
+        num_expected = np.count_nonzero(keep_inds)
+        if _values.size != num_expected:
+            raise ValueError(
+                "Expected %d raw values or %d pre-filtered values; found %d "
+                "values" % (keep_inds.size, num_expected, values.size)
+            )
+
+    # @todo we might need to unravel patch values here in the future
+    # We currently do not unravel because all downstreams users of this data
+    # will gracefully unwind this data
+
+    return _values
 
 
 def get_embeddings(

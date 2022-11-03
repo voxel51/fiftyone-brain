@@ -49,6 +49,7 @@ class SimilarityResults(fob.BrainResults):
         self._curr_sample_ids = None
         self._curr_label_ids = None
         self._curr_keep_inds = None
+        self._curr_good_inds = None
         self._neighbors_helper = None
         self._thresh = None
         self._unique_ids = None
@@ -117,7 +118,7 @@ class SimilarityResults(fob.BrainResults):
         """
         return self._neighbors_map
 
-    def use_view(self, sample_collection):
+    def use_view(self, sample_collection, allow_missing=False):
         """Restricts the index to the provided view, which must be a subset of
         the full index's collection.
 
@@ -154,22 +155,28 @@ class SimilarityResults(fob.BrainResults):
             sample_collection: a
                 :class:`fiftyone.core.collections.SampleCollection` defining a
                 subset of this index to use
+            allow_missing (False): whether to further restrict the input
+                collection without raising an error if this index does not
+                contain data for some points (True) or whether to raise an
+                error in this case (False)
 
         Returns:
             self
         """
-        view, sample_ids, label_ids, keep_inds = fbu.filter_ids(
+        view, sample_ids, label_ids, keep_inds, good_inds = fbu.filter_ids(
             sample_collection,
             self._samples,
             self._sample_ids,
             self._label_ids,
             patches_field=self._config.patches_field,
+            allow_missing=allow_missing,
         )
 
         self._curr_view = view
         self._curr_sample_ids = sample_ids
         self._curr_label_ids = label_ids
         self._curr_keep_inds = keep_inds
+        self._curr_good_inds = good_inds
 
         return self
 
