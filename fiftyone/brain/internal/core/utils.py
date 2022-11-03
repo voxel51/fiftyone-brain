@@ -154,9 +154,9 @@ def filter_values(values, keep_inds, patches_field=None):
                 "values" % (keep_inds.size, num_expected, values.size)
             )
 
-    # @todo we might need to unravel patch values here in the future
-    # We currently do not unravel because all downstreams users of this data
-    # will gracefully unwind this data
+    # @todo we might need to re-ravel patch values here in the future
+    # We currently do not do this because all downstream users of this data
+    # will gracefully handle either flat or nested list data
 
     return _values
 
