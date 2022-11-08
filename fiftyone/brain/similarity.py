@@ -33,9 +33,10 @@ class SimilarityResults(fob.BrainResults):
         if len(sample_ids) != len(embeddings):
             ptype = "label" if config.patches_field is not None else "sample"
             raise ValueError(
-                "Number of %s IDs (%d) does not match number of embeddings "
-                "(%d). You may have missing data/labels that you need to omit "
-                "from your view" % (ptype, len(sample_ids), len(embeddings))
+                "The number of embeddings (%d) in these results no longer "
+                "matches the number of %s IDs (%d) currently in the "
+                "collection on which they were computed. You must regenerate "
+                "the results" % (len(embeddings), ptype, len(sample_ids))
             )
 
         self.embeddings = embeddings

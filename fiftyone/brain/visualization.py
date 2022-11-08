@@ -34,9 +34,10 @@ class VisualizationResults(fob.BrainResults):
         if len(sample_ids) != len(points):
             ptype = "label" if config.patches_field is not None else "sample"
             raise ValueError(
-                "Number of %s IDs (%d) does not match number of points (%d). "
-                "You may have missing data/labels that you need to omit from "
-                "your view" % (ptype, len(sample_ids), len(points))
+                "The number of points (%d) in these results no longer matches "
+                "the number of %s IDs (%d) currently in the collection on "
+                "which they were computed. You must regenerate the results"
+                % (len(points), ptype, len(sample_ids))
             )
 
         self.points = points
