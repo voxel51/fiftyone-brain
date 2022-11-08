@@ -14,6 +14,7 @@ import sklearn.manifold as skm
 import eta.core.utils as etau
 
 import fiftyone.core.brain as fob
+import fiftyone.core.plots as fop
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 import fiftyone.zoo as foz
@@ -110,6 +111,42 @@ def compute_visualization(
     brain_method.save_run_results(samples, brain_key, results)
 
     return results
+
+
+def visualize(
+    results,
+    labels=None,
+    sizes=None,
+    classes=None,
+    backend="plotly",
+    **kwargs,
+):
+    points = results._curr_points
+    samples = results._curr_view
+    patches_field = results._config.patches_field
+    good_inds = results._curr_good_inds
+
+    if good_inds is not None:
+        if labels is not None and etau.is_container(labels):
+            labels = fbu.filter_values(
+                labels, good_inds, patches_field=patches_field
+            )
+
+        if sizes is not None and etau.is_container(sizes):
+            sizes = fbu.filter_values(
+                sizes, good_inds, patches_field=patches_field
+            )
+
+    return fop.scatterplot(
+        points,
+        samples=samples,
+        link_field=patches_field,
+        labels=labels,
+        sizes=sizes,
+        classes=classes,
+        backend=backend,
+        **kwargs,
+    )
 
 
 class Visualization(fob.BrainMethod):

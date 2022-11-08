@@ -33,9 +33,10 @@ class SimilarityResults(fob.BrainResults):
         if len(sample_ids) != len(embeddings):
             ptype = "label" if config.patches_field is not None else "sample"
             raise ValueError(
-                "Number of %s IDs (%d) does not match number of embeddings "
-                "(%d). You may have missing data/labels that you need to omit "
-                "from your view" % (ptype, len(sample_ids), len(embeddings))
+                "The number of embeddings (%d) in these results no longer "
+                "matches the number of %s IDs (%d) currently in the "
+                "collection on which they were computed. You must regenerate "
+                "the results" % (len(embeddings), ptype, len(sample_ids))
             )
 
         self.embeddings = embeddings
@@ -49,6 +50,7 @@ class SimilarityResults(fob.BrainResults):
         self._curr_sample_ids = None
         self._curr_label_ids = None
         self._curr_keep_inds = None
+        self._curr_good_inds = None
         self._neighbors_helper = None
         self._thresh = None
         self._unique_ids = None
@@ -72,12 +74,36 @@ class SimilarityResults(fob.BrainResults):
 
     @property
     def index_size(self):
-        """The number of examples in the index.
+        """The number of data points in the index.
 
         If :meth:`use_view` has been called to restrict the index, this
         property will reflect the size of the active index.
         """
         return len(self._curr_sample_ids)
+
+    @property
+    def total_index_size(self):
+        """The total number of data points in the index.
+
+        If :meth:`use_view` has been called to restrict the index, this value
+        may be larger than the current :meth:`index_size`.
+        """
+        return len(self.embeddings)
+
+    @property
+    def missing_size(self):
+        """The total number of data points in :meth:`view` that are missing
+        from this index.
+
+        This property is only applicable when :meth:`use_view` has been called,
+        and it will be ``None`` if no data points are missing.
+        """
+        good = self._curr_good_inds
+
+        if good is None:
+            return None
+
+        return good.size - np.count_nonzero(good)
 
     @property
     def view(self):
@@ -117,7 +143,7 @@ class SimilarityResults(fob.BrainResults):
         """
         return self._neighbors_map
 
-    def use_view(self, sample_collection):
+    def use_view(self, sample_collection, allow_missing=False):
         """Restricts the index to the provided view, which must be a subset of
         the full index's collection.
 
@@ -154,22 +180,27 @@ class SimilarityResults(fob.BrainResults):
             sample_collection: a
                 :class:`fiftyone.core.collections.SampleCollection` defining a
                 subset of this index to use
+            allow_missing (False): whether to allow the provided collection to
+                contain data points that this index does not contain (True) or
+                whether to raise an error in this case (False)
 
         Returns:
             self
         """
-        view, sample_ids, label_ids, keep_inds = fbu.filter_ids(
+        view, sample_ids, label_ids, keep_inds, good_inds = fbu.filter_ids(
             sample_collection,
             self._samples,
             self._sample_ids,
             self._label_ids,
             patches_field=self._config.patches_field,
+            allow_missing=allow_missing,
         )
 
         self._curr_view = view
         self._curr_sample_ids = sample_ids
         self._curr_label_ids = label_ids
         self._curr_keep_inds = keep_inds
+        self._curr_good_inds = good_inds
 
         return self
 
