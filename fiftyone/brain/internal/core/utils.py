@@ -140,8 +140,13 @@ def filter_ids(
 
     if patches_field is None:
         _sample_ids = np.array(view.values("id"))
+
         keep_inds, good_inds, bad_ids = _parse_ids(
-            _sample_ids, index_sample_ids, allow_missing, warn_missing
+            _sample_ids,
+            index_sample_ids,
+            "samples",
+            allow_missing,
+            warn_missing,
         )
 
         if bad_ids is not None:
@@ -174,8 +179,13 @@ def filter_ids(
     labels = view._get_selected_labels(fields=patches_field)
     _sample_ids = np.array([l["sample_id"] for l in labels])
     _label_ids = np.array([l["label_id"] for l in labels])
+
     keep_inds, good_inds, bad_ids = _parse_ids(
-        _label_ids, index_label_ids, allow_missing, warn_missing
+        _label_ids,
+        index_label_ids,
+        "labels",
+        allow_missing,
+        warn_missing,
     )
 
     if bad_ids is not None:
@@ -186,7 +196,7 @@ def filter_ids(
     return view, _sample_ids, _label_ids, keep_inds, good_inds
 
 
-def _parse_ids(ids, index_ids, allow_missing, warn_missing):
+def _parse_ids(ids, index_ids, ftype, allow_missing, warn_missing):
     if np.array_equal(ids, index_ids):
         return None, None, None
 
@@ -210,15 +220,16 @@ def _parse_ids(ids, index_ids, allow_missing, warn_missing):
 
     if not allow_missing:
         raise ValueError(
-            "The provided collection contains %d IDs (eg '%s') not present in "
-            "the index" % (len(bad_ids), bad_ids[0])
+            "The provided collection contains %d %s not present in the index"
+            % (len(bad_ids), ftype)
         )
 
     if warn_missing:
         logger.warning(
-            "Ignoring %d IDs from the provided collection that are not "
-            "present in the index",
+            "Ignoring %d %s from the provided collection that are not present "
+            "in the index",
             len(bad_ids),
+            ftype,
         )
 
     bad_inds = np.array(bad_inds, dtype=np.int64)
