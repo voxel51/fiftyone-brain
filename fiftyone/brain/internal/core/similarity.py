@@ -323,9 +323,9 @@ def sort_by_similarity(
     #
 
     if patches_field is None:
-        ids = results._sample_ids
+        ids = results.sample_ids
     else:
-        ids = results._label_ids
+        ids = results.label_ids
 
     bad_ids = []
     query_inds = []

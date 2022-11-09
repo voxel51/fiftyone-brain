@@ -23,28 +23,31 @@ class SimilarityResults(fob.BrainResults):
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
         config: the :class:`SimilarityConfig` used
         embeddings: a ``num_embeddings x num_dims`` array of embeddings
+        sample_ids (None): a ``num_embeddings`` array of sample IDs
+        label_ids (None): a ``num_embeddings`` array of label IDs, if
+            applicable
     """
 
-    def __init__(self, samples, config, embeddings):
-        sample_ids, label_ids = fbu.get_ids(
-            samples, patches_field=config.patches_field
+    def __init__(
+        self, samples, config, embeddings, sample_ids=None, label_ids=None
+    ):
+        samples, embeddings, sample_ids, label_ids = fbu.parse_data(
+            samples,
+            embeddings,
+            sample_ids=sample_ids,
+            label_ids=label_ids,
+            patches_field=config.patches_field,
+            data_type="embeddings",
+            allow_missing=True,
+            warn_missing=True,
         )
 
-        if len(sample_ids) != len(embeddings):
-            ptype = "label" if config.patches_field is not None else "sample"
-            raise ValueError(
-                "The number of embeddings (%d) in these results no longer "
-                "matches the number of %s IDs (%d) currently in the "
-                "collection on which they were computed. You must regenerate "
-                "the results" % (len(embeddings), ptype, len(sample_ids))
-            )
-
         self.embeddings = embeddings
+        self.sample_ids = sample_ids
+        self.label_ids = label_ids
 
         self._samples = samples
         self._config = config
-        self._sample_ids = sample_ids
-        self._label_ids = label_ids
         self._last_view = None
         self._curr_view = None
         self._curr_sample_ids = None
@@ -189,9 +192,9 @@ class SimilarityResults(fob.BrainResults):
         """
         view, sample_ids, label_ids, keep_inds, good_inds = fbu.filter_ids(
             sample_collection,
-            self._samples,
-            self._sample_ids,
-            self._label_ids,
+            self.sample_ids,
+            self.label_ids,
+            index_samples=self._samples,
             patches_field=self._config.patches_field,
             allow_missing=allow_missing,
         )
@@ -470,7 +473,22 @@ class SimilarityResults(fob.BrainResults):
     @classmethod
     def _from_dict(cls, d, samples, config):
         embeddings = np.array(d["embeddings"])
-        return cls(samples, config, embeddings)
+
+        sample_ids = d.get("sample_ids", None)
+        if sample_ids is not None:
+            sample_ids = np.array(sample_ids)
+
+        label_ids = d.get("label_ids", None)
+        if label_ids is not None:
+            label_ids = np.array(label_ids)
+
+        return cls(
+            samples,
+            config,
+            embeddings,
+            sample_ids=sample_ids,
+            label_ids=label_ids,
+        )
 
 
 class SimilarityConfig(fob.BrainMethodConfig):
