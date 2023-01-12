@@ -139,7 +139,10 @@ def filter_ids(
         return view, index_sample_ids, index_label_ids, None, None
 
     if patches_field is None:
-        _sample_ids = np.array(view.values("id"))
+        if view._is_patches:
+            _sample_ids = np.array(view.values("sample_id"))
+        else:
+            _sample_ids = np.array(view.values("id"))
 
         keep_inds, good_inds, bad_ids = _parse_ids(
             _sample_ids,
@@ -151,7 +154,11 @@ def filter_ids(
 
         if bad_ids is not None:
             _sample_ids = _sample_ids[good_inds]
-            view = view.exclude(bad_ids)
+
+            if view._is_patches:
+                view = view.exclude_by("sample_id", bad_ids)
+            else:
+                view = view.exclude(bad_ids)
 
         return view, _sample_ids, None, keep_inds, good_inds
 
