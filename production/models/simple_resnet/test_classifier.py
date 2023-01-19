@@ -11,7 +11,7 @@ Run with at least the following command line:
 Uses
     -t number
 
-| Copyright 2017-2022, Voxel51, Inc.
+| Copyright 2017-2023, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
