@@ -237,7 +237,7 @@ class SimilarityResults(fob.BrainResults):
 
     def sort_by_similarity(
         self,
-        query_ids,
+        query,
         k=None,
         reverse=False,
         aggregation="mean",
@@ -247,17 +247,23 @@ class SimilarityResults(fob.BrainResults):
         """Returns a view that sorts the samples/labels in :meth:`view` by
         visual similarity to the specified query.
 
-        The query IDs can be any IDs in the full index of this instance, even
-        if the current :meth:`view` contains a subset of the full index.
+        When querying by IDs, the query can be any ID(s) in the full index of
+        this instance, even if the current :meth:`view` contains a subset of
+        the full index.
 
         Args:
-            query_ids: an ID or iterable of query IDs
+            query: the query ID(s) or vector(s), which can be:
+
+                -   an ID or iterable of IDs
+                -   a ``num_dims`` vector or ``num_queries x num_dims`` array
+                    of vectors
+
             k (None): the number of matches to return. By default, all
                 samples/labels are included
             reverse (False): whether to sort by least similarity
             aggregation ("mean"): the aggregation method to use to compute
-                composite similarities. Only applicable when ``query_ids``
-                contains multiple IDs. Supported values are
+                composite similarities. Only applicable when ``query`` contains
+                multiple queries. Supported values are
                 ``("mean", "min", "max")``
             dist_field (None): the name of a float field in which to store the
                 distance of each example to the specified query. The field is
@@ -267,7 +273,7 @@ class SimilarityResults(fob.BrainResults):
             a :class:`fiftyone.core.view.DatasetView`
         """
         return fbs.sort_by_similarity(
-            self, query_ids, k, reverse, aggregation, dist_field, _mongo
+            self, query, k, reverse, aggregation, dist_field, _mongo
         )
 
     def find_duplicates(self, thresh=None, fraction=None):
