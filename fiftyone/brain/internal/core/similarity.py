@@ -291,7 +291,7 @@ def plot_distances(results, bins, log, backend, **kwargs):
 
 
 def sort_by_similarity(
-    results, query_ids, k, reverse, aggregation, dist_field, mongo
+    results, query, k, reverse, aggregation, dist_field, mongo
 ):
     _ensure_neighbors(results)
 
@@ -306,61 +306,77 @@ def sort_by_similarity(
         samples, fop.PatchesView
     )
 
-    if etau.is_str(query_ids):
-        query_ids = [query_ids]
-
-    if not query_ids:
-        raise ValueError("At least one query ID must be provided")
-
     if aggregation not in _AGGREGATIONS:
         raise ValueError(
             "Unsupported aggregation method '%s'. Supported values are %s"
             % (aggregation, tuple(_AGGREGATIONS.keys()))
         )
 
-    #
-    # Parse query (always using full index)
-    #
+    if isinstance(query, np.ndarray):
+        # Query by vector(s)
+        if query.size == 0:
+            raise ValueError("At least one query vector must be provided")
 
-    if patches_field is None:
-        ids = results._sample_ids
-    else:
-        ids = results._label_ids
-
-    bad_ids = []
-    query_inds = []
-    for query_id in query_ids:
-        _inds = np.where(ids == query_id)[0]
-        if _inds.size == 0:
-            bad_ids.append(query_id)
-        else:
-            query_inds.append(_inds[0])
-
-    if bad_ids:
-        raise ValueError(
-            "Query IDs %s were not included in this index" % bad_ids
-        )
-
-    #
-    # Perform sorting
-    #
-
-    dists = results._neighbors_helper.get_distances()
-
-    if dists is not None:
-        if keep_inds is not None:
-            dists = dists[keep_inds, :]
-
-        dists = dists[:, query_inds]
-    else:
         index_embeddings = results.embeddings
         if keep_inds is not None:
             index_embeddings = index_embeddings[keep_inds]
 
-        query_embeddings = results.embeddings[query_inds]
+        if query.ndim == 1:
+            query_embeddings = query[np.newaxis, :]
+        else:
+            query_embeddings = query
+
         dists = skm.pairwise_distances(
             index_embeddings, query_embeddings, metric=metric
         )
+    else:
+        # Query by ID(s)
+        if etau.is_str(query):
+            query_ids = [query]
+        else:
+            query_ids = list(query)
+
+        if not query_ids:
+            raise ValueError("At least one query ID must be provided")
+
+        # Parse query IDs (always using full index)
+        if patches_field is None:
+            ids = results._sample_ids
+        else:
+            ids = results._label_ids
+
+        bad_ids = []
+        query_inds = []
+        for query_id in query_ids:
+            _inds = np.where(ids == query_id)[0]
+            if _inds.size == 0:
+                bad_ids.append(query_id)
+            else:
+                query_inds.append(_inds[0])
+
+        if bad_ids:
+            raise ValueError(
+                "Query IDs %s were not included in this index" % bad_ids
+            )
+
+        # Perform query
+        dists = results._neighbors_helper.get_distances()
+        if dists is not None:
+            # Use pre-computed distances
+            if keep_inds is not None:
+                dists = dists[keep_inds, :]
+
+            dists = dists[:, query_inds]
+        else:
+            # Compute distances from embeddings
+            index_embeddings = results.embeddings
+            if keep_inds is not None:
+                index_embeddings = index_embeddings[keep_inds]
+
+            query_embeddings = results.embeddings[query_inds]
+            dists = skm.pairwise_distances(
+                index_embeddings, query_embeddings, metric=metric
+            )
 
     agg_fcn = _AGGREGATIONS[aggregation]
     dists = agg_fcn(dists, axis=1)
