@@ -245,7 +245,7 @@ class SimilarityResults(fob.BrainResults):
         _mongo=False,
     ):
         """Returns a view that sorts the samples/labels in :meth:`view` by
-        visual similarity to the specified query.
+        similarity to the specified query.
 
         When querying by IDs, the query can be any ID(s) in the full index of
         this instance, even if the current :meth:`view` contains a subset of
