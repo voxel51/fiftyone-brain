@@ -1,7 +1,7 @@
 """
 Similarity interface.
 
-| Copyright 2017-2022, Voxel51, Inc.
+| Copyright 2017-2023, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -59,6 +59,7 @@ class SimilarityResults(fob.BrainResults):
         self._unique_ids = None
         self._duplicate_ids = None
         self._neighbors_map = None
+        self._model = None
 
         self.use_view(samples)
 
@@ -240,7 +241,7 @@ class SimilarityResults(fob.BrainResults):
 
     def sort_by_similarity(
         self,
-        query_ids,
+        query,
         k=None,
         reverse=False,
         aggregation="mean",
@@ -248,19 +249,26 @@ class SimilarityResults(fob.BrainResults):
         _mongo=False,
     ):
         """Returns a view that sorts the samples/labels in :meth:`view` by
-        visual similarity to the specified query.
+        similarity to the specified query.
 
-        The query IDs can be any IDs in the full index of this instance, even
-        if the current :meth:`view` contains a subset of the full index.
+        When querying by IDs, the query can be any ID(s) in the full index of
+        this instance, even if the current :meth:`view` contains a subset of
+        the full index.
 
         Args:
-            query_ids: an ID or iterable of query IDs
+            query: the query, which can be any of the following:
+
+                -   an ID or iterable of IDs
+                -   a ``num_dims`` vector or ``num_queries x num_dims`` array
+                    of vectors
+                -   a prompt or iterable of prompts (if supported by the index)
+
             k (None): the number of matches to return. By default, all
                 samples/labels are included
             reverse (False): whether to sort by least similarity
             aggregation ("mean"): the aggregation method to use to compute
-                composite similarities. Only applicable when ``query_ids``
-                contains multiple IDs. Supported values are
+                composite similarities. Only applicable when ``query`` contains
+                multiple queries. Supported values are
                 ``("mean", "min", "max")``
             dist_field (None): the name of a float field in which to store the
                 distance of each example to the specified query. The field is
@@ -270,7 +278,7 @@ class SimilarityResults(fob.BrainResults):
             a :class:`fiftyone.core.view.DatasetView`
         """
         return fbs.sort_by_similarity(
-            self, query_ids, k, reverse, aggregation, dist_field, _mongo
+            self, query, k, reverse, aggregation, dist_field, _mongo
         )
 
     def find_duplicates(self, thresh=None, fraction=None):
@@ -502,6 +510,7 @@ class SimilarityConfig(fob.BrainMethodConfig):
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         metric (None): the embedding distance metric used
+        supports_prompts (False): whether this run supports prompt queries
     """
 
     def __init__(
@@ -510,6 +519,7 @@ class SimilarityConfig(fob.BrainMethodConfig):
         model=None,
         patches_field=None,
         metric=None,
+        supports_prompts=None,
         **kwargs,
     ):
         if model is not None and not etau.is_str(model):
@@ -519,6 +529,7 @@ class SimilarityConfig(fob.BrainMethodConfig):
         self.model = model
         self.patches_field = patches_field
         self.metric = metric
+        self.supports_prompts = supports_prompts
         super().__init__(**kwargs)
 
     @property

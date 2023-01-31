@@ -1,7 +1,7 @@
 """
 Similarity methods.
 
-| Copyright 2017-2022, Voxel51, Inc.
+| Copyright 2017-2023, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -59,9 +59,19 @@ def compute_similarity(
     fov.validate_collection(samples)
 
     if model is None and embeddings is None:
-        model = foz.load_zoo_model(_DEFAULT_MODEL)
+        model = _DEFAULT_MODEL
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
+
+    if etau.is_str(model):
+        _model = foz.load_zoo_model(model)
+        try:
+            supports_prompts = _model.can_embed_prompts
+        except:
+            supports_prompts = None
+    else:
+        _model = model
+        supports_prompts = None
 
     if etau.is_str(embeddings):
         embeddings_field = embeddings
@@ -74,6 +84,7 @@ def compute_similarity(
         model=model,
         patches_field=patches_field,
         metric=metric,
+        supports_prompts=supports_prompts,
     )
     brain_method = config.build()
     brain_method.ensure_requirements()
@@ -83,7 +94,7 @@ def compute_similarity(
 
     embeddings = fbu.get_embeddings(
         samples,
-        model=model,
+        model=_model,
         patches_field=patches_field,
         embeddings_field=embeddings_field,
         embeddings=embeddings,
@@ -291,7 +302,7 @@ def plot_distances(results, bins, log, backend, **kwargs):
 
 
 def sort_by_similarity(
-    results, query_ids, k, reverse, aggregation, dist_field, mongo
+    results, query, k, reverse, aggregation, dist_field, mongo
 ):
     _ensure_neighbors(results)
 
@@ -306,61 +317,67 @@ def sort_by_similarity(
         samples, fop.PatchesView
     )
 
-    if etau.is_str(query_ids):
-        query_ids = [query_ids]
-
-    if not query_ids:
-        raise ValueError("At least one query ID must be provided")
-
     if aggregation not in _AGGREGATIONS:
         raise ValueError(
             "Unsupported aggregation method '%s'. Supported values are %s"
             % (aggregation, tuple(_AGGREGATIONS.keys()))
         )
 
-    #
-    # Parse query (always using full index)
-    #
+    query = _parse_query(results, query)
 
-    if patches_field is None:
-        ids = results.sample_ids
-    else:
-        ids = results.label_ids
+    if isinstance(query, np.ndarray):
+        # Query by vectors
+        query_embeddings = query
 
-    bad_ids = []
-    query_inds = []
-    for query_id in query_ids:
-        _inds = np.where(ids == query_id)[0]
-        if _inds.size == 0:
-            bad_ids.append(query_id)
-        else:
-            query_inds.append(_inds[0])
-
-    if bad_ids:
-        raise ValueError(
-            "Query IDs %s were not included in this index" % bad_ids
-        )
-
-    #
-    # Perform sorting
-    #
-
-    dists = results._neighbors_helper.get_distances()
-
-    if dists is not None:
-        if keep_inds is not None:
-            dists = dists[keep_inds, :]
-
-        dists = dists[:, query_inds]
-    else:
         index_embeddings = results.embeddings
         if keep_inds is not None:
             index_embeddings = index_embeddings[keep_inds]
 
-        query_embeddings = results.embeddings[query_inds]
         dists = skm.pairwise_distances(
             index_embeddings, query_embeddings, metric=metric
         )
+    else:
+        # Query by IDs
+        query_ids = query
+
+        # Parse query IDs (always using full index)
+        if patches_field is None:
+            ids = results.sample_ids
+        else:
+            ids = results.label_ids
+
+        bad_ids = []
+        query_inds = []
+        for query_id in query_ids:
+            _inds = np.where(ids == query_id)[0]
+            if _inds.size == 0:
+                bad_ids.append(query_id)
+            else:
+                query_inds.append(_inds[0])
+
+        if bad_ids:
+            raise ValueError(
+                "Query IDs %s were not included in this index" % bad_ids
+            )
+
+        # Perform query
+        dists = results._neighbors_helper.get_distances()
+        if dists is not None:
+            # Use pre-computed distances
+            if keep_inds is not None:
+                dists = dists[keep_inds, :]
+
+            dists = dists[:, query_inds]
+        else:
+            # Compute distances from embeddings
+            index_embeddings = results.embeddings
+            if keep_inds is not None:
+                index_embeddings = index_embeddings[keep_inds]
+
+            query_embeddings = results.embeddings[query_inds]
+            dists = skm.pairwise_distances(
+                index_embeddings, query_embeddings, metric=metric
+            )
 
     agg_fcn = _AGGREGATIONS[aggregation]
     dists = agg_fcn(dists, axis=1)
@@ -430,6 +447,46 @@ def sort_by_similarity(
         view = view.add_stage(stage)
 
     return view
+
+
+def _parse_query(results, query):
+    if isinstance(query, np.ndarray):
+        # Query by vector(s)
+        if query.size == 0:
+            raise ValueError("At least one query vector must be provided")
+
+        if query.ndim == 1:
+            query = query[np.newaxis, :]
+
+        return query
+
+    if etau.is_str(query):
+        query = [query]
+    else:
+        query = list(query)
+
+    if not query:
+        raise ValueError("At least one query must be provided")
+
+    try:
+        ObjectId(query[0])
+        is_prompts = False
+    except:
+        is_prompts = True
+
+    if is_prompts:
+        if not results.config.supports_prompts:
+            raise ValueError(
+                "Invalid query ID '%s' (this model does not support prompts)"
+                % query[0]
+            )
+
+        if results._model is None:
+            results._model = foz.load_zoo_model(results.config.model)
+
+        return results._model.embed_prompts(query)
+
+    return query
 
 
 def find_duplicates(results, thresh, fraction):
