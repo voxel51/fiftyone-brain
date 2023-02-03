@@ -253,6 +253,7 @@ def compute_visualization(
     batch_size=None,
     num_workers=None,
     skip_failures=True,
+    labels=None,
     **kwargs,
 ):
     """Computes a low-dimensional representation of the samples' media or their
@@ -358,6 +359,7 @@ def compute_visualization(
         batch_size,
         num_workers,
         skip_failures,
+        labels,
         **kwargs,
     )
 
