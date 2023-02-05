@@ -31,30 +31,27 @@ class VisualizationResults(fob.BrainResults):
     def __init__(
         self, samples, config, points, sample_ids=None, label_ids=None
     ):
-        samples, points, sample_ids, label_ids = fbu.parse_data(
-            samples,
-            points,
-            sample_ids=sample_ids,
-            label_ids=label_ids,
-            patches_field=config.patches_field,
-            data_type="points",
-            allow_missing=True,
-            warn_missing=True,
-        )
+        if sample_ids is None:
+            sample_ids, label_ids = fbu.get_ids(
+                samples,
+                patches_field=config.patches_field,
+                data=points,
+                data_type="points",
+            )
 
+        self._samples = samples
+        self._config = config
         self.points = points
         self.sample_ids = sample_ids
         self.label_ids = label_ids
 
-        self._samples = samples
-        self._config = config
         self._last_view = None
         self._curr_view = None
+        self._curr_points = None
         self._curr_sample_ids = None
         self._curr_label_ids = None
         self._curr_keep_inds = None
         self._curr_good_inds = None
-        self._curr_points = None
 
         self.use_view(samples)
 
@@ -73,7 +70,7 @@ class VisualizationResults(fob.BrainResults):
 
     @property
     def index_size(self):
-        """The number of data points in the index.
+        """The number of active points in the index.
 
         If :meth:`use_view` has been called to restrict the index, this
         property will reflect the size of the active index.
@@ -105,18 +102,47 @@ class VisualizationResults(fob.BrainResults):
         return good.size - np.count_nonzero(good)
 
     @property
+    def current_points(self):
+        """The currently active points in the index.
+
+        If :meth:`use_view` has been called, this may be a subset of the full
+        index.
+        """
+        return self._curr_points
+
+    @property
+    def current_sample_ids(self):
+        """The sample IDs of the currently active points in the index.
+
+        If :meth:`use_view` has been called, this may be a subset of the full
+        index.
+        """
+        return self._curr_sample_ids
+
+    @property
+    def current_label_ids(self):
+        """The label IDs of the currently active points in the index, or
+        ``None`` if not applicable.
+
+        If :meth:`use_view` has been called, this may be a subset of the full
+        index.
+        """
+        return self._curr_label_ids
+
+    @property
     def view(self):
         """The :class:`fiftyone.core.collections.SampleCollection` against
         which results are currently being generated.
 
-        If :meth:`use_view` has been called, this view may be a subset of the
-        collection on which the full index was generated.
+        If :meth:`use_view` has been called, this view may be different than
+        the collection on which the full index was generated.
         """
         return self._curr_view
 
-    def use_view(self, sample_collection, allow_missing=False):
-        """Restricts the index to the provided view, which must be a subset of
-        the full index's collection.
+    def use_view(
+        self, sample_collection, allow_missing=True, warn_missing=False
+    ):
+        """Restricts the index to the provided view.
 
         Subsequent calls to methods on this instance will only contain results
         from the specified view rather than the full index.
@@ -146,22 +172,25 @@ class VisualizationResults(fob.BrainResults):
 
         Args:
             sample_collection: a
-                :class:`fiftyone.core.collections.SampleCollection` defining a
-                subset of this index to use
-            allow_missing (False): whether to allow the provided collection to
+                :class:`fiftyone.core.collections.SampleCollection`
+            allow_missing (True): whether to allow the provided collection to
                 contain data points that this index does not contain (True) or
                 whether to raise an error in this case (False)
+            warn_missing (False): whether to log a warning if the provided
+                collection contains data points that this index does not
+                contain
 
         Returns:
             self
         """
-        view, sample_ids, label_ids, keep_inds, good_inds = fbu.filter_ids(
+        sample_ids, label_ids, keep_inds, good_inds = fbu.filter_ids(
             sample_collection,
             self.sample_ids,
             self.label_ids,
             index_samples=self._samples,
             patches_field=self._config.patches_field,
             allow_missing=allow_missing,
+            warn_missing=warn_missing,
         )
 
         if keep_inds is not None:
@@ -169,12 +198,12 @@ class VisualizationResults(fob.BrainResults):
         else:
             points = self.points
 
-        self._curr_view = view
+        self._curr_view = sample_collection
+        self._curr_points = points
         self._curr_sample_ids = sample_ids
         self._curr_label_ids = label_ids
         self._curr_keep_inds = keep_inds
         self._curr_good_inds = good_inds
-        self._curr_points = points
 
         return self
 
@@ -185,6 +214,28 @@ class VisualizationResults(fob.BrainResults):
         """
         self.use_view(self._samples)
 
+    def values(self, path_or_expr):
+        """Extracts a flat list of values from the given field or expression
+        corresponding to the current :meth:`view`.
+
+        This method always returns values in the same order as
+        :meth:`current_points`, :meth:`current_sample_ids`, and
+        :meth:`current_label_ids`.
+
+        Args:
+            path_or_expr: the values to extract, which can be:
+
+                -   the name of a sample field or ``embedded.field.name`` from
+                    which to extract numeric or string values
+                -   a :class:`fiftyone.core.expressions.ViewExpression`
+                    defining numeric or string values to compute via
+                    :meth:`fiftyone.core.collections.SampleCollection.values`
+
+        Returns:
+            a list of values
+        """
+        return fbv.values(self, path_or_expr)
+
     def visualize(
         self,
         labels=None,
@@ -193,7 +244,8 @@ class VisualizationResults(fob.BrainResults):
         backend="plotly",
         **kwargs,
     ):
-        """Generates an interactive scatterplot of the visualization results.
+        """Generates an interactive scatterplot of the visualization results
+        for the current :meth:`view`.
 
         This method supports 2D or 3D visualizations, but interactive point
         selection is only available in 2D.

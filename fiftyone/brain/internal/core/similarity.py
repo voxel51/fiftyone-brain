@@ -105,7 +105,21 @@ def compute_similarity(
         skip_failures=skip_failures,
     )
 
-    results = SimilarityResults(samples, config, embeddings)
+    sample_ids, label_ids = fbu.get_ids(
+        samples,
+        patches_field=patches_field,
+        data=embeddings,
+        data_type="embeddings",
+    )
+
+    results = SimilarityResults(
+        samples,
+        config,
+        embeddings,
+        sample_ids=sample_ids,
+        label_ids=label_ids,
+    )
+
     brain_method.save_run_results(samples, brain_key, results)
 
     return results
@@ -307,8 +321,8 @@ def sort_by_similarity(
     _ensure_neighbors(results)
 
     samples = results.view
-    sample_ids = results._curr_sample_ids
-    label_ids = results._curr_label_ids
+    sample_ids = results.current_sample_ids
+    label_ids = results.current_label_ids
     keep_inds = results._curr_keep_inds
     patches_field = results.config.patches_field
     metric = results.config.metric
@@ -505,10 +519,10 @@ def find_duplicates(results, thresh, fraction):
         embeddings = embeddings[keep_inds]
 
     if patches_field is not None:
-        ids = results._curr_label_ids
+        ids = results.current_label_ids
         logger.info("Computing duplicate patches...")
     else:
-        ids = results._curr_sample_ids
+        ids = results.current_sample_ids
         logger.info("Computing duplicate samples...")
 
     num_embeddings = len(embeddings)
@@ -585,10 +599,10 @@ def find_unique(results, count):
     num_embeddings = results.index_size
 
     if patches_field is not None:
-        ids = results._curr_label_ids
+        ids = results.current_label_ids
         logger.info("Computing unique patches...")
     else:
-        ids = results._curr_sample_ids
+        ids = results.current_sample_ids
         logger.info("Computing unique samples...")
 
     # Find uniques
@@ -672,6 +686,19 @@ def unique_view(results):
     return samples.select(unique_ids)
 
 
+def values(results, path_or_expr):
+    samples = results.view
+    patches_field = results.config.patches_field
+    if patches_field is not None:
+        ids = results.current_label_ids
+    else:
+        ids = results.current_sample_ids
+
+    return fbu.get_values(
+        samples, path_or_expr, ids, patches_field=patches_field
+    )
+
+
 def visualize_duplicates(results, visualization, backend, **kwargs):
     visualization = _ensure_visualization(results, visualization)
 
@@ -680,32 +707,31 @@ def visualize_duplicates(results, visualization, backend, **kwargs):
     neighbors_map = results.neighbors_map
     patches_field = results.config.patches_field
 
-    if patches_field is not None:
-        _, id_path = samples._get_label_field_path(patches_field, "id")
-        ids = samples.values(id_path, unwind=True)
-    else:
-        ids = samples.values("id")
-
     dup_ids = set(duplicate_ids)
     nearest_ids = set(neighbors_map.keys())
 
-    labels = []
-    for _id in ids:
-        if _id in dup_ids:
-            label = "duplicate"
-        elif _id in nearest_ids:
-            label = "nearest"
-        else:
-            label = "unique"
-
-        labels.append(label)
-
-    if backend == "plotly":
-        kwargs["edges"] = _build_edges(ids, neighbors_map)
-        kwargs["edges_title"] = "neighbors"
-        kwargs["labels_title"] = "type"
-
     with visualization.use_view(samples, allow_missing=True):
+        if patches_field is not None:
+            ids = visualization.current_label_ids
+        else:
+            ids = visualization.current_sample_ids
+
+        labels = []
+        for _id in ids:
+            if _id in dup_ids:
+                label = "duplicate"
+            elif _id in nearest_ids:
+                label = "nearest"
+            else:
+                label = "unique"
+
+            labels.append(label)
+
+        if backend == "plotly":
+            kwargs["edges"] = _build_edges(ids, neighbors_map)
+            kwargs["edges_title"] = "neighbors"
+            kwargs["labels_title"] = "type"
+
         return visualization.visualize(
             labels=labels,
             classes=["unique", "nearest", "duplicate"],
@@ -721,24 +747,23 @@ def visualize_unique(results, visualization, backend, **kwargs):
     unique_ids = results.unique_ids
     patches_field = results.config.patches_field
 
-    if patches_field is not None:
-        _, id_path = samples._get_label_field_path(patches_field, "id")
-        ids = samples.values(id_path, unwind=True)
-    else:
-        ids = samples.values("id")
-
-    _unique_ids = set(unique_ids)
-
-    labels = []
-    for _id in ids:
-        if _id in _unique_ids:
-            label = "unique"
-        else:
-            label = "other"
-
-        labels.append(label)
+    unique_ids = set(unique_ids)
 
     with visualization.use_view(samples, allow_missing=True):
+        if patches_field is not None:
+            ids = visualization.current_label_ids
+        else:
+            ids = visualization.current_sample_ids
+
+        labels = []
+        for _id in ids:
+            if _id in unique_ids:
+                label = "unique"
+            else:
+                label = "other"
+
+            labels.append(label)
+
         return visualization.visualize(
             labels=labels,
             classes=["other", "unique"],
