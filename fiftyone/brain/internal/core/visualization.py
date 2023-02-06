@@ -14,6 +14,7 @@ import sklearn.manifold as skm
 import eta.core.utils as etau
 
 import fiftyone.core.brain as fob
+import fiftyone.core.expressions as foe
 import fiftyone.core.plots as fop
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
@@ -107,10 +108,37 @@ def compute_visualization(
         logger.info("Generating visualization...")
         points = brain_method.fit(embeddings)
 
-    results = VisualizationResults(samples, config, points)
+    sample_ids, label_ids = fbu.get_ids(
+        samples,
+        patches_field=patches_field,
+        data=points,
+        data_type="points",
+    )
+
+    results = VisualizationResults(
+        samples,
+        config,
+        points,
+        sample_ids=sample_ids,
+        label_ids=label_ids,
+    )
+
     brain_method.save_run_results(samples, brain_key, results)
 
     return results
+
+
+def values(results, path_or_expr):
+    samples = results.view
+    patches_field = results.config.patches_field
+    if patches_field is not None:
+        ids = results.current_label_ids
+    else:
+        ids = results.current_sample_ids
+
+    return fbu.get_values(
+        samples, path_or_expr, ids, patches_field=patches_field
+    )
 
 
 def visualize(
@@ -121,25 +149,40 @@ def visualize(
     backend="plotly",
     **kwargs,
 ):
-    points = results._curr_points
-    samples = results._curr_view
-    patches_field = results._config.patches_field
+    points = results.current_points
+    samples = results.view
+    patches_field = results.config.patches_field
     good_inds = results._curr_good_inds
+    if patches_field is not None:
+        ids = results.current_label_ids
+    else:
+        ids = results.current_sample_ids
 
     if good_inds is not None:
-        if labels is not None and etau.is_container(labels):
+        if labels is not None and not _is_expr(labels):
             labels = fbu.filter_values(
                 labels, good_inds, patches_field=patches_field
             )
 
-        if sizes is not None and etau.is_container(sizes):
+        if sizes is not None and not _is_expr(sizes):
             sizes = fbu.filter_values(
                 sizes, good_inds, patches_field=patches_field
             )
 
+    if labels is not None and _is_expr(labels):
+        labels = fbu.get_values(
+            samples, labels, ids, patches_field=patches_field
+        )
+
+    if sizes is not None and _is_expr(sizes):
+        sizes = fbu.get_values(
+            samples, sizes, ids, patches_field=patches_field
+        )
+
     return fop.scatterplot(
         points,
         samples=samples,
+        ids=ids,
         link_field=patches_field,
         labels=labels,
         sizes=sizes,
@@ -147,6 +190,10 @@ def visualize(
         backend=backend,
         **kwargs,
     )
+
+
+def _is_expr(arg):
+    return isinstance(arg, (foe.ViewExpression, dict))
 
 
 class Visualization(fob.BrainMethod):
