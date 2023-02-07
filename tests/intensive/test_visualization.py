@@ -50,6 +50,9 @@ def test_images():
 
     results = dataset.load_brain_results("img_viz")
 
+    assert results.total_index_size == len(dataset)
+    assert set(dataset.values("id")) == set(results.sample_ids)
+
     plot = results.visualize(labels="uniqueness")
     plot.show()
 
@@ -64,7 +67,7 @@ def test_images_subset():
     view = dataset.take(10)
     results.use_view(view)
 
-    assert len(results.current_points) == 10
+    assert results.index_size == len(view)
     assert set(view.values("id")) == set(results.current_sample_ids)
 
     plot = results.visualize(labels="uniqueness")
@@ -88,7 +91,7 @@ def test_images_missing():
 
     results = fob.compute_visualization(dataset, batch_size=1)
 
-    assert results.index_size == 4
+    assert results.total_index_size == 4
     assert set(sample_ids) == set(results.sample_ids)
 
     model = foz.load_zoo_model("inception-v3-imagenet-torch")
@@ -99,10 +102,8 @@ def test_images_missing():
         batch_size=1,
     )
 
-    num_embeddings = len(dataset.exists("embeddings_missing"))
-
-    assert num_embeddings == 4
-    assert results.index_size == 4
+    assert len(dataset.exists("embeddings_missing")) == 4
+    assert results.total_index_size == 4
     assert set(sample_ids) == set(results.sample_ids)
 
 
@@ -110,6 +111,11 @@ def test_patches():
     dataset = _load_patches_dataset()
 
     results = dataset.load_brain_results("gt_viz")
+
+    label_ids = dataset.values("ground_truth.detections.id", unwind=True)
+
+    assert results.total_index_size == len(label_ids)
+    assert set(label_ids) == set(results.label_ids)
 
     plot = results.visualize(labels="ground_truth.detections.label")
     plot.show()
@@ -133,10 +139,9 @@ def test_patches_subset():
     view = dataset.filter_labels("ground_truth", F("label") == "person")
     results.use_view(view)
 
-    num_patches = view.count("ground_truth.detections")
     label_ids = view.values("ground_truth.detections.id", unwind=True)
 
-    assert len(results.current_points) == num_patches
+    assert results.index_size == len(label_ids)
     assert set(label_ids) == set(results.current_label_ids)
 
     plot = results.visualize(labels="ground_truth.detections.label")
@@ -169,7 +174,7 @@ def test_patches_missing():
     num_patches = dataset[:4].count("ground_truth.detections")
     label_ids = dataset[:4].values("ground_truth.detections.id", unwind=True)
 
-    assert results.index_size == num_patches
+    assert results.total_index_size == num_patches
     assert set(label_ids) == set(results.label_ids)
 
     model = foz.load_zoo_model("inception-v3-imagenet-torch")
@@ -184,10 +189,9 @@ def test_patches_missing():
     view = dataset.filter_labels(
         "ground_truth", F("embeddings_missing") != None
     )
-    num_embeddings = view.count("ground_truth.detections")
 
-    assert num_embeddings == num_patches
-    assert results.index_size == num_patches
+    assert view.count("ground_truth.detections") == num_patches
+    assert results.total_index_size == num_patches
     assert set(label_ids) == set(results.label_ids)
 
 
