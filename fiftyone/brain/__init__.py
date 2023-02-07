@@ -201,7 +201,7 @@ def compute_uniqueness(
             -   the name of a dataset field containing the embeddings to use
 
             If a ``model`` is provided, this argument specifies the name of a
-            field in which to store the compputed embeddings. In either case,
+            field in which to store the computed embeddings. In either case,
             when working with patch embeddings, you can provide either the
             fully-qualified path to the patch embeddings or just the name of
             the label attribute in ``roi_field``
@@ -306,7 +306,7 @@ def compute_visualization(
             -   the name of a dataset field containing the embeddings to use
 
             If a ``model`` is provided, this argument specifies the name of a
-            field in which to store the compputed embeddings. In either case,
+            field in which to store the computed embeddings. In either case,
             when working with patch embeddings, you can provide either the
             fully-qualified path to the patch embeddings or just the name of
             the label attribute in ``patches_field``
@@ -434,7 +434,7 @@ def compute_similarity(
             -   the name of a dataset field containing the embeddings to use
 
             If a ``model`` is provided, this argument specifies the name of a
-            field in which to store the compputed embeddings. In either case,
+            field in which to store the computed embeddings. In either case,
             when working with patch embeddings, you can provide either the
             fully-qualified path to the patch embeddings or just the name of
             the label attribute in ``patches_field``
