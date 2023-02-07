@@ -401,13 +401,18 @@ def sort_by_similarity(
     if k is not None:
         inds = inds[:k]
 
+    if patches_field is not None:
+        ids = label_ids
+    else:
+        ids = sample_ids
+
     #
     # Store query distances
     #
 
     if dist_field is not None:
         if selecting_samples:
-            values = {sample_ids[ind]: dists[ind] for ind in inds}
+            values = {ids[ind]: dists[ind] for ind in inds}
             samples.set_values(dist_field, values, key_field="id")
         else:
             label_type, path = samples._get_label_field_path(
@@ -432,7 +437,7 @@ def sort_by_similarity(
     stages = []
 
     if selecting_samples:
-        stage = fos.Select(sample_ids[inds], ordered=True)
+        stage = fos.Select(ids[inds], ordered=True)
         stages.append(stage)
     else:
         # We're sorting by object similarity but this is not a patches view, so
