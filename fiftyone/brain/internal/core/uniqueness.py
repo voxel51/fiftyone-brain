@@ -64,15 +64,12 @@ def compute_uniqueness(
     # to dense clusters of related samples.
     #
 
-    fov.validate_collection(samples)
+    fov.validate_image_collection(samples)
 
     if roi_field is not None:
         fov.validate_collection_label_fields(
             samples, roi_field, _ALLOWED_ROI_FIELD_TYPES
         )
-
-    if samples.media_type == fom.VIDEO:
-        raise ValueError("Uniqueness does not yet support video collections")
 
     if model is None and embeddings is None:
         model = fbm.load_model(_DEFAULT_MODEL)
@@ -126,7 +123,7 @@ def compute_uniqueness(
     uniqueness = _compute_uniqueness(embeddings)
 
     # Ensure field exists, even if `uniqueness` is empty
-    samples.add_sample_field(uniqueness_field, fof.FloatField)
+    samples._dataset.add_sample_field(uniqueness_field, fof.FloatField)
 
     uniqueness = {_id: u for _id, u in zip(sample_ids, uniqueness)}
     if uniqueness:
