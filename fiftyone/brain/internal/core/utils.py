@@ -12,8 +12,10 @@ import numpy as np
 
 import eta.core.utils as etau
 
+import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
 import fiftyone.core.patches as fop
+import fiftyone.core.utils as fou
 import fiftyone.zoo as foz
 from fiftyone import ViewField as F
 
@@ -121,7 +123,7 @@ def _get_patch_ids(samples, patches_field, handle_missing="skip"):
         _label_ids = []
         _add_missing = handle_missing == "image"
 
-        for _id, lids in zip(_sample_ids, _label_ids):
+        for _id, lids in zip(sample_ids, label_ids):
             if lids:
                 for _lid in lids:
                     _sample_ids.append(_id)
@@ -287,75 +289,62 @@ def get_embeddings(
     num_workers=None,
     skip_failures=True,
 ):
-    _samples = samples
-
-    if embeddings is None:
-        if model is not None:
-            if etau.is_str(model):
-                model = foz.load_zoo_model(model)
-
-            if patches_field is not None:
-                logger.info("Computing patch embeddings...")
-                embeddings = samples.compute_patch_embeddings(
-                    model,
-                    patches_field,
-                    embeddings_field=embeddings_field,
-                    force_square=force_square,
-                    alpha=alpha,
-                    handle_missing=handle_missing,
-                    batch_size=batch_size,
-                    num_workers=num_workers,
-                    skip_failures=skip_failures,
-                )
-            else:
-                logger.info("Computing embeddings...")
-                embeddings = samples.compute_embeddings(
-                    model,
-                    embeddings_field=embeddings_field,
-                    batch_size=batch_size,
-                    num_workers=num_workers,
-                    skip_failures=skip_failures,
-                )
-
-        if embeddings_field is not None:
-            if patches_field is not None:
-                _samples = samples.filter_labels(
-                    patches_field, F(embeddings_field) != None
-                )
-                _embeddings_path = samples._get_label_field_path(
-                    patches_field, embeddings_field
-                )
-            else:
-                _samples = samples.match(F(embeddings_field) != None)
-                _embeddings_path = embeddings_field
-
-            embeddings = _samples.values(_embeddings_path)
-
-    if embeddings is None:
+    if model is None and embeddings_field is None and embeddings is None:
         raise ValueError(
             "One of `model`, `embeddings_field`, or `embeddings` must be "
             "provided"
         )
 
-    if isinstance(embeddings, dict):
-        embeddings = [
-            embeddings.get(_id, None) for _id in _samples.values("id")
-        ]
+    if model is not None:
+        if etau.is_str(model):
+            model = foz.load_zoo_model(model)
 
-    if patches_field is not None:
-        if embeddings_field is not None:
-            _handle_missing_patch_embeddings(
-                embeddings, _samples, patches_field
+        if patches_field is not None:
+            logger.info("Computing patch embeddings...")
+            embeddings = samples.compute_patch_embeddings(
+                model,
+                patches_field,
+                embeddings_field=embeddings_field,
+                force_square=force_square,
+                alpha=alpha,
+                handle_missing=handle_missing,
+                batch_size=batch_size,
+                num_workers=num_workers,
+                skip_failures=skip_failures,
+            )
+        else:
+            logger.info("Computing embeddings...")
+            embeddings = samples.compute_embeddings(
+                model,
+                embeddings_field=embeddings_field,
+                batch_size=batch_size,
+                num_workers=num_workers,
+                skip_failures=skip_failures,
             )
 
+    if embeddings_field is not None:
+        embeddings, samples = _load_embeddings(
+            samples, embeddings_field, patches_field=patches_field
+        )
+    else:
+        if isinstance(embeddings, dict):
+            embeddings = [
+                embeddings.get(_id, None) for _id in samples.values("id")
+            ]
+
+        if patches_field is not None:
+            _handle_missing_patch_embeddings(
+                embeddings, samples, patches_field
+            )
+        else:
+            _handle_missing_embeddings(embeddings)
+
+    if patches_field is not None:
         if agg_fcn is not None:
             embeddings = np.stack([agg_fcn(e) for e in embeddings])
         else:
             embeddings = np.concatenate(embeddings, axis=0)
     else:
-        if embeddings_field is not None:
-            _handle_missing_embeddings(embeddings)
-
         if agg_fcn is not None:
             embeddings = np.stack([agg_fcn(e) for e in embeddings])
         else:
@@ -365,7 +354,7 @@ def get_embeddings(
         patches_field = None
 
     sample_ids, label_ids = get_ids(
-        _samples,
+        samples,
         patches_field=patches_field,
         data=embeddings,
         data_type="embeddings",
@@ -373,6 +362,36 @@ def get_embeddings(
     )
 
     return embeddings, sample_ids, label_ids
+
+
+def _load_embeddings(samples, embeddings_field, patches_field=None):
+    if patches_field is not None:
+        label_type, embeddings_path = samples._get_label_field_path(
+            patches_field, embeddings_field
+        )
+        is_list_field = issubclass(label_type, fol._LABEL_LIST_FIELDS)
+    else:
+        embeddings_path = embeddings_field
+        is_list_field = False
+
+    if is_list_field:
+        samples = samples.filter_labels(
+            patches_field, F(embeddings_field) != None
+        )
+    else:
+        samples = samples.match(F(embeddings_path) != None)
+
+    if samples.has_field(embeddings_path):
+        _field = None
+    else:
+        _field = fof.VectorField()
+
+    embeddings = samples.values(embeddings_path, _field=_field)
+
+    if is_list_field:
+        embeddings = [np.stack(e) for e in embeddings if e]
+
+    return embeddings, samples
 
 
 def _validate_args(samples, path_or_expr, patches_field):
