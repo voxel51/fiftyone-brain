@@ -220,7 +220,6 @@ class SimilarityResults(fob.BrainResults):
             sample_collection,
             self.sample_ids,
             self.label_ids,
-            index_samples=self._samples,
             patches_field=self._config.patches_field,
             allow_missing=allow_missing,
             warn_missing=warn_missing,

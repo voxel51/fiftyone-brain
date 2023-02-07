@@ -125,8 +125,12 @@ def compute_uniqueness(
     logger.info("Computing uniqueness...")
     uniqueness = _compute_uniqueness(embeddings)
 
+    # Ensure field exists, even if `uniqueness` is empty
+    samples.add_sample_field(uniqueness_field, fof.FloatField)
+
     uniqueness = {_id: u for _id, u in zip(sample_ids, uniqueness)}
-    samples.set_values(uniqueness_field, uniqueness, key_field="id")
+    if uniqueness:
+        samples.set_values(uniqueness_field, uniqueness, key_field="id")
 
     brain_method.save_run_results(samples, brain_key, None)
 
@@ -134,11 +138,12 @@ def compute_uniqueness(
 
 
 def _compute_uniqueness(embeddings, metric="euclidean"):
-    # @todo convert to a parameter with a default, for tuning
     K = 3
 
     num_embeddings = len(embeddings)
-    if num_embeddings <= _MAX_PRECOMPUTE_DISTS:
+    if num_embeddings <= K:
+        return [1] * num_embeddings
+    elif num_embeddings <= _MAX_PRECOMPUTE_DISTS:
         embeddings = skm.pairwise_distances(embeddings, metric=metric)
         metric = "precomputed"
     else:
