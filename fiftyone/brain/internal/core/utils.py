@@ -489,7 +489,7 @@ def _handle_missing_embeddings(embeddings, samples):
             missing_inds.append(idx)
 
     if not missing_inds:
-        return
+        return embeddings, None
 
     embeddings = [e for e in embeddings if e is not None]
     ref_sample_ids = list(np.delete(samples.values("id"), missing_inds))
