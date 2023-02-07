@@ -365,7 +365,7 @@ def get_embeddings(
             embeddings, samples
         )
 
-    if not embeddings:
+    if not isinstance(embeddings, np.ndarray) and not embeddings:
         embeddings = np.empty((0, 0), dtype=float)
         sample_ids = np.array([], dtype="<U24")
         if patches_field is not None:
@@ -380,11 +380,8 @@ def get_embeddings(
             embeddings = np.stack([agg_fcn(e) for e in embeddings])
         else:
             embeddings = np.concatenate(embeddings, axis=0)
-    else:
-        if agg_fcn is not None:
-            embeddings = np.stack([agg_fcn(e) for e in embeddings])
-        else:
-            embeddings = np.stack(embeddings)
+    elif not isinstance(embeddings, np.ndarray):
+        embeddings = np.stack(embeddings)
 
     if agg_fcn is not None:
         patches_field = None
