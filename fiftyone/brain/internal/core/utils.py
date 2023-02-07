@@ -12,6 +12,7 @@ import numpy as np
 
 import eta.core.utils as etau
 
+import fiftyone.core.labels as fol
 import fiftyone.core.patches as fop
 import fiftyone.zoo as foz
 from fiftyone import ViewField as F
@@ -20,7 +21,13 @@ from fiftyone import ViewField as F
 logger = logging.getLogger(__name__)
 
 
-def get_ids(samples, patches_field=None, data=None, data_type="embeddings"):
+def get_ids(
+    samples,
+    patches_field=None,
+    data=None,
+    data_type="embeddings",
+    handle_missing="skip",
+):
     if patches_field is None:
         sample_ids = samples.values("id")
 
@@ -34,11 +41,9 @@ def get_ids(samples, patches_field=None, data=None, data_type="embeddings"):
 
         return np.array(sample_ids), None
 
-    sample_ids = []
-    label_ids = []
-    for l in samples._get_selected_labels(fields=patches_field):
-        sample_ids.append(l["sample_id"])
-        label_ids.append(l["label_id"])
+    sample_ids, label_ids = _get_patch_ids(
+        samples, patches_field, handle_missing=handle_missing
+    )
 
     if data is not None and len(sample_ids) != len(data):
         raise ValueError(
@@ -52,7 +57,7 @@ def get_ids(samples, patches_field=None, data=None, data_type="embeddings"):
 
 
 def filter_ids(
-    view,
+    samples,
     index_sample_ids,
     index_label_ids,
     index_samples=None,
@@ -60,16 +65,16 @@ def filter_ids(
     allow_missing=True,
     warn_missing=False,
 ):
-    _validate_args(view, None, patches_field)
+    _validate_args(samples, None, patches_field)
 
     if patches_field is None:
-        if view._is_patches:
-            _sample_ids = np.array(view.values("sample_id"))
+        if samples._is_patches:
+            sample_ids = np.array(samples.values("sample_id"))
         else:
-            _sample_ids = np.array(view.values("id"))
+            sample_ids = np.array(samples.values("id"))
 
         keep_inds, good_inds, bad_ids = _parse_ids(
-            _sample_ids,
+            sample_ids,
             index_sample_ids,
             "samples",
             allow_missing,
@@ -77,16 +82,14 @@ def filter_ids(
         )
 
         if bad_ids is not None:
-            _sample_ids = _sample_ids[good_inds]
+            sample_ids = sample_ids[good_inds]
 
-        return _sample_ids, None, keep_inds, good_inds
+        return sample_ids, None, keep_inds, good_inds
 
-    labels = view._get_selected_labels(fields=patches_field)
-    _sample_ids = np.array([l["sample_id"] for l in labels])
-    _label_ids = np.array([l["label_id"] for l in labels])
+    sample_ids, label_ids = _get_patch_ids(samples, patches_field)
 
     keep_inds, good_inds, bad_ids = _parse_ids(
-        _label_ids,
+        label_ids,
         index_label_ids,
         "labels",
         allow_missing,
@@ -94,10 +97,43 @@ def filter_ids(
     )
 
     if bad_ids is not None:
-        _sample_ids = _sample_ids[good_inds]
-        _label_ids = _label_ids[good_inds]
+        sample_ids = sample_ids[good_inds]
+        label_ids = label_ids[good_inds]
 
-    return _sample_ids, _label_ids, keep_inds, good_inds
+    return sample_ids, label_ids, keep_inds, good_inds
+
+
+def _get_patch_ids(samples, patches_field, handle_missing="skip"):
+    if samples._is_patches:
+        sample_id_path = "sample_id"
+    else:
+        sample_id_path = "id"
+
+    label_type, label_id_path = samples._get_label_field_path(
+        patches_field, "id"
+    )
+    is_list_field = issubclass(label_type, fol._LABEL_LIST_FIELDS)
+
+    sample_ids, label_ids = samples.values([sample_id_path, label_id_path])
+
+    if is_list_field:
+        _sample_ids = []
+        _label_ids = []
+        _add_missing = handle_missing == "image"
+
+        for _id, lids in zip(_sample_ids, _label_ids):
+            if lids:
+                for _lid in lids:
+                    _sample_ids.append(_id)
+                    _label_ids.append(_lid)
+            elif _add_missing:
+                _sample_ids.append(_id)
+                _label_ids.append(None)
+
+        sample_ids = _sample_ids
+        label_ids = _label_ids
+
+    return np.array(sample_ids), np.array(label_ids)
 
 
 def _parse_ids(ids, index_ids, ftype, allow_missing, warn_missing):
@@ -194,6 +230,49 @@ def get_values(samples, path_or_expr, ids, patches_field=None):
     )
 
 
+def parse_embeddings_field(
+    samples, embeddings_field, patches_field=None, allow_embedded=True
+):
+    if not etau.is_str(embeddings_field):
+        raise ValueError(
+            "Invalid embeddings_field=%s; expected a string field name"
+            % embeddings_field
+        )
+
+    if patches_field is None:
+        _embeddings_field, is_frame_field = samples._handle_frame_field(
+            embeddings_field
+        )
+
+        if not allow_embedded and "." in _embeddings_field:
+            ftype = "frame" if is_frame_field else "sample"
+            raise ValueError(
+                "Invalid embeddings_field=%s; expected a top-level %s field "
+                "name that contains no '.'" % _embeddings_field
+            )
+
+        return embeddings_field
+
+    if embeddings_field.startswith(patches_field + "."):
+        _, root = samples._get_label_field_path(patches_field) + "."
+        if not embeddings_field.startswith(root):
+            raise ValueError(
+                "Invalid embeddings_field=%s for patches_field=%s"
+                % (embeddings_field, patches_field)
+            )
+
+        embeddings_field = embeddings_field[len(root) + 1]
+
+    if not allow_embedded and "." in embeddings_field:
+        raise ValueError(
+            "Invalid embeddings_field=%s for patches_field=%s; expected a "
+            "label attribute name that contains no '.'"
+            % (embeddings_field, patches_field)
+        )
+
+    return embeddings_field
+
+
 def get_embeddings(
     samples,
     model=None,
@@ -208,34 +287,49 @@ def get_embeddings(
     num_workers=None,
     skip_failures=True,
 ):
-    if model is not None:
-        if etau.is_str(model):
-            model = foz.load_zoo_model(model)
+    _samples = samples
 
-        if patches_field is not None:
-            logger.info("Computing patch embeddings...")
-            embeddings = samples.compute_patch_embeddings(
-                model,
-                patches_field,
-                embeddings_field=embeddings_field,
-                force_square=force_square,
-                alpha=alpha,
-                handle_missing=handle_missing,
-                batch_size=batch_size,
-                num_workers=num_workers,
-                skip_failures=skip_failures,
-            )
-        else:
-            logger.info("Computing embeddings...")
-            embeddings = samples.compute_embeddings(
-                model,
-                embeddings_field=embeddings_field,
-                batch_size=batch_size,
-                num_workers=num_workers,
-                skip_failures=skip_failures,
-            )
-    elif embeddings_field is not None:
-        embeddings = samples.values(embeddings_field)
+    if embeddings is None:
+        if model is not None:
+            if etau.is_str(model):
+                model = foz.load_zoo_model(model)
+
+            if patches_field is not None:
+                logger.info("Computing patch embeddings...")
+                embeddings = samples.compute_patch_embeddings(
+                    model,
+                    patches_field,
+                    embeddings_field=embeddings_field,
+                    force_square=force_square,
+                    alpha=alpha,
+                    handle_missing=handle_missing,
+                    batch_size=batch_size,
+                    num_workers=num_workers,
+                    skip_failures=skip_failures,
+                )
+            else:
+                logger.info("Computing embeddings...")
+                embeddings = samples.compute_embeddings(
+                    model,
+                    embeddings_field=embeddings_field,
+                    batch_size=batch_size,
+                    num_workers=num_workers,
+                    skip_failures=skip_failures,
+                )
+
+        if embeddings_field is not None:
+            if patches_field is not None:
+                _samples = samples.filter_labels(
+                    patches_field, F(embeddings_field) != None
+                )
+                _embeddings_path = samples._get_label_field_path(
+                    patches_field, embeddings_field
+                )
+            else:
+                _samples = samples.match(F(embeddings_field) != None)
+                _embeddings_path = embeddings_field
+
+            embeddings = _samples.values(_embeddings_path)
 
     if embeddings is None:
         raise ValueError(
@@ -245,26 +339,40 @@ def get_embeddings(
 
     if isinstance(embeddings, dict):
         embeddings = [
-            embeddings.get(_id, None) for _id in samples.values("id")
+            embeddings.get(_id, None) for _id in _samples.values("id")
         ]
 
     if patches_field is not None:
-        _handle_missing_patch_embeddings(embeddings, samples, patches_field)
+        if embeddings_field is not None:
+            _handle_missing_patch_embeddings(
+                embeddings, _samples, patches_field
+            )
 
         if agg_fcn is not None:
-            embeddings = [agg_fcn(e) for e in embeddings]
-            embeddings = np.stack(embeddings)
+            embeddings = np.stack([agg_fcn(e) for e in embeddings])
         else:
             embeddings = np.concatenate(embeddings, axis=0)
     else:
-        _handle_missing_embeddings(embeddings)
+        if embeddings_field is not None:
+            _handle_missing_embeddings(embeddings)
 
         if agg_fcn is not None:
-            embeddings = [agg_fcn(e) for e in embeddings]
+            embeddings = np.stack([agg_fcn(e) for e in embeddings])
+        else:
+            embeddings = np.stack(embeddings)
 
-        embeddings = np.stack(embeddings)
+    if agg_fcn is not None:
+        patches_field = None
 
-    return embeddings
+    sample_ids, label_ids = get_ids(
+        _samples,
+        patches_field=patches_field,
+        data=embeddings,
+        data_type="embeddings",
+        handle_missing=handle_missing,
+    )
+
+    return embeddings, sample_ids, label_ids
 
 
 def _validate_args(samples, path_or_expr, patches_field):

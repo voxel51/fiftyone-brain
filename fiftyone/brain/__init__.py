@@ -199,6 +199,9 @@ def compute_uniqueness(
             -   if ``roi_field`` is specified,  a dict mapping sample IDs to
                 ``num_patches x num_dims`` arrays of patch embeddings
             -   the name of a dataset field containing the embeddings to use
+                When working with patch embeddings, you can provide either the
+                fully-qualified path to the patch embeddings or just the name
+                of the label attribute in ``roi_field``
 
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
@@ -294,7 +297,11 @@ def compute_visualization(
             -   if ``patches_field`` is specified,  a dict mapping sample IDs
                 to ``num_patches x num_embedding_dims`` arrays of patch
                 embeddings
-            -   the name of a dataset field containing the embeddings to use
+            -   the name of a dataset field containing the embeddings to use.
+                When working with patch embeddings, you can provide either the
+                fully-qualified path to the patch embeddings or just the name
+                of the label attribute in ``patches_field``
+
         points (None): a pre-computed low-dimensional representation to use. If
             provided, no embeddings will be computed. Can be any of the
             following:
@@ -413,6 +420,9 @@ def compute_similarity(
             -   if ``patches_field`` is specified,  a dict mapping sample IDs
                 to ``num_patches x num_dims`` arrays of patch embeddings
             -   the name of a dataset field containing the embeddings to use
+                When working with patch embeddings, you can provide either the
+                fully-qualified path to the patch embeddings or just the name
+                of the label attribute in ``patches_field``
 
         brain_key (None): a brain key under which to store the results of this
             method

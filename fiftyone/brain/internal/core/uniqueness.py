@@ -25,7 +25,6 @@ import fiftyone.brain.internal.models as fbm
 
 logger = logging.getLogger(__name__)
 
-
 _ALLOWED_ROI_FIELD_TYPES = (
     fol.Detection,
     fol.Detections,
@@ -81,7 +80,12 @@ def compute_uniqueness(
             batch_size = _DEFAULT_BATCH_SIZE
 
     if etau.is_str(embeddings):
-        embeddings_field = embeddings
+        embeddings_field = fbu.parse_embeddings_field(
+            samples,
+            embeddings,
+            patches_field=roi_field,
+            allow_embedded=model is None,
+        )
         embeddings = None
     else:
         embeddings_field = None
@@ -103,7 +107,7 @@ def compute_uniqueness(
     else:
         agg_fcn = None
 
-    embeddings = fbu.get_embeddings(
+    embeddings, sample_ids, _ = fbu.get_embeddings(
         samples,
         model=model,
         patches_field=roi_field,
@@ -121,8 +125,8 @@ def compute_uniqueness(
     logger.info("Computing uniqueness...")
     uniqueness = _compute_uniqueness(embeddings)
 
-    samples._dataset.add_sample_field(uniqueness_field, fof.FloatField)
-    samples.set_values(uniqueness_field, uniqueness)
+    uniqueness = {_id: u for _id, u in zip(sample_ids, uniqueness)}
+    samples.set_values(uniqueness_field, uniqueness, key_field="id")
 
     brain_method.save_run_results(samples, brain_key, None)
 
