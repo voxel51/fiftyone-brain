@@ -34,7 +34,6 @@ umap = fou.lazy_import("umap")
 
 logger = logging.getLogger(__name__)
 
-
 _DEFAULT_MODEL = "mobilenet-v2-imagenet-torch"
 _DEFAULT_BATCH_SIZE = None
 
@@ -76,7 +75,12 @@ def compute_visualization(
             batch_size = _DEFAULT_BATCH_SIZE
 
     if etau.is_str(embeddings):
-        embeddings_field = embeddings
+        embeddings_field = fbu.parse_embeddings_field(
+            samples,
+            embeddings,
+            patches_field=patches_field,
+            allow_embedded=model is None,
+        )
         embeddings = None
     else:
         embeddings_field = None
@@ -92,7 +96,7 @@ def compute_visualization(
         brain_method.register_run(samples, brain_key)
 
     if points is None:
-        embeddings = fbu.get_embeddings(
+        embeddings, sample_ids, label_ids = fbu.get_embeddings(
             samples,
             model=model,
             patches_field=patches_field,
@@ -107,13 +111,13 @@ def compute_visualization(
 
         logger.info("Generating visualization...")
         points = brain_method.fit(embeddings)
-
-    sample_ids, label_ids = fbu.get_ids(
-        samples,
-        patches_field=patches_field,
-        data=points,
-        data_type="points",
-    )
+    else:
+        sample_ids, label_ids = fbu.get_ids(
+            samples,
+            patches_field=patches_field,
+            data=points,
+            data_type="points",
+        )
 
     results = VisualizationResults(
         samples,

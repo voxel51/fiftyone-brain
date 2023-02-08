@@ -74,7 +74,12 @@ def compute_similarity(
         supports_prompts = None
 
     if etau.is_str(embeddings):
-        embeddings_field = embeddings
+        embeddings_field = fbu.parse_embeddings_field(
+            samples,
+            embeddings,
+            patches_field=patches_field,
+            allow_embedded=model is None,
+        )
         embeddings = None
     else:
         embeddings_field = None
@@ -92,7 +97,7 @@ def compute_similarity(
     if brain_key is not None:
         brain_method.register_run(samples, brain_key)
 
-    embeddings = fbu.get_embeddings(
+    embeddings, sample_ids, label_ids = fbu.get_embeddings(
         samples,
         model=_model,
         patches_field=patches_field,
@@ -105,17 +110,10 @@ def compute_similarity(
         skip_failures=skip_failures,
     )
 
-    sample_ids, label_ids = fbu.get_ids(
-        samples,
-        patches_field=patches_field,
-        data=embeddings,
-        data_type="embeddings",
-    )
-
     results = SimilarityResults(
         samples,
         config,
-        embeddings,
+        embeddings=embeddings,
         sample_ids=sample_ids,
         label_ids=label_ids,
     )
@@ -403,13 +401,18 @@ def sort_by_similarity(
     if k is not None:
         inds = inds[:k]
 
+    if patches_field is not None:
+        ids = label_ids
+    else:
+        ids = sample_ids
+
     #
     # Store query distances
     #
 
     if dist_field is not None:
         if selecting_samples:
-            values = {sample_ids[ind]: dists[ind] for ind in inds}
+            values = {ids[ind]: dists[ind] for ind in inds}
             samples.set_values(dist_field, values, key_field="id")
         else:
             label_type, path = samples._get_label_field_path(
@@ -434,7 +437,7 @@ def sort_by_similarity(
     stages = []
 
     if selecting_samples:
-        stage = fos.Select(sample_ids[inds], ordered=True)
+        stage = fos.Select(ids[inds], ordered=True)
         stages.append(stage)
     else:
         # We're sorting by object similarity but this is not a patches view, so

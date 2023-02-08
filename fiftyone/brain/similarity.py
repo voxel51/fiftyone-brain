@@ -22,16 +22,22 @@ class SimilarityResults(fob.BrainResults):
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
         config: the :class:`SimilarityConfig` used
-        embeddings: a ``num_embeddings x num_dims`` array of embeddings
+        embeddings (None): a ``num_embeddings x num_dims`` array of embeddings
         sample_ids (None): a ``num_embeddings`` array of sample IDs
         label_ids (None): a ``num_embeddings`` array of label IDs, if
             applicable
     """
 
     def __init__(
-        self, samples, config, embeddings, sample_ids=None, label_ids=None
+        self, samples, config, embeddings=None, sample_ids=None, label_ids=None
     ):
-        if sample_ids is None:
+        if embeddings is None:
+            embeddings, sample_ids, label_ids = fbu.get_embeddings(
+                samples._dataset,
+                patches_field=config.patches_field,
+                embeddings_field=config.embeddings_field,
+            )
+        elif sample_ids is None:
             sample_ids, label_ids = fbu.get_ids(
                 samples,
                 patches_field=config.patches_field,
@@ -214,7 +220,6 @@ class SimilarityResults(fob.BrainResults):
             sample_collection,
             self.sample_ids,
             self.label_ids,
-            index_samples=self._samples,
             patches_field=self._config.patches_field,
             allow_missing=allow_missing,
             warn_missing=warn_missing,
@@ -519,9 +524,23 @@ class SimilarityResults(fob.BrainResults):
 
         return fbs.visualize_unique(self, visualization, backend, **kwargs)
 
+    def attributes(self):
+        attrs = super().attributes()
+
+        if self.config.embeddings_field is not None:
+            attrs = [
+                attr
+                for attr in attrs
+                if attr not in ("embeddings", "sample_ids", "label_ids")
+            ]
+
+        return attrs
+
     @classmethod
     def _from_dict(cls, d, samples, config):
-        embeddings = np.array(d["embeddings"])
+        embeddings = d.get("embeddings", None)
+        if embeddings is not None:
+            embeddings = np.array(embeddings)
 
         sample_ids = d.get("sample_ids", None)
         if sample_ids is not None:
@@ -534,7 +553,7 @@ class SimilarityResults(fob.BrainResults):
         return cls(
             samples,
             config,
-            embeddings,
+            embeddings=embeddings,
             sample_ids=sample_ids,
             label_ids=label_ids,
         )

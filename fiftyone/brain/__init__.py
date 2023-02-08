@@ -192,17 +192,22 @@ def compute_uniqueness(
             :class:`fiftyone.core.labels.Polyline`, or
             :class:`fiftyone.core.labels.Polylines` field defining a region of
             interest within each image to use to compute uniqueness
-        embeddings (None): pre-computed embeddings to use. Can be any of the
-            following:
+        embeddings (None): if no ``model`` is provided, this argument specifies
+            pre-computed embeddings to use, which can be any of the following:
 
             -   a ``num_samples x num_dims`` array of embeddings
             -   if ``roi_field`` is specified,  a dict mapping sample IDs to
                 ``num_patches x num_dims`` arrays of patch embeddings
             -   the name of a dataset field containing the embeddings to use
 
+            If a ``model`` is provided, this argument specifies the name of a
+            field in which to store the computed embeddings. In either case,
+            when working with patch embeddings, you can provide either the
+            fully-qualified path to the patch embeddings or just the name of
+            the label attribute in ``roi_field``
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
-            `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/models.html>`_
+            `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/models.html>`_
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
         force_square (False): whether to minimally manipulate the patch
@@ -263,8 +268,12 @@ def compute_visualization(
     method of the returned
     :class:`fiftyone.brain.visualization.VisualizationResults` object.
 
-    If no ``embeddings`` or ``model`` is provided, a default model is used to
-    generate embeddings.
+    If no ``embeddings`` or ``model`` is provided, the following default model
+    is used to generate embeddings::
+
+        import fiftyone.zoo as foz
+
+        model = foz.load_zoo_model("mobilenet-v2-imagenet-torch")
 
     You can use the ``method`` parameter to select the dimensionality-reduction
     method to use, and you can optionally customize the method by passing
@@ -287,14 +296,20 @@ def compute_visualization(
             :class:`fiftyone.core.labels.Detections`,
             :class:`fiftyone.core.labels.Polyline`, or
             :class:`fiftyone.core.labels.Polylines`
-        embeddings (None): pre-computed embeddings to use. Can be any of the
-            following:
+        embeddings (None): if no ``model`` is provided, this argument specifies
+            pre-computed embeddings to use, which can be any of the following:
 
             -   a ``num_samples x num_embedding_dims`` array of embeddings
             -   if ``patches_field`` is specified,  a dict mapping sample IDs
                 to ``num_patches x num_embedding_dims`` arrays of patch
                 embeddings
             -   the name of a dataset field containing the embeddings to use
+
+            If a ``model`` is provided, this argument specifies the name of a
+            field in which to store the computed embeddings. In either case,
+            when working with patch embeddings, you can provide either the
+            fully-qualified path to the patch embeddings or just the name of
+            the label attribute in ``patches_field``
         points (None): a pre-computed low-dimensional representation to use. If
             provided, no embeddings will be computed. Can be any of the
             following:
@@ -315,7 +330,7 @@ def compute_visualization(
             values are ``("umap", "tsne", "pca", "manual")``
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
-            `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/index.html>`_
+            `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
         force_square (False): whether to minimally manipulate the patch
@@ -395,8 +410,12 @@ def compute_similarity(
         Query the index to select a subset of examples of a specified size that
         are maximally unique with respect to each other
 
-    If no ``embeddings`` or ``model`` is provided, a default model is used to
-    generate embeddings.
+    If no ``embeddings`` or ``model`` is provided, the following default model
+    is used to generate embeddings::
+
+        import fiftyone.zoo as foz
+
+        model = foz.load_zoo_model("mobilenet-v2-imagenet-torch")
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
@@ -406,21 +425,26 @@ def compute_similarity(
             :class:`fiftyone.core.labels.Detections`,
             :class:`fiftyone.core.labels.Polyline`, or
             :class:`fiftyone.core.labels.Polylines`
-        embeddings (None): pre-computed embeddings to use. Can be any of the
-            following:
+        embeddings (None): if no ``model`` is provided, this argument specifies
+            pre-computed embeddings to use. Can be any of the following:
 
             -   a ``num_samples x num_dims`` array of embeddings
             -   if ``patches_field`` is specified,  a dict mapping sample IDs
                 to ``num_patches x num_dims`` arrays of patch embeddings
             -   the name of a dataset field containing the embeddings to use
 
+            If a ``model`` is provided, this argument specifies the name of a
+            field in which to store the computed embeddings. In either case,
+            when working with patch embeddings, you can provide either the
+            fully-qualified path to the patch embeddings or just the name of
+            the label attribute in ``patches_field``
         brain_key (None): a brain key under which to store the results of this
             method
         metric ("euclidean"): the embedding distance metric to use. See
             ``sklearn.metrics.pairwise_distance`` for supported values
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
-            `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/index.html>`_
+            `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
         force_square (False): whether to minimally manipulate the patch

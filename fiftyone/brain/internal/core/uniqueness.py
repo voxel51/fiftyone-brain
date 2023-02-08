@@ -25,7 +25,6 @@ import fiftyone.brain.internal.models as fbm
 
 logger = logging.getLogger(__name__)
 
-
 _ALLOWED_ROI_FIELD_TYPES = (
     fol.Detection,
     fol.Detections,
@@ -65,15 +64,12 @@ def compute_uniqueness(
     # to dense clusters of related samples.
     #
 
-    fov.validate_collection(samples)
+    fov.validate_image_collection(samples)
 
     if roi_field is not None:
         fov.validate_collection_label_fields(
             samples, roi_field, _ALLOWED_ROI_FIELD_TYPES
         )
-
-    if samples.media_type == fom.VIDEO:
-        raise ValueError("Uniqueness does not yet support video collections")
 
     if model is None and embeddings is None:
         model = fbm.load_model(_DEFAULT_MODEL)
@@ -81,7 +77,12 @@ def compute_uniqueness(
             batch_size = _DEFAULT_BATCH_SIZE
 
     if etau.is_str(embeddings):
-        embeddings_field = embeddings
+        embeddings_field = fbu.parse_embeddings_field(
+            samples,
+            embeddings,
+            patches_field=roi_field,
+            allow_embedded=model is None,
+        )
         embeddings = None
     else:
         embeddings_field = None
@@ -103,7 +104,7 @@ def compute_uniqueness(
     else:
         agg_fcn = None
 
-    embeddings = fbu.get_embeddings(
+    embeddings, sample_ids, _ = fbu.get_embeddings(
         samples,
         model=model,
         patches_field=roi_field,
@@ -121,8 +122,12 @@ def compute_uniqueness(
     logger.info("Computing uniqueness...")
     uniqueness = _compute_uniqueness(embeddings)
 
+    # Ensure field exists, even if `uniqueness` is empty
     samples._dataset.add_sample_field(uniqueness_field, fof.FloatField)
-    samples.set_values(uniqueness_field, uniqueness)
+
+    uniqueness = {_id: u for _id, u in zip(sample_ids, uniqueness)}
+    if uniqueness:
+        samples.set_values(uniqueness_field, uniqueness, key_field="id")
 
     brain_method.save_run_results(samples, brain_key, None)
 
@@ -130,11 +135,12 @@ def compute_uniqueness(
 
 
 def _compute_uniqueness(embeddings, metric="euclidean"):
-    # @todo convert to a parameter with a default, for tuning
     K = 3
 
     num_embeddings = len(embeddings)
-    if num_embeddings <= _MAX_PRECOMPUTE_DISTS:
+    if num_embeddings <= K:
+        return [1] * num_embeddings
+    elif num_embeddings <= _MAX_PRECOMPUTE_DISTS:
         embeddings = skm.pairwise_distances(embeddings, metric=metric)
         metric = "precomputed"
     else:
