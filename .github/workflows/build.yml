@@ -118,8 +118,7 @@ jobs:
           path: dist
       - name: Install dependencies
         run: |
-          pip3 install --upgrade pip setuptools wheel
-          pip3 install twine
+          pip install twine
       - name: Set environment
         env:
           RELEASE_TAG: ${{ github.ref }}
