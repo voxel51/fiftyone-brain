@@ -382,13 +382,14 @@ def compute_similarity(
     patches_field=None,
     embeddings=None,
     brain_key=None,
-    metric="euclidean",
     model=None,
     force_square=False,
     alpha=None,
     batch_size=None,
     num_workers=None,
     skip_failures=True,
+    backend=None,
+    **kwargs,
 ):
     """Uses embeddings to index the samples or their patches so that you can
     query/sort by visual similarity.
@@ -440,8 +441,6 @@ def compute_similarity(
             the label attribute in ``patches_field``
         brain_key (None): a brain key under which to store the results of this
             method
-        metric ("euclidean"): the embedding distance metric to use. See
-            ``sklearn.metrics.pairwise_distance`` for supported values
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
@@ -464,24 +463,31 @@ def compute_similarity(
             embeddings
         skip_failures (True): whether to gracefully continue without raising an
             error if embeddings cannot be generated for a sample
+        backend (None): the similarity backend to use. The supported values are
+            ``fiftyone.brain_config.backends.keys()`` and the default
+            is ``fiftyone.brain_config.default_backend``
+        **kwargs: keyword arguments for the
+            :class:`fiftyone.brian.SimilarityConfig` subclass of the backend
+            being used
 
     Returns:
         a :class:`fiftyone.brain.similarity.SimilarityResults`
     """
-    import fiftyone.brain.internal.core.similarity as fbs
+    import fiftyone.brain.similarity as fbs
 
     return fbs.compute_similarity(
         samples,
         patches_field,
         embeddings,
         brain_key,
-        metric,
         model,
         force_square,
         alpha,
         batch_size,
         num_workers,
         skip_failures,
+        backend,
+        **kwargs,
     )
 
 

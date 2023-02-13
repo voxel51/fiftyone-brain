@@ -228,6 +228,161 @@ def _parse_ids(ids, index_ids, ftype, allow_missing, warn_missing):
     return keep_inds, good_inds, bad_ids
 
 
+def add_ids(
+    sample_ids,
+    label_ids,
+    index_sample_ids,
+    index_label_ids,
+    patches_field=None,
+    overwrite=True,
+    allow_existing=True,
+    warn_existing=False,
+):
+    if patches_field is not None:
+        ids = label_ids
+        index_ids = index_label_ids
+    else:
+        ids = sample_ids
+        index_ids = index_sample_ids
+
+    ii = []
+    jj = []
+
+    ids_map = {_id: _i for _i, _id in enumerate(index_ids)}
+    new_idx = len(index_ids)
+    for _i, _id in enumerate(ids):
+        ii.append(_i)
+
+        _idx = ids_map.get(_id, None)
+        if _idx is None:
+            jj.append(new_idx)
+            new_idx += 1
+        elif overwrite:
+            jj.append(_idx)
+
+    ii = np.array(ii)
+    jj = np.array(jj)
+
+    n = len(index_sample_ids)
+
+    if not allow_existing:
+        existing_inds = np.nonzero(jj < n)[0]
+        num_existing = existing_inds.size
+
+        if num_existing > 0:
+            if warn_existing:
+                logger.warning(
+                    "Ignoring %d IDs (eg %s) that are already present in the "
+                    "index",
+                    num_existing,
+                    ids[ii[0]],
+                )
+
+                ii = np.delete(ii, existing_inds)
+                jj = np.delete(jj, existing_inds)
+            else:
+                raise ValueError(
+                    "Found %d IDs (eg %s) that are already present in the "
+                    "index" % (num_existing, ids[ii[0]])
+                )
+
+    if ii.size > 0:
+        sample_ids = np.array(sample_ids)
+        if patches_field is not None:
+            label_ids = np.array(label_ids)
+
+        m = jj[-1] - n
+
+        if m > 0:
+            index_sample_ids = np.concatenate(
+                (index_sample_ids, np.empty(m, dtype=index_sample_ids.dtype))
+            )
+            if patches_field is not None:
+                index_label_ids = np.concatenate(
+                    (index_label_ids, np.empty(m, dtype=index_label_ids.dtype))
+                )
+
+        index_sample_ids[jj] = sample_ids[ii]
+        if patches_field is not None:
+            index_label_ids[jj] = label_ids[ii]
+
+    return index_sample_ids, index_label_ids, ii, jj
+
+
+def remove_ids(
+    sample_ids,
+    label_ids,
+    index_sample_ids,
+    index_label_ids,
+    patches_field=None,
+    allow_missing=True,
+    warn_missing=False,
+):
+    rm_inds = []
+
+    if sample_ids is not None:
+        rm_inds.extend(
+            _find_ids(
+                sample_ids,
+                index_sample_ids,
+                allow_missing,
+                warn_missing,
+                "sample",
+            )
+        )
+
+    if label_ids is not None:
+        rm_inds.extend(
+            _find_ids(
+                label_ids,
+                index_label_ids,
+                allow_missing,
+                warn_missing,
+                "label",
+            )
+        )
+
+    rm_inds = np.array(rm_inds)
+
+    if rm_inds.size > 0:
+        index_sample_ids = np.delete(index_sample_ids, rm_inds)
+        if patches_field is not None:
+            index_label_ids = np.delete(index_label_ids, rm_inds)
+
+    return index_sample_ids, index_label_ids, rm_inds
+
+
+def _find_ids(ids, index_ids, allow_missing, warn_missing, ftype):
+    found_inds = []
+    missing_ids = []
+
+    ids_map = {_id: _i for _i, _id in enumerate(index_ids)}
+    for _id in ids:
+        ind = ids_map.get(_id, None)
+        if ind is not None:
+            found_inds.append(ind)
+        elif not allow_missing:
+            missing_ids.append(_id)
+
+    num_missing = len(missing_ids)
+
+    if num_missing > 0:
+        if warn_missing:
+            logger.warning(
+                "Ignoring %d %d IDs (eg %s) that are not present in the index",
+                num_missing,
+                ftype,
+                missing_ids[0],
+            )
+        else:
+            raise ValueError(
+                "Found %d %d IDs (eg %s) that are not present in the index"
+                % (num_missing, ftype, missing_ids[0])
+            )
+
+    return found_inds
+
+
 def filter_values(values, keep_inds, patches_field=None):
     if patches_field:
         _values = list(itertools.chain.from_iterable(values))
