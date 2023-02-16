@@ -152,6 +152,7 @@ class PineconeSimilarityResults(SimilarityResults):
         self._metric = config.metric
         self._api_key = config.api_key
         self._environment = config.environment
+        self._max_k = config.max_k
 
         print("Initializing pinecone index")
         self._initialize_connection()
@@ -301,13 +302,13 @@ class PineconeSimilarityResults(SimilarityResults):
         if label_ids is not None:
             response = index.query(
                 vector=query_embedding,
-                top_k=min(k, 10000),
+                top_k=min(k, self._max_k),
                 filter={"id": {"$in": list(label_ids)}},
             )
         else:
             response = index.query(
                 vector=query_embedding,
-                top_k=min(k, 10000),
+                top_k=min(k, self._max_k),
                 filter={"id": {"$in": list(sample_ids)}},
             )
         
