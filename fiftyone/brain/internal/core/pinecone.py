@@ -55,7 +55,6 @@ class PineconeSimilarityConfig(SimilarityConfig):
         replicas=1,
         api_key=None,
         environment=None,
-        upsert_pagination=100,
         **kwargs,
     ):
         super().__init__(
@@ -73,7 +72,6 @@ class PineconeSimilarityConfig(SimilarityConfig):
         self.replicas = replicas
         self.api_key = api_key
         self.environment = environment
-        self.upsert_pagination = upsert_pagination
 
     @property
     def method(self):
