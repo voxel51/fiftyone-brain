@@ -150,7 +150,6 @@ class PineconeSimilarityResults(SimilarityResults):
         self._pods = config.pods
         self._replicas = config.replicas
         self._metric = config.metric
-        self._upsert_pagination = config.upsert_pagination
         self._api_key = config.api_key
         self._environment = config.environment
 
@@ -327,6 +326,7 @@ class PineconeSimilarityResults(SimilarityResults):
         overwrite=True,
         allow_existing=True,
         warn_existing=False,
+        upsert_pagination=100,
     ):
 
         embeddings_list = [arr.tolist() for arr in embeddings]
@@ -341,14 +341,14 @@ class PineconeSimilarityResults(SimilarityResults):
             index_vectors = list(zip(sample_ids, embeddings_list, id_dicts))
         
         num_vectors = embeddings.shape[0]
-        num_steps = int(np.ceil(num_vectors / self._upsert_pagination))
+        num_steps = int(np.ceil(num_vectors / upsert_pagination))
 
         self._initialize_connection()
         index = pinecone.Index(self._index_name)
 
         for i in range(num_steps):
-            min_ind = self._upsert_pagination * i
-            max_ind = min(self._upsert_pagination * (i + 1), num_vectors)
+            min_ind = upsert_pagination * i
+            max_ind = min(upsert_pagination * (i + 1), num_vectors)
             index.upsert(index_vectors[min_ind:max_ind])
 
     def attributes(self):
