@@ -113,6 +113,7 @@ def compute_similarity(
         )
 
     results = brain_method.initialize(samples)
+
     results.add_to_index(embeddings, sample_ids, label_ids=label_ids)
     brain_method.save_run_results(samples, brain_key, results)
 
@@ -134,6 +135,13 @@ def _parse_config(name, **kwargs):
     backends = {
         "sklearn": {
             "config_cls": "fiftyone.brain.internal.core.similarity.SklearnSimilarityConfig",
+        },
+        "pinecone": {
+            "config_cls": "fiftyone.brain.internal.core.similarity.PineconeSimilarityConfig",
+            "api_key": "XXXXXXXX",
+            "environment": "us-west1-gcp",
+            "index_name": "myindex",
+        
         },
         "qdrant": {
             "config_cls": "fiftyone.utils.cvat.CVATBackendConfig",
