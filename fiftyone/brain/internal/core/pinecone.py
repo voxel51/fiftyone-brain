@@ -269,7 +269,7 @@ class PineconeSimilarityResults(SimilarityResults):
         if not return_dists:
             return ids
         else:
-            dists = [r["distance"] for r in response["matches"]]
+            dists = [r["score"] for r in response["matches"]]
             return ids, dists
 
     def add_to_index(
