@@ -1,5 +1,5 @@
 """
-Sklearn similarity.
+Sklearn similarity backend.
 
 | Copyright 2017-2023, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -31,7 +31,7 @@ _COSINE_HACK_ATTR = "_cosine_hack"
 
 
 class SklearnSimilarityConfig(SimilarityConfig):
-    """Configuration for the scikit-learn similarity backend.
+    """Configuration for the sklearn similarity backend.
 
     Args:
         embeddings_field (None): the sample field containing the embeddings,
@@ -81,7 +81,7 @@ class SklearnSimilarityConfig(SimilarityConfig):
 
 
 class SklearnSimilarity(Similarity):
-    """Sklearn similarity class for similarity backends.
+    """Sklearn similarity factory.
 
     Args:
         config: an :class:`SklearnSimilarityConfig`
@@ -98,7 +98,7 @@ class SklearnSimilarity(Similarity):
 
 
 class SklearnSimilarityResults(SimilarityResults):
-    """Class for interacting with sklearn similarity results.
+    """Class for interacting with sklearn similarity indexes.
 
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used

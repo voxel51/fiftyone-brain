@@ -18,16 +18,14 @@ from fiftyone.brain.similarity import (
 )
 import fiftyone.brain.internal.core.utils as fbu
 
-pinecone = fou.lazy_import(
-    "pinecone", callback=lambda: fou.ensure_package("pinecone")
-)
+pinecone = fou.lazy_import("pinecone")
 
 
 logger = logging.getLogger(__name__)
 
 
 class PineconeSimilarityConfig(SimilarityConfig):
-    """Configuration for the pinecone similarity backend.
+    """Configuration for the Pinecone similarity backend.
 
     Args:
         embeddings_field (None): the sample field containing the embeddings,
@@ -93,15 +91,14 @@ class PineconeSimilarityConfig(SimilarityConfig):
 
 
 class PineconeSimilarity(Similarity):
-    """Pinecone similarity class for similarity backends.
+    """Pinecone similarity factory.
 
     Args:
         config: an :class:`PineconeSimilarityConfig`
     """
 
     def ensure_requirements(self):
-        ## do I need "pinecone" here?
-        pass
+        fou.ensure_package("pinecone")
 
     def initialize(self, samples):
         return PineconeSimilarityResults(samples, self.config, backend=self)
@@ -111,7 +108,7 @@ class PineconeSimilarity(Similarity):
 
 
 class PineconeSimilarityResults(SimilarityResults):
-    """Class for interacting with pinecone similarity results.
+    """Class for interacting with Pinecone similarity indexes.
 
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
