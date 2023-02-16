@@ -184,55 +184,18 @@ class PineconeSimilarityResults(SimilarityResults):
     def _initialize_connection(self):
         pinecone.init(self._api_key, self._environment)
     
-    def describe_index(self):
-        """Direct API access to Pinecone's describe_index method.
+    def connect_to_api(self):
+        """Direct access to Pinecone API.
         """
         self._initialize_connection()
-        pinecone.describe_index(self._index_name)
-    
+        return pinecone
+
     def describe_index_stats(self):
         """Direct API access to Pinecone's describe_index_stats method.
         """
         self._initialize_connection()
         index = pinecone.Index(self._index_name)
         index.describe_index_stats()
-
-    def configure_index(
-            self,
-            replicas=None,
-            pod_type=None,
-    ):
-        """Direct API access to Pinecone's configure_index method.
-
-        Args:
-            replicas (None): Number of replicas for the index.
-            pod_type (None): Pod type for the index.
-        """
-    
-        self._initialize_connection()
-
-        if replicas is not None and pod_type is not None:
-            pinecone.configure_index(
-                self._index_name, 
-                replicas=replicas, 
-                pod_type=pod_type
-                )
-        elif replicas is not None:
-            pinecone.configure_index(
-                self._index_name, 
-                replicas=replicas
-                )
-        elif pod_type is not None:
-            pinecone.configure_index(
-                self._index_name, 
-                pod_type=pod_type
-                )
-
-        desc = self.describe_index()
-        self._pods = desc.pods
-        self._pod_type = desc.pod_type
-        self._replicas = desc.replicas
-        
 
     def remove_from_index(
         self,
