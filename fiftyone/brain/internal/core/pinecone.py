@@ -9,6 +9,8 @@ import logging
 
 import numpy as np
 
+import eta.core.utils as etau
+
 import fiftyone.core.utils as fou
 
 from fiftyone.brain.similarity import (
@@ -98,7 +100,7 @@ class PineconeSimilarity(Similarity):
     """
 
     def ensure_requirements(self):
-        fou.ensure_package("pinecone")
+        fou.ensure_package("pinecone-client")
 
     def initialize(self, samples):
         return PineconeSimilarityResults(samples, self.config, backend=self)
@@ -224,11 +226,12 @@ class PineconeSimilarityResults(SimilarityResults):
 
         if query is None:
             raise ValueError(
-                "A query must be provided when using aggregate similarity"
+                "A query must be provided when using pinecone similarity"
             )
 
         if aggregation is not None:
-            raise ValueError("Pinecone backend does not support aggregation")
+            print("Pinecone backend does not support aggregation.")
+            print("Falling back to default.")
 
         sample_ids = self.current_sample_ids
         label_ids = self.current_label_ids
@@ -238,38 +241,36 @@ class PineconeSimilarityResults(SimilarityResults):
             environment=self._environment,
         )
         index = pinecone.Index(self._index_name)
-
         if isinstance(query, np.ndarray):
             # Query by vectors
             query_embedding = query.tolist()
+        elif etau.is_container(query) and etau.is_numeric(query[0]):
+            query_embedding = np.array(query).tolist()
         else:
             query_id = query
-            query_embedding = index.fetch([query_id])["vectors"][query_id][
+            query_embedding = index.fetch(query_id)["vectors"][query_id[0]][
                 "values"
             ]
-
+        
         if label_ids is not None:
             response = index.query(
                 vector=query_embedding,
-                top_k=k,
-                filter={"id": {"$in": label_ids}},
+                top_k=min(k, 10000),
+                filter={"id": {"$in": list(label_ids)}},
             )
         else:
             response = index.query(
                 vector=query_embedding,
                 top_k=min(k, 10000),
-                filter={"id": {"$in": sample_ids}},
+                filter={"id": {"$in": list(sample_ids)}},
             )
-
-        print(response)
-
-        ids = ["63ed9a7ba4c597b4abcc6711" "63ed9a7ba4c597b4abcc6717"]
-
-        if return_dists:
-            dists = []
-            return ids, dists
-        else:
+        
+        ids = [r["id"] for r in response["matches"]]
+        if not return_dists:
             return ids
+        else:
+            dists = [r["distance"] for r in response["matches"]]
+            return ids, dists
 
     def add_to_index(
         self,
@@ -291,7 +292,7 @@ class PineconeSimilarityResults(SimilarityResults):
         else:
             id_dicts = [{"id": sid, "sample_id": sid} for sid in sample_ids]
             index_vectors = list(zip(sample_ids, embeddings_list, id_dicts))
-
+        
         num_vectors = embeddings.shape[0]
         num_steps = int(np.ceil(num_vectors / self._upsert_pagination))
 
@@ -354,7 +355,13 @@ class PineconeSimilarityResults(SimilarityResults):
         aggregation=None,
         return_dists=False,
     ):
-        pass
+        return self._sort_by_similarity(
+            query=query,
+            k=k,
+            reverse=reverse,
+            aggregation=aggregation,
+            return_dists=return_dists,
+        )
 
     def _to_inds(self, ids):
         pass

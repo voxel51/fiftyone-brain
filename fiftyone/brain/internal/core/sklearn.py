@@ -314,12 +314,16 @@ class SklearnSimilarityResults(SimilarityResults):
         aggregation=None,
         return_dists=False,
     ):
+        print("Kneighbors")
         if aggregation is not None:
+            print("Aggregation")
+            print(aggregation)
             return self._sort_by_similarity(
                 query, k, reverse, aggregation, return_dists
             )
 
         if keep_ids is not None:
+            print("Keep IDs")
             # @todo remove need for `keep_ids?
             query_inds = self._to_inds(query)
             keep_inds = self._to_inds(keep_ids)
@@ -374,13 +378,15 @@ class SklearnSimilarityResults(SimilarityResults):
                 )
                 min_inds = min_inds.ravel()
                 min_dists = min_dists.ravel()
+        print("\n================================")
+        print(min_inds)
 
         if return_dists:
             return min_inds, min_dists
-
         return min_inds
 
     def _radius_neighbors(self, query=None, thresh=None, return_dists=False):
+        print("radius neighbors")
         neighbors, _ = self._get_neighbors()
 
         # When not using brute force, we approximate cosine distance by
@@ -417,6 +423,7 @@ class SklearnSimilarityResults(SimilarityResults):
     def _sort_by_similarity(
         self, query, k, reverse, aggregation, return_dists
     ):
+        # print(query)
         if query is None:
             raise ValueError(
                 "A query must be provided when using aggregate similarity"
@@ -427,7 +434,8 @@ class SklearnSimilarityResults(SimilarityResults):
                 "Unsupported aggregation method '%s'. Supported values are %s"
                 % (aggregation, tuple(_AGGREGATIONS.keys()))
             )
-
+        print(self._curr_sample_ids)
+        print(self._curr_label_ids)
         sample_ids = self.current_sample_ids
         label_ids = self.current_label_ids
         keep_inds = self._current_inds

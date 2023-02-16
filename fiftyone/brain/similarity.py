@@ -707,6 +707,8 @@ class SimilarityResults(fob.BrainResults):
                 query = query[np.newaxis, :]
 
             return query
+        elif etau.is_container(query) and etau.is_numeric(query[0]):
+            return query
 
         if etau.is_str(query):
             query = [query]
