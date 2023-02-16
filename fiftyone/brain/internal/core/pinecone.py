@@ -326,23 +326,6 @@ class PineconeSimilarityResults(SimilarityResults):
             return int(embeddings.shape[1])
         return 0
 
-    # def _reload(self, hard=False):
-    #     if hard:
-    #         # @todo reload embeddings from gridFS too?
-    #         # @todo `_samples` is not not declared in SimilarityResults API
-    #         if self.config.embeddings_field is not None:
-    #             embeddings, sample_ids, label_ids = self._parse_data(
-    #                 self._samples,
-    #                 self.config,
-    #             )
-
-    #             self._embeddings = embeddings
-    #             self._sample_ids = sample_ids
-    #             self._label_ids = label_ids
-    #             self._neighbors_helper = None
-
-    #     self.use_view(self._curr_view)
-
     def _radius_neighbors(self, query=None, thresh=None, return_dists=False):
         pass
 
