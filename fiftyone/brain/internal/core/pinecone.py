@@ -25,6 +25,7 @@ pinecone = fou.lazy_import("pinecone")
 
 logger = logging.getLogger(__name__)
 
+_METRICS = ["euclidean", "cosine", "dotproduct"]
 
 class PineconeSimilarityConfig(SimilarityConfig):
     """Configuration for the Pinecone similarity backend.
@@ -39,6 +40,8 @@ class PineconeSimilarityConfig(SimilarityConfig):
         supports_prompts (False): whether this run supports prompt queries
         metric ("euclidean"): the embedding distance metric to use. Supported
             values are "euclidean", "cosine", and "dotproduct".
+        index_name (None): the name of the Pinecone Index to use. If None, the
+            name "fiftyone-index" will be used.
     """
 
     def __init__(
@@ -48,15 +51,21 @@ class PineconeSimilarityConfig(SimilarityConfig):
         patches_field=None,
         supports_prompts=None,
         metric="euclidean",
-        index_name="testname",
+        index_name=None,
         dimension=None,
         pod_type="p1",
         pods=1,
         replicas=1,
         api_key=None,
         environment=None,
+        namespace=None,
         **kwargs,
     ):
+        if metric not in  _METRICS:
+            raise ValueError(
+                "metric must be one of {}".format(_METRICS)
+            )
+        
         super().__init__(
             embeddings_field=embeddings_field,
             model=model,
@@ -64,6 +73,9 @@ class PineconeSimilarityConfig(SimilarityConfig):
             supports_prompts=supports_prompts,
             **kwargs,
         )
+
+        index_name = "fiftyone-index" if index_name is None else index_name
+
         self.metric = metric
         self.index_name = index_name
         self.dimension = dimension
@@ -72,6 +84,7 @@ class PineconeSimilarityConfig(SimilarityConfig):
         self.replicas = replicas
         self.api_key = api_key
         self.environment = environment
+        self.namespace = namespace
 
     @property
     def method(self):
@@ -150,6 +163,7 @@ class PineconeSimilarityResults(SimilarityResults):
         self._metric = config.metric
         self._api_key = config.api_key
         self._environment = config.environment
+        self._namespace = config.namespace
         self._max_k = config.max_k
 
         print("Initializing pinecone index")
@@ -163,6 +177,7 @@ class PineconeSimilarityResults(SimilarityResults):
                 pod_type=self._pod_type,
                 pods=self._pods,
                 replicas=self._replicas,
+                namespace=self._namespace,
             )
 
         self._neighbors_helper = None
@@ -187,6 +202,11 @@ class PineconeSimilarityResults(SimilarityResults):
         """
         self._initialize_connection()
         return pinecone
+
+    @property
+    def index_size(self):
+        """The number of vectors in the index."""
+        return self.describe_index_stats()['total_vector_count']
 
     def describe_index_stats(self):
         """Direct API access to Pinecone's describe_index_stats method.
@@ -289,6 +309,7 @@ class PineconeSimilarityResults(SimilarityResults):
         allow_existing=True,
         warn_existing=False,
         upsert_pagination=100,
+        namespace=None,
     ):
 
         embeddings_list = [arr.tolist() for arr in embeddings]
@@ -311,7 +332,10 @@ class PineconeSimilarityResults(SimilarityResults):
         for i in range(num_steps):
             min_ind = upsert_pagination * i
             max_ind = min(upsert_pagination * (i + 1), num_vectors)
-            index.upsert(index_vectors[min_ind:max_ind])
+            index.upsert(
+                index_vectors[min_ind:max_ind],
+                namespace=namespace
+                )
 
     def attributes(self):
         attrs = super().attributes()
