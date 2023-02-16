@@ -155,7 +155,7 @@ class PineconeSimilarityResults(SimilarityResults):
         self._environment = config.environment
 
         print("Initializing pinecone index")
-        pinecone.init(config.api_key, config.environment)
+        self._initialize_connection()
         if self._index_name not in pinecone.list_indexes():
             print("Creating pinecone index")
             pinecone.create_index(
@@ -180,6 +180,59 @@ class PineconeSimilarityResults(SimilarityResults):
     def label_ids(self):
         """The label IDs of the full index, or ``None`` if not applicable."""
         return self._label_ids
+    
+    def _initialize_connection(self):
+        pinecone.init(self._api_key, self._environment)
+    
+    def describe_index(self):
+        """Direct API access to Pinecone's describe_index method.
+        """
+        self._initialize_connection()
+        pinecone.describe_index(self._index_name)
+    
+    def describe_index_stats(self):
+        """Direct API access to Pinecone's describe_index_stats method.
+        """
+        self._initialize_connection()
+        index = pinecone.Index(self._index_name)
+        index.describe_index_stats()
+
+    def configure_index(
+            self,
+            replicas=None,
+            pod_type=None,
+    ):
+        """Direct API access to Pinecone's configure_index method.
+
+        Args:
+            replicas (None): Number of replicas for the index.
+            pod_type (None): Pod type for the index.
+        """
+    
+        self._initialize_connection()
+
+        if replicas is not None and pod_type is not None:
+            pinecone.configure_index(
+                self._index_name, 
+                replicas=replicas, 
+                pod_type=pod_type
+                )
+        elif replicas is not None:
+            pinecone.configure_index(
+                self._index_name, 
+                replicas=replicas
+                )
+        elif pod_type is not None:
+            pinecone.configure_index(
+                self._index_name, 
+                pod_type=pod_type
+                )
+
+        desc = self.describe_index()
+        self._pods = desc.pods
+        self._pod_type = desc.pod_type
+        self._replicas = desc.replicas
+        
 
     def remove_from_index(
         self,
@@ -189,10 +242,7 @@ class PineconeSimilarityResults(SimilarityResults):
         warn_missing=False,
     ):
 
-        pinecone.init(
-            api_key=self._api_key,
-            environment=self._environment,
-        )
+        self._initialize_connection()
         index = pinecone.Index(self._index_name)
 
         if self._label_ids is not None:
@@ -236,10 +286,7 @@ class PineconeSimilarityResults(SimilarityResults):
         sample_ids = self.current_sample_ids
         label_ids = self.current_label_ids
 
-        pinecone.init(
-            api_key=self._api_key,
-            environment=self._environment,
-        )
+        self._initialize_connection()
         index = pinecone.Index(self._index_name)
         if isinstance(query, np.ndarray):
             # Query by vectors
@@ -296,10 +343,7 @@ class PineconeSimilarityResults(SimilarityResults):
         num_vectors = embeddings.shape[0]
         num_steps = int(np.ceil(num_vectors / self._upsert_pagination))
 
-        pinecone.init(
-            api_key=self._api_key,
-            environment=self._environment,
-        )
+        self._initialize_connection()
         index = pinecone.Index(self._index_name)
 
         for i in range(num_steps):
