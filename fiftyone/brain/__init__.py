@@ -8,6 +8,8 @@ See https://github.com/voxel51/fiftyone for more information.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+import fiftyone.brain.config as _foc
+
 from .similarity import (
     SimilarityConfig,
     SimilarityResults,
@@ -20,6 +22,8 @@ from .visualization import (
     ManualVisualizationConfig,
     VisualizationResults,
 )
+
+brain_config = _foc.load_brain_config()
 
 
 def compute_hardness(samples, label_field, hardness_field="hardness"):

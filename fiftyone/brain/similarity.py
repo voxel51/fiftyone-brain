@@ -14,6 +14,7 @@ import numpy as np
 
 import eta.core.utils as etau
 
+import fiftyone.brain as fb
 import fiftyone.core.brain as fob
 import fiftyone.core.context as foc
 import fiftyone.core.fields as fof
@@ -121,34 +122,10 @@ def compute_similarity(
 
 
 def _parse_config(name, **kwargs):
-    # @todo implement this
-    """
     if name is None:
-        name = fo.brain_config.default_backend
+        name = fb.brain_config.default_similarity_backend
 
-    backends = fo.brain_config.backends
-    """
-
-    if name is None:
-        name = "sklearn"
-
-    backends = {
-        "sklearn": {
-            "config_cls": "fiftyone.brain.internal.core.similarity.SklearnSimilarityConfig",
-        },
-        "pinecone": {
-            "config_cls": "fiftyone.brain.internal.core.similarity.PineconeSimilarityConfig",
-            "api_key": "XXXXXXXX",
-            "environment": "us-west1-gcp",
-            "index_name": "myindex",
-        
-        },
-        "qdrant": {
-            "config_cls": "fiftyone.utils.cvat.CVATBackendConfig",
-            "api_endpoint": "http://localhost:8080",
-            "api_key": "XXXXXXXX",
-        },
-    }
+    backends = fb.brain_config.similarity_backends
 
     if name not in backends:
         raise ValueError(
@@ -184,8 +161,6 @@ class SimilarityConfig(fob.BrainMethodConfig):
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         supports_prompts (False): whether this run supports prompt queries
-        supports_least_similarity (True): whether this run supports least
-            similiar queries
     """
 
     def __init__(
@@ -194,7 +169,6 @@ class SimilarityConfig(fob.BrainMethodConfig):
         model=None,
         patches_field=None,
         supports_prompts=None,
-        supports_least_similarity=True,
         **kwargs,
     ):
         if model is not None and not etau.is_str(model):
@@ -205,13 +179,33 @@ class SimilarityConfig(fob.BrainMethodConfig):
         self.model = model
         self.patches_field = patches_field
         self.supports_prompts = supports_prompts
-        self.supports_least_similarity = supports_least_similarity
         super().__init__(**kwargs)
 
     @property
     def method(self):
         """The name of the similarity backend."""
         raise NotImplementedError("subclass must implement method")
+
+    @property
+    def supports_least_similarity(self):
+        """Whether this backend supports least similarity queries."""
+        raise NotImplementedError(
+            "subclass must implement supports_least_similarity"
+        )
+
+    @property
+    def supports_aggregate_queries(self):
+        """Whether this backend supports aggregate similarity queries."""
+        raise NotImplementedError(
+            "subclass must implement supports_aggregate_queries"
+        )
+
+    @property
+    def max_k(self):
+        """A maximum k value for nearest neighbor queries, or None if there is
+        no limit.
+        """
+        raise NotImplementedError("subclass must implement max_k")
 
 
 class Similarity(fob.BrainMethod):
