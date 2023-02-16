@@ -12,6 +12,8 @@ import sklearn.metrics as skm
 import sklearn.neighbors as skn
 import sklearn.preprocessing as skp
 
+import eta.core.utils as etau
+
 from fiftyone.brain.similarity import (
     SimilarityConfig,
     Similarity,
@@ -200,6 +202,66 @@ class SklearnSimilarityResults(SimilarityResults):
 
         self._reload()
 
+    def get_embeddings(
+        self,
+        sample_ids=None,
+        label_ids=None,
+        allow_missing=True,
+        warn_missing=False,
+    ):
+        if label_ids is not None:
+            if self.config.patches_field is None:
+                raise ValueError("This index does not support label IDs")
+
+            if sample_ids is not None:
+                logger.warning(
+                    "Ignoring sample IDs when label IDs are provided"
+                )
+
+            inds = _get_inds(
+                label_ids,
+                self.label_ids,
+                "label",
+                allow_missing,
+                warn_missing,
+            )
+
+            embeddings = self._embeddings[inds, :]
+            sample_ids = self.sample_ids[inds]
+            label_ids = np.asarray(label_ids)
+        elif sample_ids is not None:
+            if etau.is_str(sample_ids):
+                sample_ids = [sample_ids]
+
+            if self.config.patches_field is not None:
+                sample_ids = set(sample_ids)
+                bools = [_id in sample_ids for _id in self.sample_ids]
+                inds = np.nonzero(bools)[0]
+            else:
+                inds = _get_inds(
+                    sample_ids,
+                    self.sample_ids,
+                    "sample",
+                    allow_missing,
+                    warn_missing,
+                )
+
+            embeddings = self._embeddings[inds, :]
+            sample_ids = self.sample_ids[inds]
+            if self.config.patches_field is not None:
+                label_ids = self.label_ids[inds]
+            else:
+                label_ids = None
+        else:
+            embeddings = self._embeddings.copy()
+            sample_ids = self.sample_ids.copy()
+            if self.config.patches_field is not None:
+                label_ids = None
+            else:
+                label_ids = self.label_ids.copy()
+
+        return embeddings, sample_ids, label_ids
+
     def reload(self):
         self._reload(hard=True)
 
@@ -218,8 +280,9 @@ class SklearnSimilarityResults(SimilarityResults):
     def _reload(self, hard=False):
         if hard:
             # @todo reload embeddings from gridFS too?
-            # @todo `_samples` is not not declared in SimilarityResults API
+
             if self.config.embeddings_field is not None:
+                # @todo `_samples` is not not declared in SimilarityResults API
                 embeddings, sample_ids, label_ids = self._parse_data(
                     self._samples,
                     self.config,
@@ -652,3 +715,38 @@ class NeighborsHelper(object):
         logger.info("Index complete")
 
         return neighbors
+
+
+def _get_inds(ids, index_ids, ftype, allow_missing, warn_missing):
+    if etau.is_str(ids):
+        ids = [ids]
+
+    ids_map = {_id: i for i, _id in enumerate(index_ids)}
+
+    inds = []
+    bad_ids = []
+
+    for _id in ids:
+        idx = ids_map.get(_id, None)
+        if idx is not None:
+            inds.append(idx)
+        else:
+            bad_ids.append(_id)
+
+    num_missing = len(bad_ids)
+
+    if num_missing > 0:
+        if not allow_missing:
+            raise ValueError(
+                "Found %d %s IDs (eg %s) that are not present in the index"
+                % (num_missing, ftype, bad_ids[0])
+            )
+
+        if warn_missing:
+            logger.warning(
+                "Ignoring %d %s IDs that are not present in the index",
+                num_missing,
+                ftype,
+            )
+
+    return np.array(inds)

@@ -431,6 +431,38 @@ class SimilarityResults(fob.BrainResults):
             "subclass must implement remove_from_index()"
         )
 
+    def get_embeddings(
+        self,
+        sample_ids=None,
+        label_ids=None,
+        allow_missing=True,
+        warn_missing=False,
+    ):
+        """Retrieves the embeddings for the given IDs from the index.
+
+        If no IDs are provided, the entire index is returned.
+
+        Args:
+            sample_ids (None): a sample ID or list of sample IDs for which to
+                retrieve embeddings
+            label_ids (None): a label ID or list of label IDs for which to
+                retrieve embeddings
+            allow_missing (True): whether to allow the index to not contain IDs
+                that you provide (True) or whether to raise an error in this
+                case (False)
+            warn_missing (False): whether to log a warning if the index does
+                not contain IDs that you provide
+
+        Returns:
+            a tuple of:
+
+            -   a ``num_embeddings x num_dims`` array of embeddings
+            -   a ``num_embeddings`` array of sample IDs
+            -   a ``num_embeddings`` array of label IDs, if applicable, or else
+                ``None``
+        """
+        raise NotImplementedError("subclass must implement get_embeddings()")
+
     def reload(self):
         """Reloads the index."""
         raise NotImplementedError("subclass must implement reload()")
