@@ -357,6 +357,9 @@ class PineconeSimilarityResults(SimilarityResults):
         return 0
 
     def _radius_neighbors(self, query=None, thresh=None, return_dists=False):
+        raise ValueError(
+                "Pinecone backend does not support score thresholding."
+            )
         pass
 
     def _kneighbors(
