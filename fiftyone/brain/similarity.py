@@ -176,6 +176,8 @@ class SimilarityConfig(fob.BrainMethodConfig):
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         supports_prompts (False): whether this run supports prompt queries
+        supports_least_similarity (True): whether this run supports least
+            similiar queries
     """
 
     def __init__(
@@ -184,6 +186,7 @@ class SimilarityConfig(fob.BrainMethodConfig):
         model=None,
         patches_field=None,
         supports_prompts=None,
+        supports_least_similarity=True,
         **kwargs,
     ):
         if model is not None and not etau.is_str(model):
@@ -194,6 +197,7 @@ class SimilarityConfig(fob.BrainMethodConfig):
         self.model = model
         self.patches_field = patches_field
         self.supports_prompts = supports_prompts
+        self.supports_least_similarity = supports_least_similarity
         super().__init__(**kwargs)
 
     @property
@@ -597,7 +601,9 @@ class SimilarityResults(fob.BrainResults):
 
             k (None): the number of matches to return. By default, all
                 samples/labels are included
-            reverse (False): whether to sort by least similarity
+            reverse (False): whether to sort by least similarity (True) or
+                greatest similarity (False). Note that some backends may not
+                support least similarity
             aggregation ("mean"): the aggregation method to use to compute
                 composite similarities. Only applicable when ``query`` contains
                 multiple queries. Supported values are
@@ -749,7 +755,9 @@ class SimilarityResults(fob.BrainResults):
                     current :meth:`view are returned
 
             k (None): the number of neighbors to return
-            reverse (False): whether to sort by least similarity
+            reverse (False): whether to sort by least similarity (True) or
+                greatest similarity (False). Note that some backends may not
+                support least similarity
             keep_ids (None): an optional list of IDs to which to restrict the
                 nearest neighbor search
             aggregation (None): an aggregation method to use to compute a

@@ -54,6 +54,9 @@ class SklearnSimilarityConfig(SimilarityConfig):
         metric="euclidean",
         **kwargs,
     ):
+        if "supports_least_similarity" not in kwargs:
+            kwargs["supports_least_similarity"] = True
+
         super().__init__(
             embeddings_field=embeddings_field,
             model=model,
