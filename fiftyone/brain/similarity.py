@@ -113,8 +113,6 @@ def compute_similarity(
         )
 
     results = brain_method.initialize(samples)
-    print(results)
-    print(results._index_name)
 
     results.add_to_index(embeddings, sample_ids, label_ids=label_ids)
     brain_method.save_run_results(samples, brain_key, results)

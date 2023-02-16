@@ -149,15 +149,16 @@ class PineconeSimilarityResults(SimilarityResults):
         
         print("Initializing pinecone index")
         pinecone.init(config.api_key, config.environment)
-        pinecone.create_index(
-            self._index_name, 
-            dimension=self._dimension, 
-            metric=self._metric, 
-            pod_type=self._pod_type,
-            pods=self._pods,
-            replicas=self._replicas
-        )
-        print("Populating pinecone index")
+        if self._index_name not in pinecone.list_indexes():
+            print("Creating pinecone index")
+            pinecone.create_index(
+                self._index_name, 
+                dimension=self._dimension, 
+                metric=self._metric, 
+                pod_type=self._pod_type,
+                pods=self._pods,
+                replicas=self._replicas
+            )
 
         self._neighbors_helper = None
 
@@ -180,17 +181,92 @@ class PineconeSimilarityResults(SimilarityResults):
         allow_missing=True,
         warn_missing=False,
     ):
-        pass
+        
+        pinecone.init(
+            api_key=self._api_key, 
+            environment=self._environment, 
+        )
+        index = pinecone.Index(self._index_name)
 
-    # def _
-
-    def _to_inds(self, ids):
-        pass
+        if self._label_ids is not None:
+            self._label_ids = [lid for lid in self._label_ids if lid not in label_ids]
+            index.delete(ids = label_ids)
+        elif self._sample_ids is not None:
+            self._sample_ids = [sid for sid in self._sample_ids if sid not in sample_ids]
+            index.delete(ids = sample_ids)
 
     def _sort_by_similarity(
         self, query, k, reverse, aggregation, return_dists
     ):
-        pass
+        if reverse == True:
+            raise ValueError(
+                "Pinecone backend does not support reverse sorting"
+            )
+            
+        if k is None:
+            raise ValueError(
+                "k must be provided when using pinecone similarity"
+            )
+
+        if k > 10000:
+            raise ValueError(
+                "k cannot be greater than 10000 when using pinecone similarity"
+            )
+
+        if query is None:
+            raise ValueError(
+                "A query must be provided when using aggregate similarity"
+            )
+
+        if aggregation is not None:
+            raise ValueError(
+                "Pinecone backend does not support aggregation"
+            )
+
+        sample_ids = self.current_sample_ids
+        label_ids = self.current_label_ids
+
+        pinecone.init(
+            api_key=self._api_key, 
+            environment=self._environment, 
+        )
+        index = pinecone.Index(self._index_name)
+
+        if isinstance(query, np.ndarray):
+            # Query by vectors
+            query_embedding = query.tolist()
+        else:
+            query_id = query
+            query_embedding = index.fetch(
+                [query_id]
+                )['vectors'][query_id]['values']
+
+        if label_ids is not None:
+            response = index.query(
+                vector=query_embedding,
+                top_k=k,
+                filter={
+                    "id": {"$in": label_ids}
+                }
+            )
+        else:
+            response = index.query(
+                vector=query_embedding,
+                top_k=min(k, 10000),
+                filter={
+                    "id": {"$in": sample_ids}
+                }
+            )
+
+        print(response)
+
+        ids = ['63ed9a7ba4c597b4abcc6711' '63ed9a7ba4c597b4abcc6717']
+
+        if return_dists:
+            dists = []
+            return ids, dists
+        else:
+            return ids
 
     def add_to_index(
         self,
@@ -204,9 +280,11 @@ class PineconeSimilarityResults(SimilarityResults):
 
         embeddings_list = [arr.tolist() for arr in embeddings]
         if label_ids is not None:
-            index_vectors = list(zip(label_ids, embeddings_list, {"sample_id": sid for sid in sample_ids}))
+            id_dicts = [{"id": lid, "sample_id": sid} for lid, sid in zip(label_ids, sample_ids)]
+            index_vectors = list(zip(label_ids, embeddings_list, id_dicts))
         else:
-            index_vectors = list(zip(sample_ids, embeddings_list))
+            id_dicts = [{"id": sid, "sample_id": sid} for sid in sample_ids]
+            index_vectors = list(zip(sample_ids, embeddings_list,id_dicts))
         
         num_vectors = embeddings.shape[0]
         num_steps = int(np.ceil(num_vectors / self._upsert_pagination))
@@ -235,7 +313,6 @@ class PineconeSimilarityResults(SimilarityResults):
         return attrs
 
     def _parse_dimension(self, embeddings, config):
-        print(embeddings.shape)
         if config.dimension is not None:
             return int(config.dimension)
         elif embeddings is not None:
@@ -260,147 +337,28 @@ class PineconeSimilarityResults(SimilarityResults):
     #     self.use_view(self._curr_view)
 
    
+    def _radius_neighbors(self, query=None, thresh=None, return_dists=False):
+        pass
 
-    # def _radius_neighbors(self, query=None, thresh=None, return_dists=False):
-    #     neighbors, _ = self._get_neighbors()
+    def _kneighbors(
+        self,
+        query=None,
+        k=None,
+        reverse=False,
+        keep_ids=None,
+        aggregation=None,
+        return_dists=False,
+    ):
+        pass
 
-    #     # When not using brute force, we approximate cosine distance by
-    #     # computing Euclidean distance on unit-norm embeddings.
-    #     # ED = sqrt(2 * CD), so we need to scale the threshold appropriately
-    #     if getattr(neighbors, _COSINE_HACK_ATTR, False):
-    #         thresh = np.sqrt(2.0 * thresh)
+    def _to_inds(self, ids):
+        pass
 
-    #     query_inds = self._to_inds(query)
-    #     if query_inds is not None:
-    #         _query = self._embeddings[query_inds, :]
-    #     else:
-    #         _query = query
+    def _ensure_neighbors(self):
+        pass
 
-    #     dists, inds = neighbors.radius_neighbors(X=_query, radius=thresh)
-
-    #     if return_dists:
-    #         return inds, dists
-
-    #     return inds
-
-    # def _to_inds(self, ids):
-    #     if ids is None or isinstance(ids, np.ndarray):
-    #         return None
-
-    #     if self.config.patches_field is not None:
-    #         ids = self.label_ids
-    #     else:
-    #         ids = self.sample_ids
-
-    #     ids_map = {_id: i for i, _id in enumerate(ids)}
-    #     return np.array([ids_map[_id] for _id in ids])
-
-    # def _sort_by_similarity(
-    #     self, query, k, reverse, aggregation, return_dists
-    # ):
-    #     if query is None:
-    #         raise ValueError(
-    #             "A query must be provided when using aggregate similarity"
-    #         )
-
-    #     if aggregation not in _AGGREGATIONS:
-    #         raise ValueError(
-    #             "Unsupported aggregation method '%s'. Supported values are %s"
-    #             % (aggregation, tuple(_AGGREGATIONS.keys()))
-    #         )
-
-    #     sample_ids = self.current_sample_ids
-    #     label_ids = self.current_label_ids
-    #     keep_inds = self._current_inds
-    #     patches_field = self.config.patches_field
-    #     metric = self.config.metric
-
-    #     if isinstance(query, np.ndarray):
-    #         # Query by vectors
-    #         query_embeddings = query
-
-    #         index_embeddings = self._embeddings
-    #         if keep_inds is not None:
-    #             index_embeddings = index_embeddings[keep_inds]
-
-    #         dists = skm.pairwise_distances(
-    #             index_embeddings, query_embeddings, metric=metric
-    #         )
-    #     else:
-    #         # Query by IDs
-    #         query_ids = query
-
-    #         # Parse query IDs (always using full index)
-    #         if patches_field is None:
-    #             ids = self.sample_ids
-    #         else:
-    #             ids = self.label_ids
-
-    #         bad_ids = []
-    #         query_inds = []
-    #         for query_id in query_ids:
-    #             _inds = np.where(ids == query_id)[0]
-    #             if _inds.size == 0:
-    #                 bad_ids.append(query_id)
-    #             else:
-    #                 query_inds.append(_inds[0])
-
-    #         if bad_ids:
-    #             raise ValueError(
-    #                 "Query IDs %s were not included in this index" % bad_ids
-    #             )
-
-    #         # Perform query
-    #         self._ensure_neighbors()
-    #         dists = self._neighbors_helper.get_distances()
-    #         if dists is not None:
-    #             # Use pre-computed distances
-    #             if keep_inds is not None:
-    #                 dists = dists[keep_inds, :]
-
-    #             dists = dists[:, query_inds]
-    #         else:
-    #             # Compute distances from embeddings
-    #             index_embeddings = self._embeddings
-    #             if keep_inds is not None:
-    #                 index_embeddings = index_embeddings[keep_inds]
-
-    #             query_embeddings = self._embeddings[query_inds]
-    #             dists = skm.pairwise_distances(
-    #                 index_embeddings, query_embeddings, metric=metric
-    #             )
-
-    #     agg_fcn = _AGGREGATIONS[aggregation]
-    #     dists = agg_fcn(dists, axis=1)
-
-    #     inds = np.argsort(dists)
-    #     if reverse:
-    #         inds = np.flip(inds)
-
-    #     if k is not None:
-    #         inds = inds[:k]
-
-    #     if patches_field is not None:
-    #         ids = label_ids
-    #     else:
-    #         ids = sample_ids
-
-    #     if return_dists:
-    #         return ids[inds], dists[inds]
-
-    #     return ids[inds]
-
-    # def _ensure_neighbors(self):
-    #     if self._neighbors_helper is None:
-    #         self._neighbors_helper = NeighborsHelper(
-    #             self._embeddings, self.config.metric
-    #         )
-
-    # def _get_neighbors(self, full=False):
-    #     self._ensure_neighbors()
-
-    #     keep_inds = None if full else self._current_inds
-    #     return self._neighbors_helper.get_neighbors(keep_inds=keep_inds)
+    def _get_neighbors(self, full=False):
+        pass
 
     @staticmethod
     def _parse_data(
@@ -440,15 +398,21 @@ class PineconeSimilarityResults(SimilarityResults):
         if label_ids is not None:
             label_ids = np.array(label_ids)
 
-        index_name = d.get("index_name", None)
-        pod_type = d.get("pod_type", None)
-        pods = d.get("pods", None)
-        replicas = d.get("replias", None)
-        metric = d.get("metric", None)
-        upsert_pagination = d.get("upsert_pagination", None)
-        dimension = d.get("dimension", None)
-        api_key = d.get("api_key", None)
-        environment = d.get("environment", None)
+        config_attrs = ["index_name",
+                        "pod_type",
+                        "pods",
+                        "replicas",
+                        "metric",
+                        "upsert_pagination",
+                        "api_key",
+                        "environment",
+                        ]
+        
+        for attr in config_attrs:
+            if attr in d:
+                value = d.get("index_name", None)
+                if value is not None:
+                    config[attr] = value
 
         return cls(
             samples,
@@ -456,22 +420,8 @@ class PineconeSimilarityResults(SimilarityResults):
             embeddings=embeddings,
             sample_ids=sample_ids,
             label_ids=label_ids,
-            index_name=index_name,
-            pod_type=pod_type,
-            pods=pods,
-            replias=replicas,
-            metric=metric,
-            upsert_pagination=upsert_pagination,
-            dimension=dimension,
-            api_key=api_key,
-            environment=environment,
         )
     
-
-
-
-
-
 
 
 class SklearnSimilarityConfig(SimilarityConfig):
