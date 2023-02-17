@@ -100,6 +100,7 @@ class PineconeSimilarityConfig(SimilarityConfig):
 
     @property
     def max_k(self):
+        """This is Pinecone's limit."""
         return 10000
 
 
@@ -485,7 +486,7 @@ class PineconeSimilarityResults(SimilarityResults):
 
         for attr in config_attrs:
             if attr in d:
-                value = d.get("index_name", None)
+                value = d.get(attr, None)
                 if value is not None:
                     config[attr] = value
 
