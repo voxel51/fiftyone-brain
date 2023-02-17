@@ -145,7 +145,9 @@ class PineconeSimilarityIndex(SimilarityIndex):
         self._initialize_index()
 
     def _get_index(self):
+        # @todo shouldn't we be able to avoid calling this every time?
         pinecone.init(self._api_key, self._environment)
+
         return pinecone.Index(self._index_name)
 
     def _initialize_index(self):
