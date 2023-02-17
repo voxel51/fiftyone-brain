@@ -12,7 +12,7 @@ import fiftyone.brain.config as _foc
 
 from .similarity import (
     SimilarityConfig,
-    SimilarityResults,
+    SimilarityIndex,
 )
 from .visualization import (
     VisualizationConfig,
@@ -268,7 +268,7 @@ def compute_visualization(
     patches that can be interactively visualized.
 
     The representation can be visualized by calling the
-    :meth:`sort_by_similarity() <fiftyone.brain.similarity.SimilarityResults.sort_by_similarity>`
+    :meth:`visualize() <fiftyone.brain.visualization.VisualizationResults.visualize>`
     method of the returned
     :class:`fiftyone.brain.visualization.VisualizationResults` object.
 
@@ -396,22 +396,24 @@ def compute_similarity(
     **kwargs,
 ):
     """Uses embeddings to index the samples or their patches so that you can
-    query/sort by visual similarity.
+    query/sort by similarity.
 
-    Calling this method (or loading existing results) only generates the index.
-    You can then call the methods exposed on the retuned
-    :class:`fiftyone.brain.similarity.SimilarityResults` object to perform the
-    following operations:
+    Calling this method only creates the index. You can then call the methods
+    exposed on the retuned :class:`fiftyone.brain.similarity.SimilarityIndex`
+    object to perform the following operations:
 
-    -   :meth:`sort_by_similarity() <fiftyone.brain.similarity.SimilarityResults.sort_by_similarity>`:
-        Sort the samples in the collection by visual similarity to a specific
-        example or example(s)
+    -   :meth:`sort_by_similarity() <fiftyone.brain.similarity.SimilarityIndex.sort_by_similarity>`:
+        Sort the samples in the collection by similarity to a specific example
+        or example(s)
 
-    -   :meth:`find_duplicates() <fiftyone.brain.similarity.SimilarityResults.find_duplicates>`:
+    In addition, if the backend supports it, you can call the following
+    duplicate detection methods:
+
+    -   :meth:`find_duplicates() <fiftyone.brain.similarity.DuplicatesMixin.find_duplicates>`:
         Query the index to find all examples with near-duplicates in the
         collection
 
-    -   :meth:`find_unique() <fiftyone.brain.similarity.SimilarityResults.find_unique>`:
+    -   :meth:`find_unique() <fiftyone.brain.similarity.DuplicatesMixin.find_unique>`:
         Query the index to select a subset of examples of a specified size that
         are maximally unique with respect to each other
 
@@ -475,7 +477,7 @@ def compute_similarity(
             being used
 
     Returns:
-        a :class:`fiftyone.brain.similarity.SimilarityResults`
+        a :class:`fiftyone.brain.similarity.SimilarityIndex`
     """
     import fiftyone.brain.similarity as fbs
 

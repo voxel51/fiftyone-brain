@@ -17,7 +17,7 @@ import eta.core.utils as etau
 from fiftyone.brain.similarity import (
     SimilarityConfig,
     Similarity,
-    SimilarityResults,
+    SimilarityIndex,
 )
 import fiftyone.brain.internal.core.utils as fbu
 
@@ -91,13 +91,13 @@ class SklearnSimilarity(Similarity):
         pass
 
     def initialize(self, samples):
-        return SklearnSimilarityResults(samples, self.config, backend=self)
+        return SklearnSimilarityIndex(samples, self.config, backend=self)
 
     def cleanup(self, samples, brain_key):
         pass
 
 
-class SklearnSimilarityResults(SimilarityResults):
+class SklearnSimilarityIndex(SimilarityIndex):
     """Class for interacting with sklearn similarity indexes.
 
     Args:

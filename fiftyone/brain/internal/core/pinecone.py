@@ -16,7 +16,7 @@ import fiftyone.core.utils as fou
 from fiftyone.brain.similarity import (
     SimilarityConfig,
     Similarity,
-    SimilarityResults,
+    SimilarityIndex,
 )
 import fiftyone.brain.internal.core.utils as fbu
 
@@ -113,48 +113,25 @@ class PineconeSimilarity(Similarity):
         fou.ensure_package("pinecone-client")
 
     def initialize(self, samples):
-        return PineconeSimilarityResults(samples, self.config, backend=self)
+        return PineconeSimilarityIndex(samples, self.config, backend=self)
 
     def cleanup(self, samples, brain_key):
         pass
 
 
-class PineconeSimilarityResults(SimilarityResults):
+class PineconeSimilarityIndex(SimilarityIndex):
     """Class for interacting with Pinecone similarity indexes.
 
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
         config: the :class:`SimilarityConfig` used
-        embeddings (None): a ``num_embeddings x num_dims`` array of embeddings
-        sample_ids (None): a ``num_embeddings`` array of sample IDs
-        label_ids (None): a ``num_embeddings`` array of label IDs, if
-            applicable
         backend (None): a :class:`PineconeSimilarity` instance
     """
 
-    def __init__(
-        self,
-        samples,
-        config,
-        embeddings=None,
-        sample_ids=None,
-        label_ids=None,
-        backend=None,
-    ):
-        embeddings, sample_ids, label_ids = self._parse_data(
-            samples,
-            config,
-            embeddings=embeddings,
-            sample_ids=sample_ids,
-            label_ids=label_ids,
-        )
+    def __init__(self, samples, config, backend=None):
+        super().__init__(samples, config, backend=backend)
 
-        dimension = self._parse_dimension(embeddings, config)
-
-        self._embeddings = embeddings
-        self._dimension = dimension
-        self._sample_ids = sample_ids
-        self._label_ids = label_ids
+        self._dimension = config.dimension or 0
         self._index_name = config.index_name
         self._pod_type = config.pod_type
         self._pods = config.pods
@@ -164,9 +141,15 @@ class PineconeSimilarityResults(SimilarityResults):
         self._environment = config.environment
         self._namespace = config.namespace
         self._max_k = config.max_k
+        self._index = self._initialize_index()
 
-        print("Initializing pinecone index")
-        self._initialize_connection()
+    # TODO: unneeded?
+    def _initialize_connection(self):
+        pinecone.init(self._api_key, self._environment)
+
+    def _initialize_index(self):
+        pinecone.init(self._api_key, self._environment)
+
         if self._index_name not in pinecone.list_indexes():
             print("Creating pinecone index")
             pinecone.create_index(
@@ -179,38 +162,86 @@ class PineconeSimilarityResults(SimilarityResults):
                 namespace=self._namespace,
             )
 
-        self._neighbors_helper = None
-
-        super().__init__(samples, config, backend=backend)
+        return pinecone.Index(self._index_name)
 
     @property
-    def sample_ids(self):
-        """The sample IDs of the full index."""
-        return self._sample_ids
+    def index(self):
+        """The ``Pinecone.Index`` instance for this index."""
+        return self._index
 
     @property
-    def label_ids(self):
-        """The label IDs of the full index, or ``None`` if not applicable."""
-        return self._label_ids
+    def total_index_size(self):
+        index_stats = self._index.describe_index_stats()
+        return index_stats["total_vector_count"]
 
-    def _initialize_connection(self):
-        pinecone.init(self._api_key, self._environment)
+    def add_to_index(
+        self,
+        embeddings,
+        sample_ids,
+        label_ids=None,
+        overwrite=True,
+        allow_existing=True,
+        warn_existing=False,
+        upsert_pagination=100,
+        namespace=None,
+    ):
+        embeddings_list = [arr.tolist() for arr in embeddings]
+        if label_ids is not None:
+            id_dicts = [
+                {"id": lid, "sample_id": sid}
+                for lid, sid in zip(label_ids, sample_ids)
+            ]
+            index_vectors = list(zip(label_ids, embeddings_list, id_dicts))
+        else:
+            id_dicts = [{"id": sid, "sample_id": sid} for sid in sample_ids]
+            index_vectors = list(zip(sample_ids, embeddings_list, id_dicts))
 
-    def connect_to_api(self):
-        """Direct access to Pinecone API."""
-        self._initialize_connection()
-        return pinecone
+        num_vectors = embeddings.shape[0]
+        num_steps = int(np.ceil(num_vectors / upsert_pagination))
 
-    @property
-    def index_size(self):
-        """The number of vectors in the index."""
-        return self.describe_index_stats()["total_vector_count"]
+        # self._initialize_connection()
+        index = self._index
 
-    def describe_index_stats(self):
-        """Direct API access to Pinecone's describe_index_stats method."""
-        self._initialize_connection()
-        index = pinecone.Index(self._index_name)
-        return index.describe_index_stats()
+        num_existing_ids = 0
+
+        for i in range(num_steps):
+            min_ind = upsert_pagination * i
+            max_ind = min(upsert_pagination * (i + 1), num_vectors)
+
+            if overwrite and allow_existing and not warn_existing:
+                # Simplest case
+                index.upsert(
+                    index_vectors[min_ind:max_ind], namespace=namespace
+                )
+            else:
+                curr_index_vectors = index_vectors[min_ind:max_ind]
+                curr_index_vector_ids = [r[0] for r in curr_index_vectors]
+                response = index.fetch(curr_index_vector_ids)
+                curr_existing_ids = list(response.vectors.keys())
+                num_existing_ids += len(curr_existing_ids)
+                if num_existing_ids > 0 and not allow_existing:
+                    raise ValueError(
+                        "Found %d IDs (eg %s) that already exist in the index"
+                        % (num_existing_ids, curr_existing_ids[0])
+                    )
+                elif not overwrite:
+                    # Pick out non-existing vectors to add
+                    curr_index_vectors = [
+                        civ
+                        for civ in curr_index_vectors
+                        if civ[0] not in curr_existing_ids
+                    ]
+
+                index.upsert(
+                    curr_index_vectors,
+                    namespace=namespace,
+                )
+
+        if warn_existing and num_existing_ids > 0:
+            logger.warning(
+                "Ignoring %d IDs that already exist in the index",
+                num_existing_ids,
+            )
 
     def remove_from_index(
         self,
@@ -219,51 +250,62 @@ class PineconeSimilarityResults(SimilarityResults):
         allow_missing=True,
         warn_missing=False,
     ):
+        # self._initialize_connection()
+        index = self._index
 
-        self._initialize_connection()
-        index = pinecone.Index(self._index_name)
-
-        if self._label_ids is not None:
-            self._label_ids = [
-                lid for lid in self._label_ids if lid not in label_ids
-            ]
+        if label_ids is not None:
             ids_to_remove = label_ids
-        elif self._sample_ids is not None:
-            self._sample_ids = [
-                sid for sid in self._sample_ids if sid not in sample_ids
-            ]
+        else:
             ids_to_remove = sample_ids
 
-        if warn_missing or not allow_missing:
-            matching_ids = list(index.fetch(ids_to_remove).vectors.keys())
-            if len(matching_ids) != len(ids_to_remove):
+        if not allow_missing or warn_missing:
+            existing_ids = index.fetch(ids_to_remove).vectors.keys()
+            missing_ids = set(existing_ids) - set(ids_to_remove)
+            num_missing = len(missing_ids)
+
+            if num_missing > 0:
                 if not allow_missing:
                     raise ValueError(
-                        "Some samples to be removed were not found in the index"
+                        "Found %d IDs (eg %s) that are not present in the "
+                        "index" % (num_missing, missing_ids[0])
                     )
-                elif warn_missing:
-                    print(
-                        "Some samples to be removed were not found in the index"
+
+                if warn_missing:
+                    logger.warning(
+                        "Ignoring %d IDs that are not present in the index",
+                        num_missing,
                     )
 
         index.delete(ids=ids_to_remove)
+
+    def _kneighbors(
+        self,
+        query=None,
+        k=None,
+        reverse=False,
+        keep_ids=None,
+        aggregation=None,
+        return_dists=False,
+    ):
+        return self._sort_by_similarity(
+            query=query,
+            k=k,
+            reverse=reverse,
+            aggregation=aggregation,
+            return_dists=return_dists,
+        )
 
     def _sort_by_similarity(
         self, query, k, reverse, aggregation, return_dists
     ):
         if reverse == True:
             raise ValueError(
-                "Pinecone backend does not support reverse sorting"
+                "Pinecone backend does not support least similarity queries"
             )
 
-        if k is None:
+        if k is None or k > 10000:
             raise ValueError(
-                "k must be provided when using pinecone similarity"
-            )
-
-        if k > 10000:
-            raise ValueError(
-                "k cannot be greater than 10000 when using pinecone similarity"
+                "Must have k <= 10000 when using pinecone similiarity"
             )
 
         if query is None:
@@ -272,14 +314,14 @@ class PineconeSimilarityResults(SimilarityResults):
             )
 
         if aggregation is not None:
-            print("Pinecone backend does not support aggregation.")
-            print("Falling back to default.")
+            logger.warning("Ignoring unsupported aggregation parameter")
 
         sample_ids = self.current_sample_ids
         label_ids = self.current_label_ids
 
-        self._initialize_connection()
-        index = pinecone.Index(self._index_name)
+        # self._initialize_connection()
+        index = self._index
+
         if isinstance(query, np.ndarray):
             # Query by vectors
             query_embedding = query.tolist()
@@ -312,169 +354,6 @@ class PineconeSimilarityResults(SimilarityResults):
 
         return ids
 
-    def add_to_index(
-        self,
-        embeddings,
-        sample_ids,
-        label_ids=None,
-        overwrite=True,
-        allow_existing=True,
-        warn_existing=False,
-        upsert_pagination=100,
-        namespace=None,
-    ):
-        embeddings_list = [arr.tolist() for arr in embeddings]
-        if label_ids is not None:
-            id_dicts = [
-                {"id": lid, "sample_id": sid}
-                for lid, sid in zip(label_ids, sample_ids)
-            ]
-            index_vectors = list(zip(label_ids, embeddings_list, id_dicts))
-        else:
-            id_dicts = [{"id": sid, "sample_id": sid} for sid in sample_ids]
-            index_vectors = list(zip(sample_ids, embeddings_list, id_dicts))
-
-        num_vectors = embeddings.shape[0]
-        num_steps = int(np.ceil(num_vectors / upsert_pagination))
-
-        self._initialize_connection()
-        index = pinecone.Index(self._index_name)
-
-        num_existing_ids = 0
-
-        for i in range(num_steps):
-            min_ind = upsert_pagination * i
-            max_ind = min(upsert_pagination * (i + 1), num_vectors)
-
-            if overwrite and allow_existing and not warn_existing:
-                # Simplest case
-                index.upsert(
-                    index_vectors[min_ind:max_ind], namespace=namespace
-                )
-            else:
-                curr_index_vectors = index_vectors[min_ind:max_ind]
-                curr_index_vector_ids = [r[0] for r in curr_index_vectors]
-                response = index.fetch(curr_index_vector_ids)
-                curr_existing_ids = list(response.vectors.keys())
-                num_existing_ids += len(curr_existing_ids)
-                if num_existing_ids > 0 and not allow_existing:
-                    raise ValueError(
-                        "existing ids were found in the index, but "
-                        "allow_existing=False"
-                    )
-                elif not overwrite:
-                    # Pick out non-existing vectors to add
-                    curr_index_vectors = [
-                        civ
-                        for civ in curr_index_vectors
-                        if civ[0] not in curr_existing_ids
-                    ]
-
-                index.upsert(
-                    curr_index_vectors,
-                    namespace=namespace,
-                )
-
-        if warn_existing and num_existing_ids > 0:
-            print(
-                f"Warning: {num_existing_ids} vectors already exist in the index."
-            )
-
-    def attributes(self):
-        attrs = super().attributes()
-
-        if self.config.embeddings_field is not None:
-            attrs = [
-                attr
-                for attr in attrs
-                if attr not in ("embeddings", "sample_ids", "label_ids")
-            ]
-
-        return attrs
-
-    def _parse_dimension(self, embeddings, config):
-        if config.dimension is not None:
-            return int(config.dimension)
-        elif embeddings is not None:
-            return int(embeddings.shape[1])
-        return 0
-
-    def _kneighbors(
-        self,
-        query=None,
-        k=None,
-        reverse=False,
-        keep_ids=None,
-        aggregation=None,
-        return_dists=False,
-    ):
-        return self._sort_by_similarity(
-            query=query,
-            k=k,
-            reverse=reverse,
-            aggregation=aggregation,
-            return_dists=return_dists,
-        )
-
-    @staticmethod
-    def _parse_data(
-        samples,
-        config,
-        embeddings=None,
-        sample_ids=None,
-        label_ids=None,
-    ):
-        if embeddings is None:
-            embeddings, sample_ids, label_ids = fbu.get_embeddings(
-                samples._dataset,
-                patches_field=config.patches_field,
-                embeddings_field=config.embeddings_field,
-            )
-        elif sample_ids is None:
-            sample_ids, label_ids = fbu.get_ids(
-                samples,
-                patches_field=config.patches_field,
-                data=embeddings,
-                data_type="embeddings",
-            )
-
-        return embeddings, sample_ids, label_ids
-
     @classmethod
     def _from_dict(cls, d, samples, config):
-        embeddings = d.get("embeddings", None)
-        if embeddings is not None:
-            embeddings = np.array(embeddings)
-
-        sample_ids = d.get("sample_ids", None)
-        if sample_ids is not None:
-            sample_ids = np.array(sample_ids)
-
-        label_ids = d.get("label_ids", None)
-        if label_ids is not None:
-            label_ids = np.array(label_ids)
-
-        config_attrs = [
-            "index_name",
-            "pod_type",
-            "pods",
-            "replicas",
-            "namespace",
-            "metric",
-            "api_key",
-            "environment",
-        ]
-
-        for attr in config_attrs:
-            if attr in d:
-                value = d.get(attr, None)
-                if value is not None:
-                    config[attr] = value
-
-        return cls(
-            samples,
-            config,
-            embeddings=embeddings,
-            sample_ids=sample_ids,
-            label_ids=label_ids,
-        )
+        return cls(samples, config)
