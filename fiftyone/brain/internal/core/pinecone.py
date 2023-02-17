@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 _METRICS = ["euclidean", "cosine", "dotproduct"]
 
+
 class PineconeSimilarityConfig(SimilarityConfig):
     """Configuration for the Pinecone similarity backend.
 
@@ -39,9 +40,8 @@ class PineconeSimilarityConfig(SimilarityConfig):
             analyzed, if any
         supports_prompts (False): whether this run supports prompt queries
         metric ("euclidean"): the embedding distance metric to use. Supported
-            values are "euclidean", "cosine", and "dotproduct".
-        index_name (None): the name of the Pinecone Index to use. If None, the
-            name "fiftyone-index" will be used.
+            values are ``("euclidean", "cosine", and "dotproduct")``
+        index_name ("fiftyone-index"): the name of the Pinecone Index to use
     """
 
     def __init__(
@@ -51,7 +51,7 @@ class PineconeSimilarityConfig(SimilarityConfig):
         patches_field=None,
         supports_prompts=None,
         metric="euclidean",
-        index_name=None,
+        index_name="fiftyone-index",
         dimension=None,
         pod_type="p1",
         pods=1,
@@ -61,11 +61,12 @@ class PineconeSimilarityConfig(SimilarityConfig):
         namespace=None,
         **kwargs,
     ):
-        if metric not in  _METRICS:
+        if metric not in _METRICS:
             raise ValueError(
-                "metric must be one of {}".format(_METRICS)
+                "Unsupported metric '%s'. Supported values are %s"
+                % (metric, _METRICS)
             )
-        
+
         super().__init__(
             embeddings_field=embeddings_field,
             model=model,
@@ -73,8 +74,6 @@ class PineconeSimilarityConfig(SimilarityConfig):
             supports_prompts=supports_prompts,
             **kwargs,
         )
-
-        index_name = "fiftyone-index" if index_name is None else index_name
 
         self.metric = metric
         self.index_name = index_name
@@ -100,8 +99,7 @@ class PineconeSimilarityConfig(SimilarityConfig):
 
     @property
     def max_k(self):
-        """This is Pinecone's limit."""
-        return 10000
+        return 10000  # Pinecone limit
 
 
 class PineconeSimilarity(Similarity):
@@ -194,27 +192,25 @@ class PineconeSimilarityResults(SimilarityResults):
     def label_ids(self):
         """The label IDs of the full index, or ``None`` if not applicable."""
         return self._label_ids
-    
+
     def _initialize_connection(self):
         pinecone.init(self._api_key, self._environment)
-    
+
     def connect_to_api(self):
-        """Direct access to Pinecone API.
-        """
+        """Direct access to Pinecone API."""
         self._initialize_connection()
         return pinecone
 
     @property
     def index_size(self):
         """The number of vectors in the index."""
-        return self.describe_index_stats()['total_vector_count']
+        return self.describe_index_stats()["total_vector_count"]
 
     def describe_index_stats(self):
-        """Direct API access to Pinecone's describe_index_stats method.
-        """
+        """Direct API access to Pinecone's describe_index_stats method."""
         self._initialize_connection()
         index = pinecone.Index(self._index_name)
-        index.describe_index_stats()
+        return index.describe_index_stats()
 
     def remove_from_index(
         self,
@@ -237,10 +233,10 @@ class PineconeSimilarityResults(SimilarityResults):
                 sid for sid in self._sample_ids if sid not in sample_ids
             ]
             ids_to_remove = sample_ids
-        
+
         if warn_missing or not allow_missing:
             matching_ids = list(index.fetch(ids_to_remove).vectors.keys())
-            if len(matching_ids)!= len(ids_to_remove):
+            if len(matching_ids) != len(ids_to_remove):
                 if not allow_missing:
                     raise ValueError(
                         "Some samples to be removed were not found in the index"
@@ -249,8 +245,7 @@ class PineconeSimilarityResults(SimilarityResults):
                     print(
                         "Some samples to be removed were not found in the index"
                     )
-                    
-                    
+
         index.delete(ids=ids_to_remove)
 
     def _sort_by_similarity(
@@ -295,7 +290,7 @@ class PineconeSimilarityResults(SimilarityResults):
             query_embedding = index.fetch(query_id)["vectors"][query_id[0]][
                 "values"
             ]
-        
+
         if label_ids is not None:
             response = index.query(
                 vector=query_embedding,
@@ -308,13 +303,14 @@ class PineconeSimilarityResults(SimilarityResults):
                 top_k=min(k, self._max_k),
                 filter={"id": {"$in": list(sample_ids)}},
             )
-        
+
         ids = [r["id"] for r in response["matches"]]
-        if not return_dists:
-            return ids
-        else:
+
+        if return_dists:
             dists = [r["score"] for r in response["matches"]]
             return ids, dists
+
+        return ids
 
     def add_to_index(
         self,
@@ -327,7 +323,6 @@ class PineconeSimilarityResults(SimilarityResults):
         upsert_pagination=100,
         namespace=None,
     ):
-
         embeddings_list = [arr.tolist() for arr in embeddings]
         if label_ids is not None:
             id_dicts = [
@@ -338,7 +333,7 @@ class PineconeSimilarityResults(SimilarityResults):
         else:
             id_dicts = [{"id": sid, "sample_id": sid} for sid in sample_ids]
             index_vectors = list(zip(sample_ids, embeddings_list, id_dicts))
-        
+
         num_vectors = embeddings.shape[0]
         num_steps = int(np.ceil(num_vectors / upsert_pagination))
 
@@ -351,12 +346,11 @@ class PineconeSimilarityResults(SimilarityResults):
             min_ind = upsert_pagination * i
             max_ind = min(upsert_pagination * (i + 1), num_vectors)
 
-            ## simplest case
             if overwrite and allow_existing and not warn_existing:
+                # Simplest case
                 index.upsert(
-                    index_vectors[min_ind:max_ind],
-                    namespace=namespace
-                    )
+                    index_vectors[min_ind:max_ind], namespace=namespace
+                )
             else:
                 curr_index_vectors = index_vectors[min_ind:max_ind]
                 curr_index_vector_ids = [r[0] for r in curr_index_vectors]
@@ -365,13 +359,17 @@ class PineconeSimilarityResults(SimilarityResults):
                 num_existing_ids += len(curr_existing_ids)
                 if num_existing_ids > 0 and not allow_existing:
                     raise ValueError(
-                        "existing ids were found in the index, but allow_existing=False"
+                        "existing ids were found in the index, but "
+                        "allow_existing=False"
                     )
-                elif not overwrite: ## pick out non-existing vectors to add
+                elif not overwrite:
+                    # Pick out non-existing vectors to add
                     curr_index_vectors = [
-                        civ for civ in curr_index_vectors if civ[0] not in curr_existing_ids
-                        ]
-                    
+                        civ
+                        for civ in curr_index_vectors
+                        if civ[0] not in curr_existing_ids
+                    ]
+
                 index.upsert(
                     curr_index_vectors,
                     namespace=namespace,
@@ -381,8 +379,6 @@ class PineconeSimilarityResults(SimilarityResults):
             print(
                 f"Warning: {num_existing_ids} vectors already exist in the index."
             )
-            
-
 
     def attributes(self):
         attrs = super().attributes()
@@ -403,12 +399,6 @@ class PineconeSimilarityResults(SimilarityResults):
             return int(embeddings.shape[1])
         return 0
 
-    def _radius_neighbors(self, query=None, thresh=None, return_dists=False):
-        raise ValueError(
-                "Pinecone backend does not support score thresholding."
-            )
-        pass
-
     def _kneighbors(
         self,
         query=None,
@@ -425,15 +415,6 @@ class PineconeSimilarityResults(SimilarityResults):
             aggregation=aggregation,
             return_dists=return_dists,
         )
-
-    def _to_inds(self, ids):
-        pass
-
-    def _ensure_neighbors(self):
-        pass
-
-    def _get_neighbors(self, full=False):
-        pass
 
     @staticmethod
     def _parse_data(
