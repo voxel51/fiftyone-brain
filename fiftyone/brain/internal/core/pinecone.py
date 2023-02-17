@@ -329,13 +329,44 @@ class PineconeSimilarityResults(SimilarityResults):
         self._initialize_connection()
         index = pinecone.Index(self._index_name)
 
+        num_existing_ids = 0
+
         for i in range(num_steps):
             min_ind = upsert_pagination * i
             max_ind = min(upsert_pagination * (i + 1), num_vectors)
-            index.upsert(
-                index_vectors[min_ind:max_ind],
-                namespace=namespace
+
+            ## simplest case
+            if overwrite and allow_existing and not warn_existing:
+                index.upsert(
+                    index_vectors[min_ind:max_ind],
+                    namespace=namespace
+                    )
+            else:
+                curr_index_vectors = index_vectors[min_ind:max_ind]
+                curr_index_vector_ids = [r[0] for r in curr_index_vectors]
+                response = index.fetch(curr_index_vector_ids)
+                curr_existing_ids = list(response.vectors.keys())
+                num_existing_ids += len(curr_existing_ids)
+                if num_existing_ids > 0 and not allow_existing:
+                    raise ValueError(
+                        "existing ids were found in the index, but allow_existing=False"
+                    )
+                elif not overwrite: ## pick out non-existing vectors to add
+                    curr_index_vectors = [
+                        civ for civ in curr_index_vectors if civ[0] not in curr_existing_ids
+                        ]
+                    
+                index.upsert(
+                    curr_index_vectors,
+                    namespace=namespace,
                 )
+
+        if warn_existing and num_existing_ids > 0:
+            print(
+                f"Warning: {num_existing_ids} vectors already exist in the index."
+            )
+            
+
 
     def attributes(self):
         attrs = super().attributes()
@@ -431,8 +462,8 @@ class PineconeSimilarityResults(SimilarityResults):
             "pod_type",
             "pods",
             "replicas",
+            "namespace",
             "metric",
-            "upsert_pagination",
             "api_key",
             "environment",
         ]
