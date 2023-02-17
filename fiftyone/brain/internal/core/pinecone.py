@@ -141,15 +141,14 @@ class PineconeSimilarityIndex(SimilarityIndex):
         self._environment = config.environment
         self._namespace = config.namespace
         self._max_k = config.max_k
-        self._index = self._initialize_index()
 
-    # TODO: unneeded?
-    def _initialize_connection(self):
+        self._initialize_index()
+
+    def _get_index(self):
         pinecone.init(self._api_key, self._environment)
+        return pinecone.Index(self._index_name)
 
     def _initialize_index(self):
-        pinecone.init(self._api_key, self._environment)
-
         if self._index_name not in pinecone.list_indexes():
             pinecone.create_index(
                 self._index_name,
@@ -161,12 +160,10 @@ class PineconeSimilarityIndex(SimilarityIndex):
                 namespace=self._namespace,
             )
 
-        return pinecone.Index(self._index_name)
-
     @property
     def index(self):
         """The ``pinecone.Index`` instance for this index."""
-        return self._index
+        return self._get_index()
 
     @property
     def total_index_size(self):
@@ -198,9 +195,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
         num_vectors = embeddings.shape[0]
         num_steps = int(np.ceil(num_vectors / upsert_pagination))
 
-        # self._initialize_connection()
-        index = self._index
-
+        index = self._get_index()
         num_existing_ids = 0
 
         for i in range(num_steps):
@@ -249,8 +244,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
         allow_missing=True,
         warn_missing=False,
     ):
-        # self._initialize_connection()
-        index = self._index
+        index = self._get_index()
 
         if label_ids is not None:
             ids_to_remove = label_ids
@@ -318,8 +312,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
         sample_ids = self.current_sample_ids
         label_ids = self.current_label_ids
 
-        # self._initialize_connection()
-        index = self._index
+        index = self._get_index()
 
         if isinstance(query, np.ndarray):
             # Query by vectors
