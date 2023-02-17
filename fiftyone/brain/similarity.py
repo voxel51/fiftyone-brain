@@ -618,10 +618,9 @@ class SimilarityIndex(fob.BrainResults):
         if not selecting_samples:
             label_ids = ids
 
-            # @todo handle `sample_ids == None`
-            # @todo optimize?
-            ids_map = {l: s for l, s in zip(self.label_ids, self.sample_ids)}
-            sample_ids = [ids_map[l] for l in label_ids]
+            _ids = set(ids)
+            bools = np.array([_id in _ids for _id in self.current_label_ids])
+            sample_ids = self.current_sample_ids[bools]
 
         # Store query distances
         if dist_field is not None:
@@ -795,7 +794,8 @@ class SimilarityIndex(fob.BrainResults):
         batch_size=None,
         num_workers=None,
         skip_failures=True,
-        overwrite=False,
+        skip_existing=False,
+        warn_existing=False,
         force_square=False,
         alpha=None,
     ):
@@ -814,8 +814,10 @@ class SimilarityIndex(fob.BrainResults):
                 to compute embeddings
             skip_failures (True): whether to gracefully continue without
                 raising an error if embeddings cannot be generated for a sample
-            overwrite (False): whether to regenerate (True) or skip (False)
-                embeddings for sample/label IDs that are already in the index
+            skip_existing (False): whether to skip generating embeddings for
+                sample/label IDs that are already in the index
+            warn_existing (False): whether to log a warning if any IDs already
+                exist in the index
             force_square (False): whether to minimally manipulate the patch
                 bounding boxes into squares prior to extraction. Only
                 applicable when a ``model`` and ``patches_field`` are specified
@@ -836,23 +838,25 @@ class SimilarityIndex(fob.BrainResults):
                 ``None``
         """
         if model is None:
-            model = self._get_model(model)
+            model = self.get_model()
 
-        if not overwrite:
-            sample_ids, label_ids = fbu.get_ids(
-                samples,
-                patches_field=self.config.patches_field,
-            )
+        if skip_existing:
             if self.config.patches_field is not None:
-                # @todo handle `label_ids == None`
-                exclude_ids = list(set(label_ids) - set(self.label_ids))
-                samples = samples.exclude_labels(
-                    ids=exclude_ids, fields=self.config.patches_field
+                index_ids = self.label_ids
+            else:
+                index_ids = self.sample_ids
+
+            if index_ids is not None:
+                samples = fbu.skip_ids(
+                    samples,
+                    index_ids,
+                    patches_field=self.config.patches_field,
+                    warn_existing=warn_existing,
                 )
             else:
-                # @todo handle `sample_ids == None`
-                exclude_ids = list(set(sample_ids) - set(self.sample_ids))
-                samples = samples.exclude(exclude_ids)
+                logger.warning(
+                    "This index does not support skipping existing IDs"
+                )
 
         return fbu.get_embeddings(
             samples,

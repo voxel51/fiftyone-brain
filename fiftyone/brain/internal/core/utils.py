@@ -234,6 +234,33 @@ def _parse_ids(ids, index_ids, ftype, allow_missing, warn_missing):
     return keep_inds, good_inds, bad_ids
 
 
+def skip_ids(samples, skip_ids, patches_field=None, warn_existing=False):
+    sample_ids, label_ids = get_ids(samples, patches_field=patches_field)
+
+    if patches_field is not None:
+        exclude_ids = list(set(label_ids) - set(skip_ids))
+        num_existing = len(exclude_ids)
+
+        if num_existing > 0:
+            if warn_existing:
+                logger.warning("Skipping %d existing label IDs", num_existing)
+
+            samples = samples.exclude_labels(
+                ids=exclude_ids, fields=patches_field
+            )
+    else:
+        exclude_ids = list(set(sample_ids) - set(skip_ids))
+        num_existing = len(exclude_ids)
+
+        if num_existing > 0:
+            if warn_existing:
+                logger.warning("Skipping %d existing label IDs", num_existing)
+
+        samples = samples.exclude(exclude_ids)
+
+    return samples
+
+
 def add_ids(
     sample_ids,
     label_ids,
