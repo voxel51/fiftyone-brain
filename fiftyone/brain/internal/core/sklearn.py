@@ -151,7 +151,6 @@ class SklearnSimilarityResults(SimilarityResults):
         allow_existing=True,
         warn_existing=False,
     ):
-        # @todo handle `embeddings_field` case
         _sample_ids, _label_ids, ii, jj = fbu.add_ids(
             sample_ids,
             label_ids,
@@ -166,22 +165,30 @@ class SklearnSimilarityResults(SimilarityResults):
         if ii.size == 0:
             return
 
-        _embeddings = self._embeddings
-        n, d = _embeddings.shape
+        _embeddings = embeddings[ii, :]
+
+        if self.config.embeddings_field is not None:
+            fbu.add_embeddings(
+                self._samples,
+                _embeddings,
+                _sample_ids,
+                _label_ids,
+                self.config.embeddings_field,
+                patches_field=self.config.patches_field,
+            )
+
+        _e = self._embeddings
+        n, d = _e.shape
         m = jj[-1] - n
 
         if m > 0:
-            _embeddings = np.concatenate(
-                (_embeddings, np.empty((m, d), dtype=_embeddings.dtype))
-            )
+            _e = np.concatenate((_e, np.empty((m, d), dtype=_e.dtype)))
 
-        _embeddings[jj, :] = embeddings[ii, :]
+        _e[jj, :] = _embeddings
 
-        self._embeddings = _embeddings
+        self._embeddings = _e
         self._sample_ids = _sample_ids
         self._label_ids = _label_ids
-
-        self._reload()
 
     def remove_from_index(
         self,
@@ -190,7 +197,6 @@ class SklearnSimilarityResults(SimilarityResults):
         allow_missing=True,
         warn_missing=False,
     ):
-        # @todo handle `embeddings_field` case
         _sample_ids, _label_ids, rm_inds = fbu.remove_ids(
             sample_ids,
             label_ids,
@@ -204,13 +210,20 @@ class SklearnSimilarityResults(SimilarityResults):
         if rm_inds.size == 0:
             return
 
+        if self.config.embeddings_field is not None:
+            fbu.remove_embeddings(
+                self._samples,
+                self.config.embeddings_field,
+                sample_ids=_sample_ids,
+                label_ids=_label_ids,
+                patches_field=self.config.patches_field,
+            )
+
         _embeddings = np.delete(self._embeddings, rm_inds)
 
         self._embeddings = _embeddings
         self._sample_ids = _sample_ids
         self._label_ids = _label_ids
-
-        self._reload()
 
     def get_embeddings(
         self,
@@ -273,12 +286,24 @@ class SklearnSimilarityResults(SimilarityResults):
         return embeddings, sample_ids, label_ids
 
     def reload(self):
-        self._reload(hard=True)
+        if self.config.embeddings_field is not None:
+            embeddings, sample_ids, label_ids = self._parse_data(
+                self._samples, self.config
+            )
+
+            self._embeddings = embeddings
+            self._sample_ids = sample_ids
+            self._label_ids = label_ids
+            self._neighbors_helper = None
+
+        self.use_view(self._curr_view)
 
     def attributes(self):
         attrs = super().attributes()
 
         if self.config.embeddings_field is not None:
+            # This index loads embeddings from `embeddings_field` rather than
+            # storing them in gridFS
             attrs = [
                 attr
                 for attr in attrs
@@ -286,24 +311,6 @@ class SklearnSimilarityResults(SimilarityResults):
             ]
 
         return attrs
-
-    def _reload(self, hard=False):
-        if hard:
-            # @todo reload embeddings from gridFS too?
-
-            if self.config.embeddings_field is not None:
-                # @todo `_samples` is not not declared in SimilarityResults API
-                embeddings, sample_ids, label_ids = self._parse_data(
-                    self._samples,
-                    self.config,
-                )
-
-                self._embeddings = embeddings
-                self._sample_ids = sample_ids
-                self._label_ids = label_ids
-                self._neighbors_helper = None
-
-        self.use_view(self._curr_view)
 
     def _kneighbors(
         self,
@@ -314,16 +321,12 @@ class SklearnSimilarityResults(SimilarityResults):
         aggregation=None,
         return_dists=False,
     ):
-        print("Kneighbors")
         if aggregation is not None:
-            print("Aggregation")
-            print(aggregation)
             return self._sort_by_similarity(
                 query, k, reverse, aggregation, return_dists
             )
 
         if keep_ids is not None:
-            print("Keep IDs")
             # @todo remove need for `keep_ids?
             query_inds = self._to_inds(query)
             keep_inds = self._to_inds(keep_ids)
@@ -378,15 +381,13 @@ class SklearnSimilarityResults(SimilarityResults):
                 )
                 min_inds = min_inds.ravel()
                 min_dists = min_dists.ravel()
-        print("\n================================")
-        print(min_inds)
 
         if return_dists:
             return min_inds, min_dists
+
         return min_inds
 
     def _radius_neighbors(self, query=None, thresh=None, return_dists=False):
-        print("radius neighbors")
         neighbors, _ = self._get_neighbors()
 
         # When not using brute force, we approximate cosine distance by
@@ -423,7 +424,6 @@ class SklearnSimilarityResults(SimilarityResults):
     def _sort_by_similarity(
         self, query, k, reverse, aggregation, return_dists
     ):
-        # print(query)
         if query is None:
             raise ValueError(
                 "A query must be provided when using aggregate similarity"
@@ -434,8 +434,7 @@ class SklearnSimilarityResults(SimilarityResults):
                 "Unsupported aggregation method '%s'. Supported values are %s"
                 % (aggregation, tuple(_AGGREGATIONS.keys()))
             )
-        print(self._curr_sample_ids)
-        print(self._curr_label_ids)
+
         sample_ids = self.current_sample_ids
         label_ids = self.current_label_ids
         keep_inds = self._current_inds

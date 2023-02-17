@@ -309,6 +309,28 @@ def add_ids(
     return index_sample_ids, index_label_ids, ii, jj
 
 
+def add_embeddings(
+    samples,
+    embeddings,
+    sample_ids,
+    label_ids,
+    embeddings_field,
+    patches_field=None,
+):
+    dataset = samples._dataset
+
+    if patches_field is not None:
+        _, embeddings_path = dataset._get_label_field_path(
+            patches_field, embeddings_field
+        )
+
+        values = dict(zip(label_ids, embeddings))
+        dataset.set_label_values(embeddings_path, values)
+    else:
+        values = dict(zip(sample_ids, embeddings))
+        dataset.set_values(embeddings_field, values, key_field="id")
+
+
 def remove_ids(
     sample_ids,
     label_ids,
@@ -367,6 +389,12 @@ def _find_ids(ids, index_ids, allow_missing, warn_missing, ftype):
     num_missing = len(missing_ids)
 
     if num_missing > 0:
+        if not allow_missing:
+            raise ValueError(
+                "Found %d %d IDs (eg %s) that are not present in the index"
+                % (num_missing, ftype, missing_ids[0])
+            )
+
         if warn_missing:
             logger.warning(
                 "Ignoring %d %d IDs (eg %s) that are not present in the index",
@@ -374,13 +402,34 @@ def _find_ids(ids, index_ids, allow_missing, warn_missing, ftype):
                 ftype,
                 missing_ids[0],
             )
-        else:
-            raise ValueError(
-                "Found %d %d IDs (eg %s) that are not present in the index"
-                % (num_missing, ftype, missing_ids[0])
-            )
 
     return found_inds
+
+
+def remove_embeddings(
+    samples,
+    embeddings_field,
+    sample_ids=None,
+    label_ids=None,
+    patches_field=None,
+):
+    dataset = samples._dataset
+
+    if patches_field is not None:
+        _, embeddings_path = dataset._get_label_field_path(
+            patches_field, embeddings_field
+        )
+
+        if sample_ids is not None and label_ids is None:
+            _, id_path = dataset._get_label_field_path(patches_field, "id")
+            label_ids = dataset.select(sample_ids).values(id_path, unwind=True)
+
+        if label_ids is not None:
+            values = dict(zip(label_ids, itertools.repeat(None)))
+            dataset.set_label_values(embeddings_path, values)
+    elif sample_ids is not None:
+        values = dict(zip(sample_ids, itertools.repeat(None)))
+        dataset.set_values(embeddings_field, values, key_field="id")
 
 
 def filter_values(values, keep_inds, patches_field=None):

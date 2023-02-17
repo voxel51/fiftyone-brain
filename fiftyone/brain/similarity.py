@@ -469,10 +469,6 @@ class SimilarityResults(fob.BrainResults):
         """
         raise NotImplementedError("subclass must implement get_embeddings()")
 
-    def reload(self):
-        """Reloads the index."""
-        raise NotImplementedError("subclass must implement reload()")
-
     def use_view(self, samples, allow_missing=True, warn_missing=False):
         """Restricts the index to the provided view.
 
@@ -545,6 +541,16 @@ class SimilarityResults(fob.BrainResults):
         Subsequent operations will be performed on the full index.
         """
         self.use_view(self._samples)
+
+    def reload(self):
+        """Reloads the index for the current view.
+
+        Subclasses may override this method, but by default this method simply
+        passes the current :meth:`view` back into :meth:`use_view`, which
+        updates the index's current ID set based on any changes to the view
+        since the index was last loaded.
+        """
+        self.use_view(self._curr_view)
 
     def values(self, path_or_expr):
         """Extracts a flat list of values from the given field or expression
