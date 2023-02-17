@@ -230,12 +230,27 @@ class PineconeSimilarityResults(SimilarityResults):
             self._label_ids = [
                 lid for lid in self._label_ids if lid not in label_ids
             ]
-            index.delete(ids=label_ids)
+            ids_to_remove = label_ids
         elif self._sample_ids is not None:
             self._sample_ids = [
                 sid for sid in self._sample_ids if sid not in sample_ids
             ]
-            index.delete(ids=sample_ids)
+            ids_to_remove = sample_ids
+        
+        if warn_missing or not allow_missing:
+            matching_ids = list(index.fetch(ids_to_remove).vectors.keys())
+            if len(matching_ids)!= len(ids_to_remove):
+                if not allow_missing:
+                    raise ValueError(
+                        "Some samples to be removed were not found in the index"
+                    )
+                elif warn_missing:
+                    print(
+                        "Some samples to be removed were not found in the index"
+                    )
+                    
+                    
+        index.delete(ids=ids_to_remove)
 
     def _sort_by_similarity(
         self, query, k, reverse, aggregation, return_dists
