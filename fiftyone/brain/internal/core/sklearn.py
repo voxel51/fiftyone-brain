@@ -15,6 +15,7 @@ import sklearn.preprocessing as skp
 import eta.core.utils as etau
 
 from fiftyone.brain.similarity import (
+    DuplicatesMixin,
     SimilarityConfig,
     Similarity,
     SimilarityIndex,
@@ -97,7 +98,7 @@ class SklearnSimilarity(Similarity):
         pass
 
 
-class SklearnSimilarityIndex(SimilarityIndex):
+class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
     """Class for interacting with sklearn similarity indexes.
 
     Args:
@@ -132,7 +133,8 @@ class SklearnSimilarityIndex(SimilarityIndex):
         self._label_ids = label_ids
         self._neighbors_helper = None
 
-        super().__init__(samples, config, backend=backend)
+        SimilarityIndex.__init__(self, samples, config, backend=backend)
+        DuplicatesMixin.__init__(self)
 
     @property
     def sample_ids(self):
@@ -141,6 +143,10 @@ class SklearnSimilarityIndex(SimilarityIndex):
     @property
     def label_ids(self):
         return self._label_ids
+
+    @property
+    def total_index_size(self):
+        return len(self._sample_ids)
 
     def add_to_index(
         self,

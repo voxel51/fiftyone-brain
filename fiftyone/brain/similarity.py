@@ -268,10 +268,6 @@ class SimilarityIndex(fob.BrainResults):
         self._curr_label_ids = None
         self._curr_keep_inds = None
         self._curr_missing_size = None
-        self._thresh = None
-        self._unique_ids = None
-        self._duplicate_ids = None
-        self._neighbors_map = None
 
         self.use_view(samples)
 
@@ -290,13 +286,15 @@ class SimilarityIndex(fob.BrainResults):
 
     @property
     def sample_ids(self):
-        """The sample IDs of the full index."""
-        raise NotImplementedError("subclass must implement sample_ids")
+        """The sample IDs of the full index, or ``None`` if not supported."""
+        return None
 
     @property
     def label_ids(self):
-        """The label IDs of the full index, or ``None`` if not applicable."""
-        raise NotImplementedError("subclass must implement label_ids")
+        """The label IDs of the full index, or ``None`` if not applicable or
+        not supported.
+        """
+        return None
 
     @property
     def total_index_size(self):
@@ -305,7 +303,7 @@ class SimilarityIndex(fob.BrainResults):
         If :meth:`use_view` has been called to restrict the index, this value
         may be larger than the current :meth:`index_size`.
         """
-        return len(self.sample_ids)
+        raise NotImplementedError("subclass must implement total_index_size")
 
     @property
     def view(self):
@@ -338,7 +336,9 @@ class SimilarityIndex(fob.BrainResults):
 
     @property
     def _current_inds(self):
-        """The indices of"""
+        """The indices of :meth:`current_sample_ids` in :meth:`sample_ids`, or
+        ``None`` if not supported or if the full index is currently being used.
+        """
         return self._curr_keep_inds
 
     @property
@@ -353,40 +353,13 @@ class SimilarityIndex(fob.BrainResults):
     @property
     def missing_size(self):
         """The total number of data points in :meth:`view` that are missing
-        from this index.
+        from this index, or ``None`` if unknown.
 
         This property is only applicable when :meth:`use_view` has been called,
-        and it will be ``None`` if no data points are missing.
+        and it will be ``None`` if no data points are missing or when the
+        backend does not support it.
         """
         return self._curr_missing_size
-
-    @property
-    def thresh(self):
-        """The threshold used by the last call to :meth:`find_duplicates` or
-        :meth:`find_unique`.
-        """
-        return self._thresh
-
-    @property
-    def unique_ids(self):
-        """A list of unique IDs from the last call to :meth:`find_duplicates`
-        or :meth:`find_unique`.
-        """
-        return self._unique_ids
-
-    @property
-    def duplicate_ids(self):
-        """A list of duplicate IDs from the last call to
-        :meth:`find_duplicates` or :meth:`find_unique`.
-        """
-        return self._duplicate_ids
-
-    @property
-    def neighbors_map(self):
-        """A dictionary mapping IDs to lists of ``(dup_id, dist)`` tuples from
-        the last call to :meth:`find_duplicates`.
-        """
-        return self._neighbors_map
 
     def add_to_index(
         self,
@@ -645,6 +618,7 @@ class SimilarityIndex(fob.BrainResults):
         if not selecting_samples:
             label_ids = ids
 
+            # @todo handle `sample_ids == None`
             # @todo optimize?
             ids_map = {l: s for l, s in zip(self.label_ids, self.sample_ids)}
             sample_ids = [ids_map[l] for l in label_ids]
@@ -796,48 +770,6 @@ class SimilarityIndex(fob.BrainResults):
         """
         raise NotImplementedError("subclass must implement _kneighbors()")
 
-    def _radius_neighbors(self, query=None, thresh=None, return_dists=False):
-        """Returns the neighbors within the given distance threshold for the
-        given query.
-
-        This method should only return results from the current :meth:`view`.
-
-        Args:
-            query (None): the query, which can be any of the following:
-
-                -   a list of IDs for which to return neighbors
-                -   an embedding or ``num_queries x num_dim`` array of
-                    embeddings for which to return neighbors
-                -   ``None``, in which case the neighbors for all points in the
-                    current :meth:`view are returned
-
-            thresh (None): the distance threshold to use
-            return_dists (False): whether to return query-neighbor distances
-
-        Returns:
-            the query result, in one of the following formats:
-
-                -   an ``(ids, dists)`` tuple, when ``return_dists`` is True
-                -   ``ids``, when ``return_dists`` is False
-
-            In the above, ``ids`` contains the IDs of the nearest neighbors, in
-            one of the following formats:
-
-                -   a list of nearest neighbor IDs, when a single query ID or
-                    vector is provided, **or** when an ``aggregation`` is
-                    provided
-                -   a list of lists of nearest neighbor IDs, when multiple
-                    query IDs/vectors and no ``aggregation`` is provided
-                -   a dict mapping IDs to lists of neighbor IDs for each ID in
-                    the index, when no ``query`` is provided
-
-            and ``dists`` is a parallel list/dict that contains the
-            corresponding query-neighbor distances
-        """
-        raise NotImplementedError(
-            "subclass must implement _radius_neighbors()"
-        )
-
     def get_model(self):
         """Returns the stored model for this index.
 
@@ -912,11 +844,13 @@ class SimilarityIndex(fob.BrainResults):
                 patches_field=self.config.patches_field,
             )
             if self.config.patches_field is not None:
+                # @todo handle `label_ids == None`
                 exclude_ids = list(set(label_ids) - set(self.label_ids))
                 samples = samples.exclude_labels(
                     ids=exclude_ids, fields=self.config.patches_field
                 )
             else:
+                # @todo handle `sample_ids == None`
                 exclude_ids = list(set(sample_ids) - set(self.sample_ids))
                 samples = samples.exclude(exclude_ids)
 
@@ -930,6 +864,91 @@ class SimilarityIndex(fob.BrainResults):
             batch_size=batch_size,
             num_workers=num_workers,
             skip_failures=skip_failures,
+        )
+
+
+class DuplicatesMixin(object):
+    """Mixin for :class:`SimilarityIndex` instances that support duplicate
+    detection operations.
+
+    Similarity backends can expose this mixin simply by implementing
+    :meth:`_radius_neighbors`.
+    """
+
+    def __init__(self):
+        self._thresh = None
+        self._unique_ids = None
+        self._duplicate_ids = None
+        self._neighbors_map = None
+
+    @property
+    def thresh(self):
+        """The threshold used by the last call to :meth:`find_duplicates` or
+        :meth:`find_unique`.
+        """
+        return self._thresh
+
+    @property
+    def unique_ids(self):
+        """A list of unique IDs from the last call to :meth:`find_duplicates`
+        or :meth:`find_unique`.
+        """
+        return self._unique_ids
+
+    @property
+    def duplicate_ids(self):
+        """A list of duplicate IDs from the last call to
+        :meth:`find_duplicates` or :meth:`find_unique`.
+        """
+        return self._duplicate_ids
+
+    @property
+    def neighbors_map(self):
+        """A dictionary mapping IDs to lists of ``(dup_id, dist)`` tuples from
+        the last call to :meth:`find_duplicates`.
+        """
+        return self._neighbors_map
+
+    def _radius_neighbors(self, query=None, thresh=None, return_dists=False):
+        """Returns the neighbors within the given distance threshold for the
+        given query.
+
+        This method should only return results from the current :meth:`view`.
+
+        Args:
+            query (None): the query, which can be any of the following:
+
+                -   a list of IDs for which to return neighbors
+                -   an embedding or ``num_queries x num_dim`` array of
+                    embeddings for which to return neighbors
+                -   ``None``, in which case the neighbors for all points in the
+                    current :meth:`view are returned
+
+            thresh (None): the distance threshold to use
+            return_dists (False): whether to return query-neighbor distances
+
+        Returns:
+            the query result, in one of the following formats:
+
+                -   an ``(ids, dists)`` tuple, when ``return_dists`` is True
+                -   ``ids``, when ``return_dists`` is False
+
+            In the above, ``ids`` contains the IDs of the nearest neighbors, in
+            one of the following formats:
+
+                -   a list of nearest neighbor IDs, when a single query ID or
+                    vector is provided, **or** when an ``aggregation`` is
+                    provided
+                -   a list of lists of nearest neighbor IDs, when multiple
+                    query IDs/vectors and no ``aggregation`` is provided
+                -   a dict mapping IDs to lists of neighbor IDs for each ID in
+                    the index, when no ``query`` is provided
+
+            and ``dists`` is a parallel list/dict that contains the
+            corresponding query-neighbor distances
+        """
+        raise NotImplementedError(
+            "subclass must implement _radius_neighbors()"
         )
 
     def find_duplicates(self, thresh=None, fraction=None):

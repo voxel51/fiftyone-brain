@@ -151,7 +151,6 @@ class PineconeSimilarityIndex(SimilarityIndex):
         pinecone.init(self._api_key, self._environment)
 
         if self._index_name not in pinecone.list_indexes():
-            print("Creating pinecone index")
             pinecone.create_index(
                 self._index_name,
                 dimension=self._dimension,
@@ -166,7 +165,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
     @property
     def index(self):
-        """The ``Pinecone.Index`` instance for this index."""
+        """The ``pinecone.Index`` instance for this index."""
         return self._index
 
     @property

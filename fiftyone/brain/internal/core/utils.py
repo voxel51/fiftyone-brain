@@ -80,6 +80,9 @@ def filter_ids(
         else:
             sample_ids = np.array(samples.values("id"))
 
+        if index_sample_ids is None:
+            return sample_ids, None, None, None
+
         keep_inds, good_inds, bad_ids = _parse_ids(
             sample_ids,
             index_sample_ids,
@@ -94,6 +97,9 @@ def filter_ids(
         return sample_ids, None, keep_inds, good_inds
 
     sample_ids, label_ids = _get_patch_ids(samples, patches_field)
+
+    if index_label_ids is None:
+        return sample_ids, label_ids, None, None
 
     keep_inds, good_inds, bad_ids = _parse_ids(
         label_ids,
