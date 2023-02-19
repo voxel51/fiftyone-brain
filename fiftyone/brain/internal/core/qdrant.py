@@ -7,18 +7,12 @@ Qdrant similarity backend.
 """
 import logging
 
-import numpy as np
-
-import eta.core.utils as etau
-
 import fiftyone.core.utils as fou
-
 from fiftyone.brain.similarity import (
     SimilarityConfig,
     Similarity,
     SimilarityIndex,
 )
-import fiftyone.brain.internal.core.utils as fbu
 
 qdrant = fou.lazy_import("qdrant_client")
 qmodels = fou.lazy_import("qdrant_client.http.models")
@@ -48,7 +42,7 @@ class QdrantSimilarityConfig(SimilarityConfig):
         if metric not in _METRICS:
             raise ValueError(
                 "Unsupported metric '%s'. Supported values are %s"
-                % (metric, list(_METRICS.keys()))
+                % (metric, tuple(_METRICS.keys()))
             )
 
         super().__init__(
@@ -67,22 +61,26 @@ class QdrantSimilarityConfig(SimilarityConfig):
     def method(self):
         return "qdrant"
 
+    #! TODO: Do we need a maximum here?
+    @property
+    def max_k(self):
+        return None
+
     #! TODO: Implement this with -1 recommendation API
     @property
     def supports_least_similarity(self):
         return True
 
-    #! TODO: Implement this with recommendation API
     @property
-    def supports_aggregate_queries(self):
-        return True
+    def supported_aggregations(self):
+        return ("mean",)
 
 
 class QdrantSimilarity(Similarity):
     """Qdrant similarity factory.
 
     Args:
-        config: an :class:`QdrantSimilarityConfig`
+        config: a :class:`QdrantSimilarityConfig`
     """
 
     def ensure_requirements(self):
@@ -100,7 +98,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
 
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
-        config: the :class:`SimilarityConfig` used
+        config: the :class:`QdrantSimilarityConfig` used
         backend (None): a :class:`QdrantSimilarity` instance
     """
 
@@ -140,23 +138,16 @@ class QdrantSimilarityIndex(SimilarityIndex):
     ):
         pass
 
-    #! TODO: Implement this and verify that it works
+    #! TODO: Implement this
     def _kneighbors(
         self,
         query=None,
         k=None,
         reverse=False,
-        keep_ids=None,
         aggregation=None,
         return_dists=False,
     ):
-        return self._sort_by_similarity(
-            query=query,
-            k=k,
-            reverse=reverse,
-            aggregation=aggregation,
-            return_dists=return_dists,
-        )
+        pass
 
     @classmethod
     def _from_dict(cls, d, samples, config):

@@ -12,20 +12,18 @@ import numpy as np
 import eta.core.utils as etau
 
 import fiftyone.core.utils as fou
-
 from fiftyone.brain.similarity import (
     SimilarityConfig,
     Similarity,
     SimilarityIndex,
 )
-import fiftyone.brain.internal.core.utils as fbu
 
 pinecone = fou.lazy_import("pinecone")
 
 
 logger = logging.getLogger(__name__)
 
-_METRICS = ["euclidean", "cosine", "dotproduct"]
+_METRICS = ("euclidean", "cosine", "dotproduct")
 
 
 class PineconeSimilarityConfig(SimilarityConfig):
@@ -39,9 +37,9 @@ class PineconeSimilarityConfig(SimilarityConfig):
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         supports_prompts (False): whether this run supports prompt queries
+        index_name ("fiftyone-index"): the name of the Pinecone Index to use
         metric ("euclidean"): the embedding distance metric to use. Supported
             values are ``("euclidean", "cosine", and "dotproduct")``
-        index_name ("fiftyone-index"): the name of the Pinecone Index to use
     """
 
     def __init__(
@@ -50,8 +48,8 @@ class PineconeSimilarityConfig(SimilarityConfig):
         model=None,
         patches_field=None,
         supports_prompts=None,
-        metric="euclidean",
         index_name="fiftyone-index",
+        metric="euclidean",
         dimension=None,
         pod_type="p1",
         pods=1,
@@ -75,8 +73,8 @@ class PineconeSimilarityConfig(SimilarityConfig):
             **kwargs,
         )
 
-        self.metric = metric
         self.index_name = index_name
+        self.metric = metric
         self.dimension = dimension
         self.pod_type = pod_type
         self.pods = pods
@@ -90,23 +88,23 @@ class PineconeSimilarityConfig(SimilarityConfig):
         return "pinecone"
 
     @property
+    def max_k(self):
+        return 10000  # Pinecone limit
+
+    @property
     def supports_least_similarity(self):
         return False
 
     @property
-    def supports_aggregate_queries(self):
-        return False
-
-    @property
-    def max_k(self):
-        return 10000  # Pinecone limit
+    def supported_aggregations(self):
+        return ("mean",)
 
 
 class PineconeSimilarity(Similarity):
     """Pinecone similarity factory.
 
     Args:
-        config: an :class:`PineconeSimilarityConfig`
+        config: a :class:`PineconeSimilarityConfig`
     """
 
     def ensure_requirements(self):
@@ -124,23 +122,22 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
-        config: the :class:`SimilarityConfig` used
+        config: the :class:`PineconeSimilarityConfig` used
         backend (None): a :class:`PineconeSimilarity` instance
     """
 
     def __init__(self, samples, config, backend=None):
         super().__init__(samples, config, backend=backend)
 
-        self._dimension = config.dimension or 0
+        self._metric = config.metric
         self._index_name = config.index_name
+        self._dimension = config.dimension or 0
         self._pod_type = config.pod_type
         self._pods = config.pods
         self._replicas = config.replicas
-        self._metric = config.metric
         self._api_key = config.api_key
         self._environment = config.environment
         self._namespace = config.namespace
-        self._max_k = config.max_k
 
         self._initialize_index()
 
@@ -169,7 +166,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
     @property
     def total_index_size(self):
-        index_stats = self._index.describe_index_stats()
+        index_stats = self._get_index().describe_index_stats()
         return index_stats["total_vector_count"]
 
     def add_to_index(
@@ -215,12 +212,14 @@ class PineconeSimilarityIndex(SimilarityIndex):
                 response = index.fetch(curr_index_vector_ids)
                 curr_existing_ids = list(response.vectors.keys())
                 num_existing_ids += len(curr_existing_ids)
+
                 if num_existing_ids > 0 and not allow_existing:
                     raise ValueError(
                         "Found %d IDs (eg %s) that already exist in the index"
                         % (num_existing_ids, curr_existing_ids[0])
                     )
-                elif not overwrite:
+
+                if not overwrite:
                     # Pick out non-existing vectors to add
                     curr_index_vectors = [
                         civ
@@ -228,14 +227,11 @@ class PineconeSimilarityIndex(SimilarityIndex):
                         if civ[0] not in curr_existing_ids
                     ]
 
-                index.upsert(
-                    curr_index_vectors,
-                    namespace=namespace,
-                )
+                index.upsert(curr_index_vectors, namespace=namespace)
 
         if warn_existing and num_existing_ids > 0:
             logger.warning(
-                "Ignoring %d IDs that already exist in the index",
+                "Skipped %d IDs that already exist in the index",
                 num_existing_ids,
             )
 
@@ -278,75 +274,81 @@ class PineconeSimilarityIndex(SimilarityIndex):
         query=None,
         k=None,
         reverse=False,
-        keep_ids=None,
         aggregation=None,
         return_dists=False,
     ):
-        return self._sort_by_similarity(
-            query=query,
-            k=k,
-            reverse=reverse,
-            aggregation=aggregation,
-            return_dists=return_dists,
-        )
+        if query is None:
+            raise ValueError("Pinecone does not support full index neighbors")
 
-    def _sort_by_similarity(
-        self, query, k, reverse, aggregation, return_dists
-    ):
         if reverse == True:
             raise ValueError(
-                "Pinecone backend does not support least similarity queries"
+                "Pinecone does not support least similarity queries"
             )
 
         if k is None or k > 10000:
-            raise ValueError(
-                "Must have k <= 10000 when using pinecone similiarity"
-            )
+            raise ValueError("Pincone requires k <= 10000")
 
-        if query is None:
-            raise ValueError(
-                "A query must be provided when using pinecone similarity"
-            )
-
-        if aggregation is not None:
-            logger.warning("Ignoring unsupported aggregation parameter")
-
-        sample_ids = self.current_sample_ids
-        label_ids = self.current_label_ids
+        if aggregation not in (None, "mean"):
+            raise ValueError("Unsupported aggregation '%s'" % aggregation)
 
         index = self._get_index()
 
-        if isinstance(query, np.ndarray):
-            # Query by vectors
-            query_embedding = query.tolist()
-        elif etau.is_container(query) and etau.is_numeric(query[0]):
-            query_embedding = np.array(query).tolist()
-        else:
-            query_id = query
-            query_embedding = index.fetch(query_id)["vectors"][query_id[0]][
-                "values"
-            ]
+        query = self._parse_neighbors_query(query, index)
+        if aggregation == "mean" and query.ndim == 2:
+            query = query.mean(axis=0)
 
-        if label_ids is not None:
-            response = index.query(
-                vector=query_embedding,
-                top_k=min(k, self._max_k),
-                filter={"id": {"$in": list(label_ids)}},
-            )
-        else:
-            response = index.query(
-                vector=query_embedding,
-                top_k=min(k, self._max_k),
-                filter={"id": {"$in": list(sample_ids)}},
-            )
+        single_query = query.ndim == 1
+        if single_query:
+            query = [query]
 
-        ids = [r["id"] for r in response["matches"]]
+        if self.config.patches_field is not None:
+            index_ids = self.current_label_ids
+        else:
+            index_ids = self.current_sample_ids
+
+        _filter = {"id": {"$in": list(index_ids)}}
+
+        # @todo batch queries?
+        ids = []
+        dists = []
+        for q in query:
+            response = index.query(vector=q.tolist(), top_k=k, filter=_filter)
+            ids.append([r["id"] for r in response["matches"]])
+            if return_dists:
+                dists.append([r["score"] for r in response["matches"]])
+
+        if single_query:
+            ids = ids[0]
+            if return_dists:
+                dists = dists[0]
 
         if return_dists:
-            dists = [r["score"] for r in response["matches"]]
             return ids, dists
 
         return ids
+
+    def _parse_neighbors_query(self, query, index):
+        if etau.is_str(query):
+            query_ids = [query]
+            single_query = True
+        else:
+            query = np.asarray(query)
+
+            # Query by vector(s)
+            if np.issubdtype(query.dtype, np.number):
+                return query
+
+            query_ids = list(query)
+            single_query = False
+
+        # Query by ID(s)
+        response = index.fetch(query_ids)["vectors"]
+        query = np.array([response[_id]["values"] for _id in query_ids])
+
+        if single_query:
+            query = query[0, :]
+
+        return query
 
     @classmethod
     def _from_dict(cls, d, samples, config):

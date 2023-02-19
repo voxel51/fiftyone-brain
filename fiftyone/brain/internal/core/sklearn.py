@@ -25,7 +25,12 @@ import fiftyone.brain.internal.core.utils as fbu
 
 logger = logging.getLogger(__name__)
 
-_AGGREGATIONS = {"mean": np.mean, "min": np.min, "max": np.max}
+_AGGREGATIONS = {
+    "mean": np.mean,
+    "post-mean": np.mean,
+    "post-min": np.min,
+    "post-max": np.max,
+}
 
 _MAX_PRECOMPUTE_DISTS = 15000  # ~1.7GB to store distance matrix in-memory
 _COSINE_HACK_ATTR = "_cosine_hack"
@@ -69,16 +74,16 @@ class SklearnSimilarityConfig(SimilarityConfig):
         return "sklearn"
 
     @property
+    def max_k(self):
+        return None
+
+    @property
     def supports_least_similarity(self):
         return True
 
     @property
-    def supports_aggregate_queries(self):
-        return True
-
-    @property
-    def max_k(self):
-        return None
+    def supported_aggregations(self):
+        return tuple(_AGGREGATIONS.keys())
 
 
 class SklearnSimilarity(Similarity):
@@ -103,7 +108,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
 
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
-        config: the :class:`SimilarityConfig` used
+        config: the :class:`SklearnSimilarityConfig` used
         embeddings (None): a ``num_embeddings x num_dims`` array of embeddings
         sample_ids (None): a ``num_embeddings`` array of sample IDs
         label_ids (None): a ``num_embeddings`` array of label IDs, if
@@ -131,6 +136,9 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         self._embeddings = embeddings
         self._sample_ids = sample_ids
         self._label_ids = label_ids
+
+        self._ids_to_inds = None
+        self._curr_ids_to_inds = None
         self._neighbors_helper = None
 
         SimilarityIndex.__init__(self, samples, config, backend=backend)
@@ -231,6 +239,10 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         self._sample_ids = _sample_ids
         self._label_ids = _label_ids
 
+    def use_view(self, *args, **kwargs):
+        self._curr_ids_to_inds = None
+        return super().use_view(*args, **kwargs)
+
     def get_embeddings(
         self,
         sample_ids=None,
@@ -300,6 +312,9 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
             self._embeddings = embeddings
             self._sample_ids = sample_ids
             self._label_ids = label_ids
+
+            self._ids_to_inds = None
+            self._curr_ids_to_inds = None
             self._neighbors_helper = None
 
         self.use_view(self._curr_view)
@@ -323,78 +338,56 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         query=None,
         k=None,
         reverse=False,
-        keep_ids=None,
         aggregation=None,
         return_dists=False,
     ):
         if aggregation is not None:
-            return self._sort_by_similarity(
+            return self._kneighbors_aggregate(
                 query, k, reverse, aggregation, return_dists
             )
 
-        if keep_ids is not None:
-            # @todo remove need for `keep_ids?
-            query_inds = self._to_inds(query)
-            keep_inds = self._to_inds(keep_ids)
-            neighbors, dists = self._get_neighbors(full=True)
+        (
+            query,
+            query_inds,
+            full_index,
+            single_query,
+        ) = self._parse_neighbors_query(query)
 
-            if dists is not None and query_inds is not None:
-                # Use pre-computed distances
-                _dists = dists[keep_inds, :][:, query_inds]
+        can_use_dists = full_index or query_inds is not None
+        neighbors, dists = self._get_neighbors(can_use_dists=can_use_dists)
 
-                min_inds = np.argmin(_dists, axis=0)
-                min_dists = _dists[min_inds, range(len(query_inds))]
+        if dists is not None:
+            # Use pre-computed distances
+            if query_inds is not None:
+                _dists = dists[:, query_inds]
+                _cols = range(len(query_inds))
             else:
-                _index = self._embeddings[keep_inds, :]
+                _dists = dists
+                _cols = range(dists.shape[1])
 
-                if query_inds is not None:
-                    _query = self._embeddings[query_inds, :]
-                else:
-                    _query = query
-
-                neighbors = skn.NearestNeighbors(metric=self.config.metric)
-                neighbors.fit(_index)
-
-                min_dists, min_inds = neighbors.kneighbors(
-                    _query, n_neighbors=k
-                )
-                min_inds = min_inds.ravel()
-                min_dists = min_dists.ravel()
+            inds = np.argmin(_dists, axis=0)
+            if return_dists:
+                dists = _dists[inds, _cols]
+            else:
+                dists = None
         else:
-            # @todo mismatched inds when view != full samples?
-            query_inds = self._to_inds(query)
-            neighbors, dists = self._get_neighbors()
-
-            if dists is not None and not isinstance(query, np.ndarray):
-                # Use pre-computed distances
-                if query_inds is not None:
-                    _dists = dists[:, query_inds]
-                    _cols = range(len(query_inds))
-                else:
-                    _dists = dists
-                    _cols = range(dists.shape[1])
-
-                min_inds = np.argmin(_dists, axis=0)
-                min_dists = _dists[min_inds, _cols]
-            else:
-                if query_inds is not None:
-                    _query = self._embeddings[query_inds, :]
-                else:
-                    _query = query
-
-                min_dists, min_inds = neighbors.kneighbors(
-                    X=_query, n_neighbors=k
+            if return_dists:
+                dists, inds = neighbors.kneighbors(
+                    X=query, n_neighbors=k, return_distance=True
                 )
-                min_inds = min_inds.ravel()
-                min_dists = min_dists.ravel()
+            else:
+                inds = neighbors.kneighbors(
+                    X=query, n_neighbors=k, return_distance=False
+                )
+                dists = None
 
-        if return_dists:
-            return min_inds, min_dists
-
-        return min_inds
+        return self._format_output(
+            inds, dists, full_index, single_query, return_dists
+        )
 
     def _radius_neighbors(self, query=None, thresh=None, return_dists=False):
-        neighbors, _ = self._get_neighbors()
+        query, _, full_index, single_query = self._parse_neighbors_query(query)
+        neighbors, _ = self._get_neighbors(can_use_dists=False)
 
         # When not using brute force, we approximate cosine distance by
         # computing Euclidean distance on unit-norm embeddings.
@@ -402,108 +395,66 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         if getattr(neighbors, _COSINE_HACK_ATTR, False):
             thresh = np.sqrt(2.0 * thresh)
 
-        query_inds = self._to_inds(query)
-        if query_inds is not None:
-            _query = self._embeddings[query_inds, :]
-        else:
-            _query = query
-
-        dists, inds = neighbors.radius_neighbors(X=_query, radius=thresh)
-
         if return_dists:
-            return inds, dists
-
-        return inds
-
-    def _to_inds(self, ids):
-        if ids is None or isinstance(ids, np.ndarray):
-            return None
-
-        if self.config.patches_field is not None:
-            ids = self.label_ids
+            dists, inds = neighbors.radius_neighbors(
+                X=query, radius=thresh, return_distance=True
+            )
         else:
-            ids = self.sample_ids
-
-        ids_map = {_id: i for i, _id in enumerate(ids)}
-        return np.array([ids_map[_id] for _id in ids])
-
-    def _sort_by_similarity(
-        self, query, k, reverse, aggregation, return_dists
-    ):
-        if query is None:
-            raise ValueError(
-                "A query must be provided when using aggregate similarity"
+            dists = None
+            inds = neighbors.radius_neighbors(
+                X=query, radius=thresh, return_distance=False
             )
 
+        return self._format_output(
+            inds, dists, full_index, single_query, return_dists
+        )
+
+    def _kneighbors_aggregate(
+        self, query, k, reverse, aggregation, return_dists
+    ):
         if aggregation not in _AGGREGATIONS:
             raise ValueError(
                 "Unsupported aggregation method '%s'. Supported values are %s"
                 % (aggregation, tuple(_AGGREGATIONS.keys()))
             )
 
-        sample_ids = self.current_sample_ids
-        label_ids = self.current_label_ids
-        keep_inds = self._current_inds
-        patches_field = self.config.patches_field
-        metric = self.config.metric
+        query, query_inds, _, _ = self._parse_neighbors_query(query)
 
-        if isinstance(query, np.ndarray):
-            # Query by vectors
-            query_embeddings = query
+        can_use_dists = query_inds is not None
+        _, dists = self._get_neighbors(
+            can_use_neighbors=False, can_use_dists=can_use_dists
+        )
 
+        # Pre-aggregation
+        if aggregation == "mean":
+            if query.ndim == 2:
+                query = query.mean(axis=0)
+
+            query_inds = None
+            aggregation = None
+
+        if dists is not None:
+            # Use pre-computed distances
+            dists = dists[:, query_inds]
+        else:
+            keep_inds = self._current_inds
             index_embeddings = self._embeddings
             if keep_inds is not None:
                 index_embeddings = index_embeddings[keep_inds]
 
+            if query is None:
+                query = index_embeddings
+
             dists = skm.pairwise_distances(
-                index_embeddings, query_embeddings, metric=metric
+                index_embeddings, query, metric=self.config.metric
             )
+
+        # Post-aggregation
+        if aggregation is not None:
+            agg_fcn = _AGGREGATIONS[aggregation]
+            dists = agg_fcn(dists, axis=1)
         else:
-            # Query by IDs
-            query_ids = query
-
-            # Parse query IDs (always using full index)
-            if patches_field is None:
-                ids = self.sample_ids
-            else:
-                ids = self.label_ids
-
-            bad_ids = []
-            query_inds = []
-            for query_id in query_ids:
-                _inds = np.where(ids == query_id)[0]
-                if _inds.size == 0:
-                    bad_ids.append(query_id)
-                else:
-                    query_inds.append(_inds[0])
-
-            if bad_ids:
-                raise ValueError(
-                    "Query IDs %s were not included in this index" % bad_ids
-                )
-
-            # Perform query
-            self._ensure_neighbors()
-            dists = self._neighbors_helper.get_distances()
-            if dists is not None:
-                # Use pre-computed distances
-                if keep_inds is not None:
-                    dists = dists[keep_inds, :]
-
-                dists = dists[:, query_inds]
-            else:
-                # Compute distances from embeddings
-                index_embeddings = self._embeddings
-                if keep_inds is not None:
-                    index_embeddings = index_embeddings[keep_inds]
-
-                query_embeddings = self._embeddings[query_inds]
-                dists = skm.pairwise_distances(
-                    index_embeddings, query_embeddings, metric=metric
-                )
-
-        agg_fcn = _AGGREGATIONS[aggregation]
-        dists = agg_fcn(dists, axis=1)
+            dists = dists[:, 0]
 
         inds = np.argsort(dists)
         if reverse:
@@ -512,27 +463,135 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         if k is not None:
             inds = inds[:k]
 
-        if patches_field is not None:
-            ids = label_ids
+        if self.config.patches_field is not None:
+            ids = self.current_label_ids
         else:
-            ids = sample_ids
+            ids = self.current_sample_ids
 
         if return_dists:
             return ids[inds], dists[inds]
 
         return ids[inds]
 
-    def _ensure_neighbors(self):
+    def _parse_neighbors_query(self, query):
+        # Full index
+        if query is None:
+            return None, None, True, False
+
+        if etau.is_str(query):
+            query_ids = [query]
+            single_query = True
+        else:
+            query = np.asarray(query)
+
+            # Query vector(s)
+            if np.issubdtype(query.dtype, np.number):
+                single_query = query.ndim == 1
+                if single_query:
+                    query = query[np.newaxis, :]
+
+                return query, None, False, single_query
+
+            query_ids = list(query)
+            single_query = False
+
+        # Retrieve indices into active `dists` matrix, if possible
+        ids_to_inds = self._get_ids_to_inds(full=False)
+        query_inds = []
+        for _id in query_ids:
+            _ind = ids_to_inds.get(_id, None)
+            if _ind is not None:
+                query_inds.append(_ind)
+            else:
+                # At least one query ID is not in the active index
+                query_inds = None
+                break
+
+        # Retrieve embeddings
+        ids_to_inds = self._get_ids_to_inds(full=True)
+        inds = []
+        bad_ids = []
+        for _id in query_ids:
+            _ind = ids_to_inds.get(_id, None)
+            if _ind is not None:
+                inds.append(_ind)
+            else:
+                bad_ids.append(_id)
+
+        inds = np.array(inds)
+
+        if bad_ids:
+            raise ValueError(
+                "Query IDs %s do not exist in this index" % bad_ids
+            )
+
+        query = self._embeddings[inds, :]
+
+        if query_inds is not None:
+            query_inds = np.array(query_inds)
+
+        return query, query_inds, False, single_query
+
+    def _get_ids_to_inds(self, full=False):
+        if full:
+            if self._ids_to_inds is None:
+                if self.config.patches_field is not None:
+                    ids = self.label_ids
+                else:
+                    ids = self.sample_ids
+
+                self._ids_to_inds = {_id: i for i, _id in enumerate(ids)}
+
+            return self._ids_to_inds
+
+        if self._curr_ids_to_inds is None:
+            if self.config.patches_field is not None:
+                ids = self.current_label_ids
+            else:
+                ids = self.current_sample_ids
+
+            self._curr_ids_to_inds = {_id: i for i, _id in enumerate(ids)}
+
+        return self._curr_ids_to_inds
+
+    def _get_neighbors(self, can_use_neighbors=True, can_use_dists=True):
         if self._neighbors_helper is None:
             self._neighbors_helper = NeighborsHelper(
                 self._embeddings, self.config.metric
             )
 
-    def _get_neighbors(self, full=False):
-        self._ensure_neighbors()
+        return self._neighbors_helper.get_neighbors(
+            keep_inds=self._current_inds,
+            can_use_neighbors=can_use_neighbors,
+            can_use_dists=can_use_dists,
+        )
 
-        keep_inds = None if full else self._current_inds
-        return self._neighbors_helper.get_neighbors(keep_inds=keep_inds)
+    def _format_output(
+        self, inds, dists, full_index, single_query, return_dists
+    ):
+        if self.config.patches_field is not None:
+            index_ids = self.current_sample_ids
+        else:
+            index_ids = self.current_label_ids
+
+        if full_index:
+            ids = {_id: index_ids[i] for _id, i in zip(index_ids, inds)}
+            if return_dists:
+                dists = dict(zip(index_ids, dists))
+        else:
+            ids = [index_ids[i] for i in inds]
+            if return_dists:
+                dists = list(dists)
+
+        if single_query:
+            ids = ids[0]
+            if return_dists:
+                dists = dists[0]
+
+        if return_dists:
+            return ids, dists
+
+        return ids
 
     @staticmethod
     def _parse_data(
@@ -588,36 +647,30 @@ class NeighborsHelper(object):
 
         self._initialized = False
         self._full_dists = None
+
         self._curr_keep_inds = None
+        self._curr_neighbors = None
         self._curr_dists = None
-        self._curr_neighbors = None
 
-    def get_distances(self, keep_inds=None):
-        self._init()
+    def get_neighbors(
+        self,
+        keep_inds=None,
+        can_use_neighbors=True,
+        can_use_dists=True,
+    ):
+        iokay = self._same_keep_inds(keep_inds)
+        nokay = not can_use_neighbors or self._curr_neighbors is not None
+        dokay = not can_use_dists or self._curr_dists is not None
+        if iokay and nokay and dokay:
+            neighbors = self._curr_neighbors if can_use_neighbors else None
+            dists = self._curr_dists if can_use_dists else None
+            return neighbors, dists
 
-        if self._same_keep_inds(keep_inds):
-            return self._curr_dists
-
-        if keep_inds is not None:
-            dists, _ = self._build(keep_inds=keep_inds, build_neighbors=False)
-        else:
-            dists = self._full_dists
-
-        self._curr_keep_inds = keep_inds
-        self._curr_dists = dists
-        self._curr_neighbors = None
-
-        return dists
-
-    def get_neighbors(self, keep_inds=None):
-        self._init()
-
-        if self._curr_neighbors is not None and self._same_keep_inds(
-            keep_inds
-        ):
-            return self._curr_neighbors, self._curr_dists
-
-        dists, neighbors = self._build(keep_inds=keep_inds)
+        neighbors, dists = self._build(
+            keep_inds=keep_inds,
+            can_use_neighbors=can_use_neighbors,
+            can_use_dists=can_use_dists,
+        )
 
         self._curr_keep_inds = keep_inds
         self._curr_dists = dists
@@ -626,71 +679,47 @@ class NeighborsHelper(object):
         return neighbors, dists
 
     def _same_keep_inds(self, keep_inds):
-        if keep_inds is None and self._curr_keep_inds is None:
-            return True
+        # This handles either argument being None
+        return np.array_equal(keep_inds, self._curr_keep_inds)
 
-        if (
-            isinstance(keep_inds, np.ndarray)
-            and isinstance(self._curr_keep_inds, np.ndarray)
-            and keep_inds.size == self._curr_keep_inds.size
-            and (keep_inds == self._curr_keep_inds).all()
-        ):
-            return True
+    def _build(
+        self, keep_inds=None, can_use_neighbors=True, can_use_dists=True
+    ):
+        if can_use_dists:
+            if (
+                self._full_dists is None
+                and len(self.embeddings) <= _MAX_PRECOMPUTE_DISTS
+            ):
+                self._full_dists = self._build_dists(self.embeddings)
 
-        return False
-
-    def _init(self):
-        if self._initialized:
-            return
-
-        # Pre-compute all pairwise distances if number of embeddings is small
-        if len(self.embeddings) <= _MAX_PRECOMPUTE_DISTS:
-            dists, _ = self._build_precomputed(
-                self.embeddings, build_neighbors=False
-            )
+            if self._full_dists is not None:
+                if keep_inds is not None:
+                    dists = self._full_dists[keep_inds, :][:, keep_inds]
+                else:
+                    dists = self._full_dists
+            elif (
+                keep_inds is not None
+                and len(keep_inds) <= _MAX_PRECOMPUTE_DISTS
+            ):
+                dists = self._build_dists(self.embeddings[keep_inds])
+            else:
+                dists = None
         else:
             dists = None
 
-        self._initialized = True
-        self._full_dists = dists
-        self._curr_keep_inds = None
-        self._curr_dists = dists
-        self._curr_neighbors = None
-
-    def _build(self, keep_inds=None, build_neighbors=True):
-        # Use full distance matrix if available
-        if self._full_dists is not None:
+        if can_use_neighbors and dists is None:
+            embeddings = self.embeddings
             if keep_inds is not None:
-                dists = self._full_dists[keep_inds, :][:, keep_inds]
-            else:
-                dists = self._full_dists
+                embeddings = embeddings[keep_inds]
 
-            if build_neighbors:
-                neighbors = skn.NearestNeighbors(metric="precomputed")
-                neighbors.fit(dists)
-            else:
-                neighbors = None
-
-            return dists, neighbors
-
-        # Must build index
-        embeddings = self.embeddings
-
-        if keep_inds is not None:
-            embeddings = embeddings[keep_inds]
-
-        if len(embeddings) <= _MAX_PRECOMPUTE_DISTS:
-            dists, neighbors = self._build_precomputed(
-                embeddings, build_neighbors=build_neighbors
-            )
+            neighbors = self._build_neighbors(embeddings)
         else:
-            dists = None
-            neighbors = self._build_graph(embeddings)
+            neighbors = None
 
-        return dists, neighbors
+        return neighbors, dists
 
-    def _build_precomputed(self, embeddings, build_neighbors=True):
-        logger.info("Generating index...")
+    def _build_dists(self, embeddings):
+        logger.info("Generating index for %d embeddings...", len(embeddings))
 
         # Center embeddings
         embeddings = np.asarray(embeddings)
@@ -698,20 +727,13 @@ class NeighborsHelper(object):
 
         dists = skm.pairwise_distances(embeddings, metric=self.metric)
 
-        if build_neighbors:
-            neighbors = skn.NearestNeighbors(metric="precomputed")
-            neighbors.fit(dists)
-        else:
-            neighbors = None
-
         logger.info("Index complete")
 
-        return dists, neighbors
+        return dists
 
-    def _build_graph(self, embeddings):
+    def _build_neighbors(self, embeddings):
         logger.info(
-            "Generating neighbors graph for %d embeddings; this may take "
-            "awhile...",
+            "Generating neighbors graph for %d embeddings...",
             len(embeddings),
         )
 

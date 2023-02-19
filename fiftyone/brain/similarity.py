@@ -187,6 +187,13 @@ class SimilarityConfig(fob.BrainMethodConfig):
         raise NotImplementedError("subclass must implement method")
 
     @property
+    def max_k(self):
+        """A maximum k value for nearest neighbor queries, or None if there is
+        no limit.
+        """
+        raise NotImplementedError("subclass must implement max_k")
+
+    @property
     def supports_least_similarity(self):
         """Whether this backend supports least similarity queries."""
         raise NotImplementedError(
@@ -194,18 +201,15 @@ class SimilarityConfig(fob.BrainMethodConfig):
         )
 
     @property
-    def supports_aggregate_queries(self):
-        """Whether this backend supports aggregate similarity queries."""
-        raise NotImplementedError(
-            "subclass must implement supports_aggregate_queries"
-        )
-
-    @property
-    def max_k(self):
-        """A maximum k value for nearest neighbor queries, or None if there is
-        no limit.
+    def supported_aggregations(self):
+        """A tuple of supported values for the ``aggregation`` parameter of the
+        backend's
+        :meth:`sort_by_similarity() <SimilarityIndex.sort_by_similarity>` and
+        :meth:`_kneighbors() <SimilarityIndex._kneighbors>` methods.
         """
-        raise NotImplementedError("subclass must implement max_k")
+        raise NotImplementedError(
+            "subclass must implement supported_aggregations"
+        )
 
 
 class Similarity(fob.BrainMethod):
@@ -247,8 +251,8 @@ class SimilarityIndex(fob.BrainResults):
     """Base class for similarity indexes.
 
     Args:
-        samples: a :class:`fiftyone.core.collections.SampleCollection`
-        config: a :class:`SimilarityConfig`
+        samples: the :class:`fiftyone.core.collections.SampleCollection` used
+        config: the :class:`SimilarityConfig` used
         backend (None): a :class:`Similarity` backend
     """
 
@@ -262,22 +266,26 @@ class SimilarityIndex(fob.BrainResults):
         self._backend = backend
 
         self._model = None
-        self._last_view = None
         self._curr_view = None
         self._curr_sample_ids = None
         self._curr_label_ids = None
         self._curr_keep_inds = None
         self._curr_missing_size = None
+        self._last_views = []
 
         self.use_view(samples)
 
     def __enter__(self):
-        self._last_view = self.view
+        self._last_views.append(self.view)
         return self
 
     def __exit__(self, *args):
-        self.use_view(self._last_view)
-        self._last_view = None
+        try:
+            last_view = self._last_views.pop()
+        except:
+            last_view = self._samples
+
+        self.use_view(last_view)
 
     @property
     def config(self):
@@ -579,15 +587,15 @@ class SimilarityIndex(fob.BrainResults):
                     of vectors
                 -   a prompt or iterable of prompts (if supported by the index)
 
-            k (None): the number of matches to return. By default, all
-                samples/labels are included
+            k (None): the number of matches to return. Some backends may
+                support ``None``, in which case all samples will be sorted
             reverse (False): whether to sort by least similarity (True) or
-                greatest similarity (False). Note that some backends may not
-                support least similarity
-            aggregation ("mean"): the aggregation method to use to compute
-                composite similarities. Only applicable when ``query`` contains
-                multiple queries. Supported values are
-                ``("mean", "min", "max")``
+                greatest similarity (False). Some backends may not support
+                least similarity
+            aggregation ("mean"): the aggregation method to use when multiple
+                queries are provided. The default is ``"mean"``, which means
+                that the query vectors are averaged prior to searching. Some
+                backends may support additional options
             dist_field (None): the name of a float field in which to store the
                 distance of each example to the specified query. The field is
                 created if necessary
@@ -676,16 +684,14 @@ class SimilarityIndex(fob.BrainResults):
         return view
 
     def _parse_query(self, query):
+        if query is None:
+            raise ValueError("At least one query must be provided")
+
         if isinstance(query, np.ndarray):
             # Query by vector(s)
             if query.size == 0:
                 raise ValueError("At least one query vector must be provided")
 
-            if query.ndim == 1:
-                query = query[np.newaxis, :]
-
-            return query
-        elif etau.is_container(query) and etau.is_numeric(query[0]):
             return query
 
         if etau.is_str(query):
@@ -695,6 +701,9 @@ class SimilarityIndex(fob.BrainResults):
 
         if not query:
             raise ValueError("At least one query must be provided")
+
+        if etau.is_numeric(query[0]):
+            return np.asarray(query)
 
         try:
             ObjectId(query[0])
@@ -719,7 +728,6 @@ class SimilarityIndex(fob.BrainResults):
         query=None,
         k=None,
         reverse=False,
-        keep_ids=None,
         aggregation=None,
         return_dists=False,
     ):
@@ -730,21 +738,22 @@ class SimilarityIndex(fob.BrainResults):
         Args:
             query (None): the query, which can be any of the following:
 
-                -   a list of IDs for which to return neighbors
+                -   an ID or list of IDs for which to return neighbors
                 -   an embedding or ``num_queries x num_dim`` array of
                     embeddings for which to return neighbors
-                -   ``None``, in which case the neighbors for all points in the
-                    current :meth:`view are returned
+                -   Some backends may also support ``None``, in which case the
+                    neighbors for all points in the current :meth:`view are
+                    returned
 
-            k (None): the number of neighbors to return
+            k (None): the number of neighbors to return. Some backends may
+                enforce upper bounds on this parameter
             reverse (False): whether to sort by least similarity (True) or
-                greatest similarity (False). Note that some backends may not
-                support least similarity
-            keep_ids (None): an optional list of IDs to which to restrict the
-                nearest neighbor search
-            aggregation (None): an aggregation method to use to compute a
-                composite similarity for the given query. Supported values are
-                ``("mean", "min", "max")``
+                greatest similarity (False). Some backends may not support
+                least similarity
+            aggregation (None): an optional aggregation method to use when
+                multiple queries are provided. All backends must support
+                ``"mean"``, which averages query vectors prior to searching.
+                Backends may support additional options as well
             return_dists (False): whether to return query-neighbor distances
 
         Returns:
@@ -761,11 +770,11 @@ class SimilarityIndex(fob.BrainResults):
                     provided
                 -   a list of lists of nearest neighbor IDs, when multiple
                     query IDs/vectors and no ``aggregation`` is provided
-                -   a dict mapping IDs to lists of neighbor IDs for each ID in
-                    the index, when no ``query`` is provided
+                -   a dict mapping IDs to lists of nearest neighbor IDs for
+                    every vector in the index, when no query is provided
 
-            and ``dists`` is a parallel list/dict that contains the
-            corresponding query-neighbor distances
+            and ``dists`` contains the corresponding query-neighbor distances
+            for each result in ``ids``
         """
         raise NotImplementedError("subclass must implement _kneighbors()")
 
@@ -922,7 +931,7 @@ class DuplicatesMixin(object):
         Args:
             query (None): the query, which can be any of the following:
 
-                -   a list of IDs for which to return neighbors
+                -   an ID or list of IDs for which to return neighbors
                 -   an embedding or ``num_queries x num_dim`` array of
                     embeddings for which to return neighbors
                 -   ``None``, in which case the neighbors for all points in the
@@ -941,15 +950,14 @@ class DuplicatesMixin(object):
             one of the following formats:
 
                 -   a list of nearest neighbor IDs, when a single query ID or
-                    vector is provided, **or** when an ``aggregation`` is
-                    provided
+                    vector is provided
                 -   a list of lists of nearest neighbor IDs, when multiple
-                    query IDs/vectors and no ``aggregation`` is provided
-                -   a dict mapping IDs to lists of neighbor IDs for each ID in
-                    the index, when no ``query`` is provided
+                    query IDs/vectors is provided
+                -   a dict mapping IDs to lists of nearest neighbor IDs for
+                    every vector in the index, when no query is provided
 
-            and ``dists`` is a parallel list/dict that contains the
-            corresponding query-neighbor distances
+            and ``dists`` contains the corresponding query-neighbor distances
+            for each result in ``ids``
         """
         raise NotImplementedError(
             "subclass must implement _radius_neighbors()"
@@ -997,12 +1005,17 @@ class DuplicatesMixin(object):
 
         # Locate nearest non-duplicate for each duplicate
         if unique_ids and duplicate_ids:
-            nearest_ids, dists = self._kneighbors(
-                query=duplicate_ids,
-                keep_ids=unique_ids,
-                k=1,
-                return_dists=True,
-            )
+            if self.config.patches_field is not None:
+                unique_view = self._samples.select_labels(
+                    ids=unique_ids, fields=self.config.patches_field
+                )
+            else:
+                unique_view = self._samples.select(unique_ids)
+
+            with self.use_view(unique_view):
+                nearest_ids, dists = self._kneighbors(
+                    query=duplicate_ids, k=1, return_dists=True
+                )
 
             neighbors_map = defaultdict(list)
             for dup_id, _ids, _dists in zip(duplicate_ids, nearest_ids, dists):
@@ -1111,7 +1124,7 @@ class DuplicatesMixin(object):
         return keep_ids, thresh
 
     def _remove_duplicates_thresh(self, thresh, ids):
-        nearest_ids = self._radius_neighbors(thresh=thresh, return_dists=False)
+        nearest_ids = self._radius_neighbors(thresh=thresh)
 
         ids_map = {_id: i for i, _id in enumerate(ids)}
         keep_ids = set(ids)

@@ -20,6 +20,9 @@ class BrainConfig(EnvConfig):
         "pinecone": {
             "config_cls": "fiftyone.brain.internal.core.pinecone.PineconeSimilarityConfig",
         },
+        "qdrant": {
+            "config_cls": "fiftyone.brain.internal.core.qdrant.QdrantSimilarityConfig",
+        },
     }
 
     def __init__(self, d=None):
