@@ -193,10 +193,13 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
 
         _e = self._embeddings
         n, d = _e.shape
-        m = jj[-1] - n
+        m = jj[-1] - n + 1
 
         if m > 0:
-            _e = np.concatenate((_e, np.empty((m, d), dtype=_e.dtype)))
+            if _e.size > 0:
+                _e = np.concatenate((_e, np.empty((m, d), dtype=_e.dtype)))
+            else:
+                _e = np.empty_like(_embeddings)
 
         _e[jj, :] = _embeddings
 
@@ -783,7 +786,7 @@ def _get_inds(ids, index_ids, ftype, allow_missing, warn_missing):
     if num_missing > 0:
         if not allow_missing:
             raise ValueError(
-                "Found %d %s IDs (eg %s) that are not present in the index"
+                "Found %d %s IDs (eg '%s') that are not present in the index"
                 % (num_missing, ftype, bad_ids[0])
             )
 

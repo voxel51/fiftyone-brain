@@ -284,13 +284,13 @@ def add_ids(
     ids_map = {_id: _i for _i, _id in enumerate(index_ids)}
     new_idx = len(index_ids)
     for _i, _id in enumerate(ids):
-        ii.append(_i)
-
         _idx = ids_map.get(_id, None)
         if _idx is None:
+            ii.append(_i)
             jj.append(new_idx)
             new_idx += 1
         elif overwrite:
+            ii.append(_i)
             jj.append(_idx)
 
     ii = np.array(ii)
@@ -305,8 +305,8 @@ def add_ids(
         if num_existing > 0:
             if warn_existing:
                 logger.warning(
-                    "Ignoring %d IDs (eg %s) that are already present in the "
-                    "index",
+                    "Ignoring %d IDs (eg '%s') that are already present in "
+                    "the index",
                     num_existing,
                     ids[ii[0]],
                 )
@@ -315,7 +315,7 @@ def add_ids(
                 jj = np.delete(jj, existing_inds)
             else:
                 raise ValueError(
-                    "Found %d IDs (eg %s) that are already present in the "
+                    "Found %d IDs (eg '%s') that are already present in the "
                     "index" % (num_existing, ids[ii[0]])
                 )
 
@@ -324,7 +324,7 @@ def add_ids(
         if patches_field is not None:
             label_ids = np.array(label_ids)
 
-        m = jj[-1] - n
+        m = jj[-1] - n + 1
 
         if m > 0:
             index_sample_ids = np.concatenate(
@@ -424,13 +424,14 @@ def _find_ids(ids, index_ids, allow_missing, warn_missing, ftype):
     if num_missing > 0:
         if not allow_missing:
             raise ValueError(
-                "Found %d %d IDs (eg %s) that are not present in the index"
+                "Found %d %d IDs (eg '%s') that are not present in the index"
                 % (num_missing, ftype, missing_ids[0])
             )
 
         if warn_missing:
             logger.warning(
-                "Ignoring %d %d IDs (eg %s) that are not present in the index",
+                "Ignoring %d %d IDs (eg '%s') that are not present in the "
+                "index",
                 num_missing,
                 ftype,
                 missing_ids[0],
