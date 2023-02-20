@@ -1061,7 +1061,7 @@ class DuplicatesMixin(object):
             logger.info("Computing unique samples...")
             ids = self.current_sample_ids
 
-        unique_ids, thresh = self._remove_duplicates_count(count, len(ids))
+        unique_ids, thresh = self._remove_duplicates_count(count, ids)
 
         _unique_ids = set(unique_ids)
         duplicate_ids = [_id for _id in ids if _id not in _unique_ids]

@@ -145,6 +145,10 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         DuplicatesMixin.__init__(self)
 
     @property
+    def embeddings(self):
+        return self._embeddings
+
+    @property
     def sample_ids(self):
         return self._sample_ids
 
@@ -325,14 +329,8 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
     def attributes(self):
         attrs = super().attributes()
 
-        if self.config.embeddings_field is not None:
-            # This index loads embeddings from `embeddings_field` rather than
-            # storing them in gridFS
-            attrs = [
-                attr
-                for attr in attrs
-                if attr not in ("embeddings", "sample_ids", "label_ids")
-            ]
+        if self.config.embeddings_field is None:
+            attrs.extend(["embeddings", "sample_ids", "label_ids"])
 
         return attrs
 
