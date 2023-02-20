@@ -556,10 +556,7 @@ def get_embeddings(
     skip_failures=True,
 ):
     if model is None and embeddings_field is None and embeddings is None:
-        raise ValueError(
-            "One of `model`, `embeddings_field`, or `embeddings` must be "
-            "provided"
-        )
+        return _empty_embeddings(patches_field)
 
     if model is not None:
         if etau.is_str(model):
@@ -604,14 +601,7 @@ def get_embeddings(
         )
 
     if not isinstance(embeddings, np.ndarray) and not embeddings:
-        embeddings = np.empty((0, 0), dtype=float)
-        sample_ids = np.array([], dtype="<U24")
-        if patches_field is not None:
-            label_ids = np.array([], dtype="<U24")
-        else:
-            label_ids = None
-
-        return embeddings, sample_ids, label_ids
+        return _empty_embeddings(patches_field)
 
     if patches_field is not None:
         if agg_fcn is not None:
@@ -632,6 +622,18 @@ def get_embeddings(
         handle_missing=handle_missing,
         ref_sample_ids=ref_sample_ids,
     )
+
+    return embeddings, sample_ids, label_ids
+
+
+def _empty_embeddings(patches_field):
+    embeddings = np.empty((0, 0), dtype=float)
+    sample_ids = np.array([], dtype="<U24")
+
+    if patches_field is not None:
+        label_ids = np.array([], dtype="<U24")
+    else:
+        label_ids = None
 
     return embeddings, sample_ids, label_ids
 

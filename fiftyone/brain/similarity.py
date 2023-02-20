@@ -105,6 +105,9 @@ def compute_similarity(
             num_workers=num_workers,
             skip_failures=skip_failures,
         )
+    elif embeddings is False:
+        # Special syntax to allow embeddings to be added later
+        embeddings = None
     else:
         sample_ids, label_ids = fbu.get_ids(
             samples,
@@ -115,7 +118,9 @@ def compute_similarity(
 
     results = brain_method.initialize(samples)
 
-    results.add_to_index(embeddings, sample_ids, label_ids=label_ids)
+    if embeddings is not None:
+        results.add_to_index(embeddings, sample_ids, label_ids=label_ids)
+
     brain_method.save_run_results(samples, brain_key, results)
 
     return results
