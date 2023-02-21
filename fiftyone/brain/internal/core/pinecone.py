@@ -156,7 +156,6 @@ class PineconeSimilarityIndex(SimilarityIndex):
                 pod_type=self._pod_type,
                 pods=self._pods,
                 replicas=self._replicas,
-                namespace=self._namespace,
             )
 
     @property
