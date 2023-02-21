@@ -148,6 +148,8 @@ class PineconeSimilarityIndex(SimilarityIndex):
         return pinecone.Index(self._index_name)
 
     def _initialize_index(self):
+        pinecone.init(self._api_key, self._environment)
+
         if self._index_name not in pinecone.list_indexes():
             pinecone.create_index(
                 self._index_name,
