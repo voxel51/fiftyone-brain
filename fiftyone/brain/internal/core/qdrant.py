@@ -51,6 +51,8 @@ class QdrantSimilarityConfig(SimilarityConfig):
         metric="euclidean",
         collection_name="fiftyone-collection",
         dimension=None,
+        replication_factor=1,
+        shard_number=1,
         host='localhost',
         **kwargs,
     ):
@@ -71,6 +73,8 @@ class QdrantSimilarityConfig(SimilarityConfig):
         self.metric = metric
         self.collection_name = collection_name
         self.dimension = dimension
+        self.replication_factor = replication_factor
+        self.shard_number = shard_number
         self.host = host
 
     @property
