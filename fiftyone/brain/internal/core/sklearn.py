@@ -304,9 +304,9 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
             embeddings = self._embeddings.copy()
             sample_ids = self.sample_ids.copy()
             if self.config.patches_field is not None:
-                label_ids = None
-            else:
                 label_ids = self.label_ids.copy()
+            else:
+                label_ids = None
 
         return embeddings, sample_ids, label_ids
 
@@ -571,18 +571,23 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         self, inds, dists, full_index, single_query, return_dists
     ):
         if self.config.patches_field is not None:
-            index_ids = self.current_sample_ids
-        else:
             index_ids = self.current_label_ids
+        else:
+            index_ids = self.current_sample_ids
 
         if full_index:
-            ids = {_id: index_ids[i] for _id, i in zip(index_ids, inds)}
+            ids = {
+                _id: [index_ids[i] for i in _inds]
+                for _id, _inds in zip(index_ids, inds)
+            }
             if return_dists:
-                dists = dict(zip(index_ids, dists))
+                dists = {
+                    _id: list(_dists) for _id, _dists in zip(index_ids, dists)
+                }
         else:
-            ids = [index_ids[i] for i in inds]
+            ids = [[index_ids[i] for i in _inds] for _inds in inds]
             if return_dists:
-                dists = list(dists)
+                dists = [list(d) for d in dists]
 
         if single_query:
             ids = ids[0]

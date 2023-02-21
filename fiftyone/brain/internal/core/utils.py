@@ -254,7 +254,7 @@ def skip_ids(samples, skip_ids, patches_field=None, warn_existing=False):
 
         if num_existing > 0:
             if warn_existing:
-                logger.warning("Skipping %d existing label IDs", num_existing)
+                logger.warning("Skipping %d existing sample IDs", num_existing)
 
         samples = samples.exclude(exclude_ids)
 
