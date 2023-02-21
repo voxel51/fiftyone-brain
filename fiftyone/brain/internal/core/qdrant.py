@@ -28,6 +28,20 @@ _METRICS = {
 
 
 class QdrantSimilarityConfig(SimilarityConfig):
+    """Configuration for the Qdrant similarity backend.
+
+    Args:
+        embeddings_field (None): the sample field containing the embeddings,
+            if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or class name of
+            the model that was used to compute embeddings, if one was provided
+        patches_field (None): the sample field defining the patches being
+            analyzed, if any
+        supports_prompts (False): whether this run supports prompt queries
+        collection_name ("fiftyone-collection"): the name of the Qdrant Index to use
+        metric ("euclidean"): the embedding distance metric to use. Supported
+            values are ``("euclidean", "cosine", and "dotproduct")``
+    """
     def __init__(
         self,
         embeddings_field=None,
@@ -37,6 +51,7 @@ class QdrantSimilarityConfig(SimilarityConfig):
         metric="euclidean",
         collection_name="fiftyone-collection",
         dimension=None,
+        host='localhost',
         **kwargs,
     ):
         if metric not in _METRICS:
@@ -56,6 +71,7 @@ class QdrantSimilarityConfig(SimilarityConfig):
         self.metric = metric
         self.collection_name = collection_name
         self.dimension = dimension
+        self.host = host
 
     @property
     def method(self):
