@@ -7,6 +7,8 @@ Qdrant similarity backend.
 """
 import logging
 
+import numpy as np
+
 import fiftyone.core.utils as fou
 from fiftyone.brain.similarity import (
     SimilarityConfig,
@@ -54,6 +56,7 @@ class QdrantSimilarityConfig(SimilarityConfig):
         replication_factor=1,
         shard_number=1,
         host='localhost',
+        # port=6333,
         **kwargs,
     ):
         if metric not in _METRICS:
@@ -76,12 +79,12 @@ class QdrantSimilarityConfig(SimilarityConfig):
         self.replication_factor = replication_factor
         self.shard_number = shard_number
         self.host = host
+        # self.port = port
 
     @property
     def method(self):
         return "qdrant"
 
-    #! TODO: Do we need a maximum here?
     @property
     def max_k(self):
         return None
@@ -130,12 +133,87 @@ class QdrantSimilarityIndex(SimilarityIndex):
         self._collection_name = config.collection_name
         self._replication_factor = config.replication_factor
         self._shard_number = config.shard_number
+        self._host = config.host
+        # self._port = config.port
+
+        self._initialize_index()
+    
+    def _initialize_index(self):
+        self._client = qdrant.QdrantClient(host=self._host)
+        print(self._dimension)
+        print(self._metric)
+
+        self._client.recreate_collection(
+            collection_name=self._collection_name,
+            vectors_config=qmodels.VectorParams(
+                size = self._dimension,
+                distance = self._metric,
+            )
+        )
+
+    def _reload_index(
+        self,
+        scroll_pagination=100
+        ):
+
+        offset = 0
+        self._client = qdrant.QdrantClient(host=self._host)
+        self._fiftyone_ids = []
+
+        while offset is not None:
+            response = self._client.scroll(
+                collection_name=self._collection_name,
+                offset=offset,
+                limit=scroll_pagination,
+                with_payload=True,
+                with_vectors=False,
+            )
+
+            for doc in response[0]:
+                self._fiftyone_ids.append(
+                    self._convert_qdrant_id_to_fiftyone_id(
+                        doc.id
+                        )
+                    )
+
+                # fo_id = doc.payload.get("id")
+                # qdrant_id = doc.id
+                # self._fiftyone_to_qdrant[fo_id] = qdrant_id
+                # self._qdrant_to_fiftyone[qdrant_id] = fo_id
+
+            offset = response[-1]
 
     @property
     def total_index_size(self):
-        return qdrant.count(self._collection_name).count
+        return self._client.count(self._collection_name).count
 
-    #! TODO: Implement this
+    def connect_to_api(self):
+        return self._client
+    
+    def _get_collection(self):
+        return self._client.get_collection(
+            collection_name=self._collection_name
+            )
+
+    def _convert_fiftyone_id_to_qdrant_id(self, fo_id):
+        ### generate UUID
+        return fo_id + '0'*8
+
+    def _convert_fiftyone_ids_to_qdrant_ids(self, fo_ids):
+        return [
+            self._convert_fiftyone_id_to_qdrant_id(fo_id)
+            for fo_id in fo_ids
+        ]
+    
+    def _convert_qdrant_id_to_fiftyone_id(self, qdrant_id):
+        return qdrant_id.replace("-", "")[:-8]
+    
+    def _convert_qdrant_ids_to_fiftyone_ids(self, qdrant_ids):
+        return [
+            self._convert_qdrant_id_to_fiftyone_id(qdrant_id)
+            for qdrant_id in qdrant_ids
+        ]
+
     def add_to_index(
         self,
         embeddings,
@@ -144,11 +222,70 @@ class QdrantSimilarityIndex(SimilarityIndex):
         overwrite=True,
         allow_existing=True,
         warn_existing=False,
-        upsert_pagination=100,
+        upsert_pagination=None,
     ):
-        pass
+        embeddings_list = [arr.tolist() for arr in embeddings]
+        fo_ids = label_ids if label_ids is not None else sample_ids
 
-    #! TODO: Implement this
+        num_vectors = embeddings.shape[0]
+        num_intersection_ids = 0
+
+        if upsert_pagination is not None:
+            num_steps = int(np.ceil(num_vectors / upsert_pagination))
+        else:
+            num_steps = 1
+            upsert_pagination = num_vectors
+
+        ## only scroll through and reload if necessary
+        if warn_existing or not allow_existing or not overwrite:
+            self._reload_index()
+            existing_ids = set(self._fiftyone_ids)
+            new_ids = set(fo_ids)
+            intersection_ids = existing_ids.intersection(new_ids)
+            num_intersection_ids = len(intersection_ids)
+
+        if num_intersection_ids > 0:
+            if not allow_existing:
+                raise ValueError(
+                    "Found %d IDs (eg %s) that already exist in the index"
+                    % (num_intersection_ids, intersection_ids[0])
+                )
+            if warn_existing and overwrite:
+                logger.warning(
+                    "Overwriting %d IDs that already exist in the index",
+                    num_intersection_ids,
+                )
+            if warn_existing and not overwrite:
+                logger.warning(
+                    "Skipping %d IDs that already exist in the index",
+                    num_intersection_ids,
+                )
+
+        for i in range(num_steps):
+            min_ind = upsert_pagination * i
+            max_ind = min(upsert_pagination * (i + 1), num_vectors)
+
+            curr_fo_ids = fo_ids[min_ind:max_ind]
+            curr_embeddings = embeddings_list[min_ind:max_ind]
+
+            if not overwrite:
+                curr_fo_ids, curr_embeddings = list(zip(*[
+                    (fo_id, embedding) 
+                    for fo_id, embedding in zip(curr_fo_ids, curr_embeddings)
+                    if fo_id not in intersection_ids
+                ]))
+                curr_fo_ids = list(curr_fo_ids)
+                curr_embeddings = list(curr_embeddings)
+            
+            qids = self._convert_fiftyone_ids_to_qdrant_ids(curr_fo_ids)
+            self._client.upsert(
+                collection_name=self._collection_name,
+                points=qmodels.Batch(
+                    ids=qids,
+                    vectors=curr_embeddings,
+                )
+            )
+
     def remove_from_index(
         self,
         sample_ids=None,
@@ -156,7 +293,43 @@ class QdrantSimilarityIndex(SimilarityIndex):
         allow_missing=True,
         warn_missing=False,
     ):
-        pass
+        print("Removing from index")
+        fo_ids = label_ids if label_ids is not None else sample_ids
+        print(fo_ids)
+        qids = self._convert_fiftyone_ids_to_qdrant_ids(fo_ids)
+        print(qids)
+
+        if warn_missing or not allow_missing:
+            response = self._client.retrieve(
+                collection_name=self._collection_name,
+                ids=qids,
+                with_vectors=False,
+            )
+            existing_qids = [record.id for record in response]
+            existing_fo_ids = self._convert_qdrant_ids_to_fiftyone_ids(
+                existing_qids
+            )
+
+            missing_ids = list(set(fo_ids).difference(set(existing_fo_ids)))
+            num_missing_ids = len(missing_ids)
+            if num_missing_ids > 0:
+                if not allow_missing:
+                    raise ValueError(
+                        "Found %d IDs (eg %s) that do not exist in the index"
+                        % (num_missing_ids, missing_ids[0])
+                    )
+                if warn_missing and not allow_missing:
+                    logger.warning(
+                        "Skipping %d IDs that do not exist in the index",
+                        num_missing_ids,
+                    )
+        self._client.delete(
+            collection_name=self._collection_name,
+            points_selector=qmodels.PointIdsList(
+                points=qids,
+            )
+        )
+
 
     #! TODO: Implement this
     def _kneighbors(
