@@ -360,15 +360,15 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         if dists is not None:
             # Use pre-computed distances
             if query_inds is not None:
-                _dists = dists[:, query_inds]
-                _cols = range(len(query_inds))
+                _dists = dists[query_inds, :]
+                _rows = range(len(query_inds))
             else:
                 _dists = dists
-                _cols = range(dists.shape[1])
+                _rows = range(dists.shape[0])
 
-            inds = np.argmin(_dists, axis=0)
+            inds = np.argmin(_dists, axis=1)
             if return_dists:
-                dists = _dists[inds, _cols]
+                dists = _dists[_rows, inds]
             else:
                 dists = None
         else:
@@ -387,8 +387,15 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         )
 
     def _radius_neighbors(self, query=None, thresh=None, return_dists=False):
-        query, _, full_index, single_query = self._parse_neighbors_query(query)
-        neighbors, _ = self._get_neighbors(can_use_dists=False)
+        (
+            query,
+            query_inds,
+            full_index,
+            single_query,
+        ) = self._parse_neighbors_query(query)
+
+        can_use_dists = full_index or query_inds is not None
+        neighbors, dists = self._get_neighbors(can_use_dists=can_use_dists)
 
         # When not using brute force, we approximate cosine distance by
         # computing Euclidean distance on unit-norm embeddings.
@@ -396,15 +403,28 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         if getattr(neighbors, _COSINE_HACK_ATTR, False):
             thresh = np.sqrt(2.0 * thresh)
 
-        if return_dists:
-            dists, inds = neighbors.radius_neighbors(
-                X=query, radius=thresh, return_distance=True
-            )
+        if dists is not None:
+            # Use pre-computed distances
+            if query_inds is not None:
+                _dists = dists[query_inds, :]
+            else:
+                _dists = dists
+
+            inds = [np.nonzero(d <= thresh)[0] for d in _dists]
+            if return_dists:
+                dists = [d[i] for i, d in zip(inds, _dists)]
+            else:
+                dists = None
         else:
-            dists = None
-            inds = neighbors.radius_neighbors(
-                X=query, radius=thresh, return_distance=False
-            )
+            if return_dists:
+                dists, inds = neighbors.radius_neighbors(
+                    X=query, radius=thresh, return_distance=True
+                )
+            else:
+                dists = None
+                inds = neighbors.radius_neighbors(
+                    X=query, radius=thresh, return_distance=False
+                )
 
         return self._format_output(
             inds, dists, full_index, single_query, return_dists
@@ -436,7 +456,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
 
         if dists is not None:
             # Use pre-computed distances
-            dists = dists[:, query_inds]
+            dists = dists[query_inds, :]
         else:
             keep_inds = self._current_inds
             index_embeddings = self._embeddings
@@ -447,15 +467,15 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
                 query = index_embeddings
 
             dists = skm.pairwise_distances(
-                index_embeddings, query, metric=self.config.metric
+                query, index_embeddings, metric=self.config.metric
             )
 
         # Post-aggregation
         if aggregation is not None:
             agg_fcn = _AGGREGATIONS[aggregation]
-            dists = agg_fcn(dists, axis=1)
+            dists = agg_fcn(dists, axis=0)
         else:
-            dists = dists[:, 0]
+            dists = dists[0, :]
 
         inds = np.argsort(dists)
         if reverse:
