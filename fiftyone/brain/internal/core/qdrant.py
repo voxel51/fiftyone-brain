@@ -60,7 +60,7 @@ class QdrantSimilarityConfig(SimilarityConfig):
         replication_factor=1,
         shard_number=1,
         host='localhost',
-        # port=6333,
+        port=6333,
         **kwargs,
     ):
         if metric not in _METRICS:
@@ -83,7 +83,7 @@ class QdrantSimilarityConfig(SimilarityConfig):
         self.replication_factor = replication_factor
         self.shard_number = shard_number
         self.host = host
-        # self.port = port
+        self.port = port
 
     @property
     def method(self):
@@ -136,7 +136,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
         self._replication_factor = config.replication_factor
         self._shard_number = config.shard_number
         self._host = config.host
-        # self._port = config.port
+        self._port = config.port
 
         self._initialize_index(config)
     
@@ -149,7 +149,9 @@ class QdrantSimilarityIndex(SimilarityIndex):
                 vectors_config=qmodels.VectorParams(
                     size = config.dimension,
                     distance = self._metric,
-                )
+                ),
+                shard_number=self._shard_number,
+                replication_factor=self._replication_factor,
             )
 
     def _reload_index(
