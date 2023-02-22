@@ -59,6 +59,10 @@ class QdrantSimilarityConfig(SimilarityConfig):
         dimension=None,
         replication_factor=1,
         shard_number=1,
+        write_consistency_factor=None,
+        hnsw_config=None,
+        optimizers_config=None,
+        wal_config=None,
         host='localhost',
         port=6333,
         **kwargs,
@@ -82,6 +86,10 @@ class QdrantSimilarityConfig(SimilarityConfig):
         self.dimension = dimension
         self.replication_factor = replication_factor
         self.shard_number = shard_number
+        self.write_consistency_factor = write_consistency_factor
+        self.hnsw_config = hnsw_config
+        self.optimizers_config = optimizers_config
+        self.wal_config = wal_config
         self.host = host
         self.port = port
 
@@ -135,24 +143,66 @@ class QdrantSimilarityIndex(SimilarityIndex):
         self._collection_name = config.collection_name
         self._replication_factor = config.replication_factor
         self._shard_number = config.shard_number
+        self._write_consistency_factor = config.write_consistency_factor
         self._host = config.host
         self._port = config.port
 
         self._initialize_index(config)
+
+    def _construct_hnsw_config(self, config):
+        chc = config.hnsw_config
+        self._hnsw_config = qmodels.HnswConfig(
+            m=chc["m"],
+            ef_construct=chc["ef_construct"],
+            full_scan_threshold=chc["full_scan_threshold"],
+            max_indexing_threads=chc["max_indexing_threads"],
+            on_disk=chc["on_disk"],
+            payload_m=chc["payload_m"],
+        )
+    
+    def _construct_optimizers_config(self, config):
+        coc = config.optimizers_config
+        self._optimizers_config = qmodels.OptimizersConfig(
+            deleted_threshold=coc["deleted_threshold"],
+            vacuum_min_vector_number=coc["vacuum_min_vector_number"],
+            default_segment_number=coc["default_segment_number"],
+            max_segment_size=coc["max_segment_size"],
+            memmap_threshold=coc["memmap_threshold"],
+            indexing_threshold=coc["indexing_threshold"],
+            flush_interval_sec=coc["flush_interval_sec"],
+            max_optimization_threads=coc["max_optimization_threads"],
+        )
+
+    def _construct_wal_config(self, config):
+        cwc = config.wal_config
+        self._wal_config = qmodels.WalConfig(
+            wal_capacity_mb=cwc["wal_capacity_mb"],
+            wal_segments_ahead=cwc["wal_segments_ahead"],
+        )
+    
+    def _create_collection(self, size):
+        self._client.recreate_collection(
+            collection_name=self._collection_name,
+            vectors_config=qmodels.VectorParams(
+                size = size,
+                distance = self._metric,
+            ),
+            shard_number=self._shard_number,
+            replication_factor=self._replication_factor,
+            hnsw_config=self._hnsw_config,
+            optimizers_config=self._optimizers_config,
+            wal_config=self._wal_config,
+        )
+
     
     def _initialize_index(self, config):
         self._client = qdrant.QdrantClient(host=self._host)
+        self._construct_hnsw_config(config)
+        self._construct_optimizers_config(config)
+        self._construct_wal_config(config)
         
         if config.dimension is not None:
-            self._client.recreate_collection(
-                collection_name=self._collection_name,
-                vectors_config=qmodels.VectorParams(
-                    size = config.dimension,
-                    distance = self._metric,
-                ),
-                shard_number=self._shard_number,
-                replication_factor=self._replication_factor,
-            )
+            self._create_collection(config.dimension)
 
     def _reload_index(
         self,
@@ -226,13 +276,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
         collection_names = [c.name for c in collections]
         if self._collection_name not in collection_names:
             size = embeddings.shape[1]
-            self._client.recreate_collection(
-                collection_name=self._collection_name,
-                vectors_config=qmodels.VectorParams(
-                    size = size,
-                    distance = self._metric,
-                )
-            )
+            self._create_collection(size)
 
         embeddings_list = [arr.tolist() for arr in embeddings]
         fo_ids = label_ids if label_ids is not None else sample_ids
