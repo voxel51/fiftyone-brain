@@ -9,6 +9,8 @@ import logging
 
 import numpy as np
 
+import eta.core.utils as etau
+
 import fiftyone.core.utils as fou
 from fiftyone.brain.similarity import (
     SimilarityConfig,
@@ -89,10 +91,9 @@ class QdrantSimilarityConfig(SimilarityConfig):
     def max_k(self):
         return None
 
-    #! TODO: Implement this with -1 recommendation API
     @property
     def supports_least_similarity(self):
-        return True
+        return False
 
     @property
     def supported_aggregations(self):
@@ -140,8 +141,6 @@ class QdrantSimilarityIndex(SimilarityIndex):
     
     def _initialize_index(self):
         self._client = qdrant.QdrantClient(host=self._host)
-        print(self._dimension)
-        print(self._metric)
 
         self._client.recreate_collection(
             collection_name=self._collection_name,
@@ -175,11 +174,6 @@ class QdrantSimilarityIndex(SimilarityIndex):
                         doc.id
                         )
                     )
-
-                # fo_id = doc.payload.get("id")
-                # qdrant_id = doc.id
-                # self._fiftyone_to_qdrant[fo_id] = qdrant_id
-                # self._qdrant_to_fiftyone[qdrant_id] = fo_id
 
             offset = response[-1]
 
@@ -286,6 +280,18 @@ class QdrantSimilarityIndex(SimilarityIndex):
                 )
             )
 
+    def _retrieve_points(
+        self,
+        qids,
+        with_vectors=True,
+    ):
+        response = self._client.retrieve(
+            collection_name=self._collection_name,
+            ids=qids,
+            with_vectors=with_vectors,
+        )
+        return response
+
     def remove_from_index(
         self,
         sample_ids=None,
@@ -293,18 +299,15 @@ class QdrantSimilarityIndex(SimilarityIndex):
         allow_missing=True,
         warn_missing=False,
     ):
-        print("Removing from index")
         fo_ids = label_ids if label_ids is not None else sample_ids
-        print(fo_ids)
         qids = self._convert_fiftyone_ids_to_qdrant_ids(fo_ids)
-        print(qids)
 
         if warn_missing or not allow_missing:
-            response = self._client.retrieve(
-                collection_name=self._collection_name,
-                ids=qids,
+            response = self._retrieve_points(
+                qids,
                 with_vectors=False,
             )
+
             existing_qids = [record.id for record in response]
             existing_fo_ids = self._convert_qdrant_ids_to_fiftyone_ids(
                 existing_qids
@@ -330,8 +333,26 @@ class QdrantSimilarityIndex(SimilarityIndex):
             )
         )
 
+    def _parse_query(self, query):
+        fo_query_ids = None
 
-    #! TODO: Implement this
+        if etau.is_str(query):
+            fo_query_ids = [query]
+        else:
+            if etau.is_container(query) and type(query[0]) in (str, np.str_):
+                fo_query_ids = query
+        
+        if fo_query_ids is not None:
+            query_ids = self._convert_fiftyone_ids_to_qdrant_ids(fo_query_ids)
+            response = self._retrieve_points(
+                query_ids,
+                with_vectors=True
+            )
+            query = [record.vector for record in response]
+
+        query = np.asarray(query)
+        return query
+        
     def _kneighbors(
         self,
         query=None,
@@ -340,8 +361,52 @@ class QdrantSimilarityIndex(SimilarityIndex):
         aggregation=None,
         return_dists=False,
     ):
-        pass
+        if reverse == True:
+            raise ValueError(
+                "Qdrant does not support least similarity queries"
+            )
+        
+        if k is None:
+            raise ValueError("k required for querying with Qdrant backend")
 
+        if aggregation not in (None, "mean"):
+            raise ValueError("Unsupported aggregation '%s'" % aggregation)
+        
+        if self.config.patches_field is not None:
+            fo_ids = self.current_label_ids
+        else:
+            fo_ids = self.current_sample_ids
+
+        qids = self._convert_fiftyone_ids_to_qdrant_ids(fo_ids)
+        _filter=qmodels.Filter(must=[qmodels.HasIdCondition(has_id=qids)]),
+
+        query = self._parse_query(query)
+        if aggregation == "mean" and query.ndim == 2:
+            query = query.mean(axis=0)
+        
+        # search_results = self._client.search(
+        #     collection_name=self._collection_name,
+        #     query_vector=query,
+        #     with_payload=False,
+        #     limit=k,
+        #     query_filter=_filter
+        # )
+        search_results = self._client.search(
+            collection_name=self._collection_name,
+            query_vector=query,
+            with_payload=False,
+            limit=k,
+        )
+
+        ids = self._convert_qdrant_ids_to_fiftyone_ids(
+            [res.id for res in search_results]
+        )
+        if return_dists:
+            dists = [res.score for res in search_results]
+            return ids, dists
+        else:
+            return ids
+        
     @classmethod
     def _from_dict(cls, d, samples, config):
         return cls(samples, config)
