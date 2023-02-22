@@ -18,6 +18,8 @@ from fiftyone.brain.similarity import (
     SimilarityIndex,
 )
 
+fbu = fou.lazy_import("fiftyone.brain.internal.core.utils")
+
 qdrant = fou.lazy_import("qdrant_client")
 qmodels = fou.lazy_import("qdrant_client.http.models")
 
@@ -130,25 +132,25 @@ class QdrantSimilarityIndex(SimilarityIndex):
         super().__init__(samples, config, backend=backend)
 
         self._metric = _METRICS[config.metric]
-        self._dimension = config.dimension or 0
         self._collection_name = config.collection_name
         self._replication_factor = config.replication_factor
         self._shard_number = config.shard_number
         self._host = config.host
         # self._port = config.port
 
-        self._initialize_index()
+        self._initialize_index(config)
     
-    def _initialize_index(self):
+    def _initialize_index(self, config):
         self._client = qdrant.QdrantClient(host=self._host)
-
-        self._client.recreate_collection(
-            collection_name=self._collection_name,
-            vectors_config=qmodels.VectorParams(
-                size = self._dimension,
-                distance = self._metric,
+        
+        if config.dimension is not None:
+            self._client.recreate_collection(
+                collection_name=self._collection_name,
+                vectors_config=qmodels.VectorParams(
+                    size = config.dimension,
+                    distance = self._metric,
+                )
             )
-        )
 
     def _reload_index(
         self,
@@ -218,6 +220,18 @@ class QdrantSimilarityIndex(SimilarityIndex):
         warn_existing=False,
         upsert_pagination=None,
     ):
+        collections = self._client.get_collections().collections
+        collection_names = [c.name for c in collections]
+        if self._collection_name not in collection_names:
+            size = embeddings.shape[1]
+            self._client.recreate_collection(
+                collection_name=self._collection_name,
+                vectors_config=qmodels.VectorParams(
+                    size = size,
+                    distance = self._metric,
+                )
+            )
+
         embeddings_list = [arr.tolist() for arr in embeddings]
         fo_ids = label_ids if label_ids is not None else sample_ids
 
