@@ -384,13 +384,6 @@ class QdrantSimilarityIndex(SimilarityIndex):
         if aggregation == "mean" and query.ndim == 2:
             query = query.mean(axis=0)
         
-        # search_results = self._client.search(
-        #     collection_name=self._collection_name,
-        #     query_vector=query,
-        #     with_payload=False,
-        #     limit=k,
-        #     query_filter=_filter
-        # )
         search_results = self._client.search(
             collection_name=self._collection_name,
             query_vector=query,
