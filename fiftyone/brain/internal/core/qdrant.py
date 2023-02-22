@@ -443,7 +443,6 @@ class QdrantSimilarityIndex(SimilarityIndex):
         else:
             fo_query_ids = label_ids if label_ids is not None else sample_ids
             qdrant_query_ids = self._convert_fiftyone_ids_to_qdrant_ids(fo_query_ids)
-            print(qdrant_query_ids)
 
             response = self._retrieve_points(
                 qdrant_query_ids,
