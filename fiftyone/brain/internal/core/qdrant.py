@@ -527,7 +527,6 @@ class QdrantSimilarityIndex(SimilarityIndex):
             fo_ids = self.current_sample_ids
 
         qids = self._convert_fiftyone_ids_to_qdrant_ids(fo_ids)
-        _filter=qmodels.Filter(must=[qmodels.HasIdCondition(has_id=qids)]),
 
         query = self._parse_query(query)
         if aggregation == "mean" and query.ndim == 2:
@@ -536,6 +535,9 @@ class QdrantSimilarityIndex(SimilarityIndex):
         search_results = self._client.search(
             collection_name=self._collection_name,
             query_vector=query,
+            query_filter=qmodels.Filter(
+                must=[qmodels.HasIdCondition(has_id=qids)]
+                ),
             with_payload=False,
             limit=k,
         )
