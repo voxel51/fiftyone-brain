@@ -79,9 +79,19 @@ class PineconeSimilarityConfig(SimilarityConfig):
         self.pod_type = pod_type
         self.pods = pods
         self.replicas = replicas
-        self.api_key = api_key
         self.environment = environment
         self.namespace = namespace
+
+        # store privately so not serialized
+        self._api_key = api_key
+
+    @property
+    def api_key(self):
+        return self._api_key
+
+    @api_key.setter
+    def api_key(self, value):
+        self._api_key = value
 
     @property
     def method(self):
@@ -140,6 +150,19 @@ class PineconeSimilarityIndex(SimilarityIndex):
         self._namespace = config.namespace
 
         self._initialize_index()
+    
+    def load_credentials(
+        self, api_key=None
+    ):
+        """Load the Pinecone credentials from the given keyword arguments or the
+        FiftyOne Brain similarity config.
+
+        Args:
+            api_key (None): the api_key for accessing the Pinecone index
+        """
+        self._load_config_parameters(api_key=api_key)
+
+    
 
     def _get_index(self):
         # @todo shouldn't we be able to avoid calling this every time?
