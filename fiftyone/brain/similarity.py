@@ -298,6 +298,26 @@ class SimilarityIndex(fob.BrainResults):
         """The :class:`SimilarityConfig` for these results."""
         return self._config
 
+    def load_credentials(self, **kwargs):
+        """Loads any credentials from the given keyword arguments or the
+        FiftyOne similarity config.
+
+        Args:
+            **kwargs: subclass-specific credentials
+        """
+        raise NotImplementedError("subclass must implement load_credentials()")
+
+    def _load_config_parameters(self, **kwargs):
+        config = self.config
+        parameters = fb.brain_config.similarity_backends.get(config.name, {})
+
+        for name, value in kwargs.items():
+            if value is None:
+                value = parameters.get(name, None)
+
+            if value is not None:
+                setattr(config, name, value)
+
     @property
     def sample_ids(self):
         """The sample IDs of the full index, or ``None`` if not supported."""
