@@ -162,16 +162,8 @@ class PineconeSimilarityIndex(SimilarityIndex):
         """
         self._load_config_parameters(api_key=api_key)
 
-    
-
-    def _get_index(self):
-        # @todo shouldn't we be able to avoid calling this every time?
-        pinecone.init(self._api_key, self._environment)
-
-        return pinecone.Index(self._index_name)
-
     def _initialize_index(self):
-        pinecone.init(self._api_key, self._environment)
+        pinecone.init(api_key=self._api_key, environment=self._environment)
 
         if self._index_name not in pinecone.list_indexes():
             pinecone.create_index(
@@ -182,15 +174,16 @@ class PineconeSimilarityIndex(SimilarityIndex):
                 pods=self._pods,
                 replicas=self._replicas,
             )
+        self._index = pinecone.Index(self._index_name)
 
     @property
     def index(self):
         """The ``pinecone.Index`` instance for this index."""
-        return self._get_index()
+        return self._index
 
     @property
     def total_index_size(self):
-        index_stats = self._get_index().describe_index_stats()
+        index_stats = self.index.describe_index_stats()
         return index_stats["total_vector_count"]
 
     def add_to_index(
@@ -218,7 +211,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
         num_vectors = embeddings.shape[0]
         num_steps = int(np.ceil(num_vectors / upsert_pagination))
 
-        index = self._get_index()
+        index = self.index
         num_existing_ids = 0
 
         for i in range(num_steps):
@@ -266,7 +259,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
         allow_missing=True,
         warn_missing=False,
     ):
-        index = self._get_index()
+        index = self.index
 
         if label_ids is not None:
             ids_to_remove = label_ids
@@ -315,7 +308,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
         if aggregation not in (None, "mean"):
             raise ValueError("Unsupported aggregation '%s'" % aggregation)
 
-        index = self._get_index()
+        index = self.index
 
         query = self._parse_neighbors_query(query, index)
         if aggregation == "mean" and query.ndim == 2:
