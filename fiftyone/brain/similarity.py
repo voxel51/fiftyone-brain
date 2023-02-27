@@ -797,8 +797,9 @@ class SimilarityIndex(fob.BrainResults):
                     provided
                 -   a list of lists of nearest neighbor IDs, when multiple
                     query IDs/vectors and no ``aggregation`` is provided
-                -   a dict mapping IDs to lists of nearest neighbor IDs for
-                    every vector in the index, when no query is provided
+                -   a list of arrays of the **integer indexes** (not IDs) of
+                    nearest neighbor points for every vector in the index, when
+                    no query is provided
 
             and ``dists`` contains the corresponding query-neighbor distances
             for each result in ``ids``
@@ -980,8 +981,9 @@ class DuplicatesMixin(object):
                     vector is provided
                 -   a list of lists of nearest neighbor IDs, when multiple
                     query IDs/vectors is provided
-                -   a dict mapping IDs to lists of nearest neighbor IDs for
-                    every vector in the index, when no query is provided
+                -   a list of arrays of the **integer indexes** (not IDs) of
+                    nearest neighbor points for every vector in the index, when
+                    no query is provided
 
             and ``dists`` contains the corresponding query-neighbor distances
             for each result in ``ids``
@@ -1151,15 +1153,15 @@ class DuplicatesMixin(object):
         return keep_ids, thresh
 
     def _remove_duplicates_thresh(self, thresh, ids):
-        nearest_ids = self._radius_neighbors(thresh=thresh)
+        nearest_inds = self._radius_neighbors(thresh=thresh)
 
-        ids_map = {_id: i for i, _id in enumerate(ids)}
-        keep_ids = set(ids)
-        for ind, _id in enumerate(ids):
-            if _id in keep_ids:
-                keep_ids -= {i for i in nearest_ids[_id] if ids_map[i] > ind}
+        n = len(ids)
+        keep = set(range(n))
+        for ind in range(n):
+            if ind in keep:
+                keep -= {i for i in nearest_inds[ind] if i > ind}
 
-        return keep_ids
+        return {ids[i] for i in keep}
 
     def plot_distances(self, bins=100, log=False, backend="plotly", **kwargs):
         """Plots a histogram of the distance between each example and its
@@ -1276,7 +1278,7 @@ class DuplicatesMixin(object):
             ids.append(_id)
             types[_id] = "nearest"
             nearest_ids[_id] = _id
-            dists[_id] = 0
+            dists[_id] = 0.0
 
             for dup_id, dist in duplicates:
                 ids.append(dup_id)

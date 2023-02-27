@@ -590,34 +590,24 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
     def _format_output(
         self, inds, dists, full_index, single_query, return_dists
     ):
+        if full_index:
+            return (inds, dists) if return_dists else inds
+
         if self.config.patches_field is not None:
             index_ids = self.current_label_ids
         else:
             index_ids = self.current_sample_ids
 
-        if full_index:
-            ids = {
-                _id: [index_ids[i] for i in _inds]
-                for _id, _inds in zip(index_ids, inds)
-            }
-            if return_dists:
-                dists = {
-                    _id: list(_dists) for _id, _dists in zip(index_ids, dists)
-                }
-        else:
-            ids = [[index_ids[i] for i in _inds] for _inds in inds]
-            if return_dists:
-                dists = [list(d) for d in dists]
+        ids = [[index_ids[i] for i in _inds] for _inds in inds]
+        if return_dists:
+            dists = [list(d) for d in dists]
 
         if single_query:
             ids = ids[0]
             if return_dists:
                 dists = dists[0]
 
-        if return_dists:
-            return ids, dists
-
-        return ids
+        return (ids, dists) if return_dists else ids
 
     @staticmethod
     def _parse_data(
