@@ -667,6 +667,9 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
 
 
 class NeighborsHelper(object):
+
+    _UNAVAILABLE = "UNAVAILABLE"
+
     def __init__(self, embeddings, metric):
         self.embeddings = embeddings
         self.metric = metric
@@ -687,20 +690,26 @@ class NeighborsHelper(object):
         iokay = self._same_keep_inds(keep_inds)
         nokay = not can_use_neighbors or self._curr_neighbors is not None
         dokay = not can_use_dists or self._curr_dists is not None
+
         if iokay and nokay and dokay:
-            neighbors = self._curr_neighbors if can_use_neighbors else None
-            dists = self._curr_dists if can_use_dists else None
-            return neighbors, dists
+            neighbors = self._curr_neighbors
+            dists = self._curr_dists
+        else:
+            neighbors, dists = self._build(
+                keep_inds=keep_inds,
+                can_use_neighbors=can_use_neighbors,
+                can_use_dists=can_use_dists,
+            )
 
-        neighbors, dists = self._build(
-            keep_inds=keep_inds,
-            can_use_neighbors=can_use_neighbors,
-            can_use_dists=can_use_dists,
-        )
+            self._curr_keep_inds = keep_inds
+            self._curr_dists = dists
+            self._curr_neighbors = neighbors
 
-        self._curr_keep_inds = keep_inds
-        self._curr_dists = dists
-        self._curr_neighbors = neighbors
+        if neighbors is self._UNAVAILABLE:
+            neighbors = None
+
+        if dists is self._UNAVAILABLE:
+            dists = None
 
         return neighbors, dists
 
@@ -729,16 +738,19 @@ class NeighborsHelper(object):
             ):
                 dists = self._build_dists(self.embeddings[keep_inds])
             else:
-                dists = None
+                dists = self._UNAVAILABLE
         else:
             dists = None
 
-        if can_use_neighbors and dists is None:
-            embeddings = self.embeddings
-            if keep_inds is not None:
-                embeddings = embeddings[keep_inds]
+        if can_use_neighbors:
+            if not isinstance(dists, np.ndarray):
+                embeddings = self.embeddings
+                if keep_inds is not None:
+                    embeddings = embeddings[keep_inds]
 
-            neighbors = self._build_neighbors(embeddings)
+                neighbors = self._build_neighbors(embeddings)
+            else:
+                neighbors = self._UNAVAILABLE
         else:
             neighbors = None
 
