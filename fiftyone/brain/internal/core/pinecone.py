@@ -161,20 +161,26 @@ class PineconeSimilarityIndex(SimilarityIndex):
             api_key (None): the api_key for accessing the Pinecone index
         """
         self._load_config_parameters(api_key=api_key)
+    
+    def _create_index(self, dimension):
+        pinecone.create_index(
+            self._index_name,
+            dimension=dimension,
+            metric=self._metric,
+            pod_type=self._pod_type,
+            pods=self._pods,
+            replicas=self._replicas,
+        )
 
     def _initialize_index(self):
         pinecone.init(api_key=self._api_key, environment=self._environment)
 
-        if self._index_name not in pinecone.list_indexes():
-            pinecone.create_index(
-                self._index_name,
-                dimension=self._dimension,
-                metric=self._metric,
-                pod_type=self._pod_type,
-                pods=self._pods,
-                replicas=self._replicas,
-            )
-        self._index = pinecone.Index(self._index_name)
+        if self.config.dimension is not None:
+            if self._index_name not in pinecone.list_indexes():
+                self._create_index(self.config.dimension)
+            self._index = pinecone.Index(self._index_name)
+        else:
+            self._index = None
 
     @property
     def index(self):
@@ -197,6 +203,13 @@ class PineconeSimilarityIndex(SimilarityIndex):
         upsert_pagination=100,
         namespace=None,
     ):
+        
+        if self._index_name not in pinecone.list_indexes():
+            dimension = embeddings.shape[1]
+            self._create_index(dimension)
+        if self.index is None:
+            self._index = pinecone.Index(self._index_name)
+
         embeddings_list = [arr.tolist() for arr in embeddings]
         if label_ids is not None:
             id_dicts = [
@@ -209,7 +222,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
             index_vectors = list(zip(sample_ids, embeddings_list, id_dicts))
 
         num_vectors = embeddings.shape[0]
-        num_steps = int(np.ceil(num_vectors / upsert_pagination))
+        num_steps = np.ceil(num_vectors / upsert_pagination).astype(int)
 
         index = self.index
         num_existing_ids = 0
@@ -286,6 +299,210 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
         index.delete(ids=ids_to_remove)
 
+    def _get_sample_embeddings(
+        self,
+        sample_ids,
+        batch_size=1000,
+        allow_missing=True,
+        warn_missing=False
+    ):
+        found_sample_ids, found_embeddings = [], []
+        found_label_ids = None
+        index = self.index
+
+        missing_ids = []
+
+        num_sample_ids = len(sample_ids)
+        num_batches = np.ceil(num_sample_ids / batch_size).astype(int)
+
+        for batch in range(num_batches):
+            min_ind = batch * batch_size
+            max_ind = min((batch + 1) * batch_size, num_sample_ids)
+            batch_ids = sample_ids[min_ind:max_ind]
+
+            response = index.fetch(ids = batch_ids)['vectors']
+            curr_found_ids = list(response.keys())
+            curr_missing_ids = list(
+                set(batch_ids).difference(curr_found_ids)
+            )
+            missing_ids.append(curr_missing_ids)
+
+            curr_found_embeddings = [
+                response[k]['values'] for k in curr_found_ids
+                ]
+            
+            found_sample_ids.append(curr_found_ids)
+            found_embeddings.append(curr_found_embeddings)
+        
+        num_missing_ids = len(missing_ids)
+        if num_missing_ids > 0:
+            if not allow_missing:
+                raise ValueError(
+                    "Found %d IDs (eg %s) that do not exist in the index"
+                    % (num_missing_ids, missing_ids[0])
+                )
+            
+            if warn_missing:
+                logger.warning(
+                    "Skipping %d IDs that do not exist in the index",
+                    num_missing_ids,
+                )
+
+        return found_embeddings, found_sample_ids, found_label_ids
+
+
+    def _get_patch_embeddings_from_label_ids(
+        self,
+        label_ids,
+        batch_size=1000,
+        allow_missing=True,
+        warn_missing=False
+    ):
+        found_sample_ids, found_label_ids, found_embeddings = [], [], []
+        index = self.index
+
+        missing_ids = []
+
+        num_sample_ids = len(label_ids)
+        num_batches = np.ceil(num_sample_ids / batch_size).astype(int)
+
+        for batch in range(num_batches):
+            min_ind = batch * batch_size
+            max_ind = min((batch + 1) * batch_size, num_sample_ids)
+            batch_ids = label_ids[min_ind:max_ind]
+
+            response = index.fetch(ids = batch_ids)['vectors']
+            curr_found_label_ids = list(response.keys())
+            curr_missing_ids = list(
+                set(batch_ids).difference(curr_found_label_ids)
+            )
+            missing_ids.append(curr_missing_ids)
+
+            curr_found_embeddings = [
+                response[k]['values'] for k in curr_found_label_ids
+                ]
+
+            curr_found_sample_ids = [
+                response[k]['metadata']['sample_id'] 
+                for k in curr_found_label_ids
+            ]
+            
+            found_label_ids.append(curr_found_label_ids)
+            found_sample_ids.append(curr_found_sample_ids)
+            found_embeddings.append(curr_found_embeddings)
+        
+        num_missing_ids = len(missing_ids)
+        if num_missing_ids > 0:
+            if not allow_missing:
+                raise ValueError(
+                    "Found %d IDs (eg %s) that do not exist in the index"
+                    % (num_missing_ids, missing_ids[0])
+                )
+            
+            if warn_missing:
+                logger.warning(
+                    "Skipping %d IDs that do not exist in the index",
+                    num_missing_ids,
+                )
+
+        return found_embeddings, found_sample_ids, found_label_ids
+
+
+    def _get_patch_embeddings_from_sample_ids(
+        self,
+        sample_ids,
+        batch_size=100,
+        allow_missing=True,
+        warn_missing=False
+    ):
+        
+        found_sample_ids, found_label_ids, found_embeddings = [], [], []
+
+        index = self.index
+        query_vector = [0.] * self.index.describe_index_stats().dimension
+
+        num_sample_ids = len(sample_ids)
+        num_batches = np.ceil(num_sample_ids / batch_size).astype(int)
+
+        for batch in range(num_batches):
+            min_ind = batch * batch_size
+            max_ind = min((batch + 1) * batch_size, num_sample_ids)
+            batch_ids = sample_ids[min_ind:max_ind]
+            _filter = {
+                "sample_id": {
+                    "$in": batch_ids
+                    },
+                }
+            response = index.query(
+                vector = query_vector,
+                filter = _filter,
+                top_k = min(batch_size, self.config.max_k),
+                include_values = True,
+                include_metadata = True
+            )
+
+            for res in response['matches']:
+                found_label_ids.append(res['id'])
+                found_sample_ids.append(res['metadata']['sample_id'])
+                found_embeddings.append(res['values'])
+        
+        missing_ids = list(
+            set(sample_ids).difference(set(found_sample_ids))
+        )
+
+        num_missing_ids = len(missing_ids)
+        if num_missing_ids > 0:
+            if not allow_missing:
+                raise ValueError(
+                    "Found %d IDs (eg %s) that do not exist in the index"
+                    % (num_missing_ids, missing_ids[0])
+                )
+            
+            if warn_missing:
+                logger.warning(
+                    "Skipping %d IDs that do not exist in the index",
+                    num_missing_ids,
+                )
+
+        return found_embeddings, found_sample_ids, found_label_ids
+    
+    def get_embeddings(
+        self, 
+        sample_ids=None, 
+        label_ids=None, 
+        allow_missing=True, 
+        warn_missing=False
+    ):
+        if label_ids is not None:
+            if self.config.patches_field is None:
+                raise ValueError("This index does not support label IDs")
+
+            if sample_ids is not None:
+                logger.warning(
+                    "Ignoring sample IDs when label IDs are provided"
+                )
+        
+        if sample_ids is not None and self.config.patches_field is not None:
+            return self._get_patch_embeddings_from_sample_ids(
+                sample_ids,
+                allow_missing=allow_missing,
+                warn_missing=warn_missing
+            )
+        elif self.config.patches_field is not None:
+            return self._get_patch_embeddings_from_label_ids(
+                label_ids,
+                allow_missing=allow_missing,
+                warn_missing=warn_missing
+            )
+        else:
+            return self._get_sample_embeddings(
+                sample_ids,
+                allow_missing=allow_missing,
+                warn_missing=warn_missing
+            )
+
+        
+
     def _kneighbors(
         self,
         query=None,
@@ -302,7 +519,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
                 "Pinecone does not support least similarity queries"
             )
 
-        if k is None or k > 10000:
+        if k is None or k > self.config.max_k:
             raise ValueError("Pincone requires k <= 10000")
 
         if aggregation not in (None, "mean"):
