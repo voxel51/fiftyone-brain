@@ -191,6 +191,49 @@ class PineconeSimilarityIndex(SimilarityIndex):
     def total_index_size(self):
         index_stats = self.index.describe_index_stats()
         return index_stats["total_vector_count"]
+    
+    @property
+    def index_size(self):
+        if self.config.patches_field is not None:
+            index_ids = self.current_label_ids
+        else:
+            index_ids = self.current_sample_ids
+        
+        index_size = 0
+        batch_size=1000
+        num_ids = len(index_ids)
+        num_batches = np.ceil(num_ids / batch_size).astype(int)
+
+        for batch in range(num_batches):
+            min_ind = batch * batch_size
+            max_ind = min((batch + 1) * batch_size, num_ids)
+            batch_ids = list(index_ids[min_ind:max_ind])
+
+            index_size += len(self.index.fetch(ids = batch_ids)['vectors'])
+        
+        return index_size
+    
+    @property
+    def missing_size(self):
+        if self.config.patches_field is not None:
+            index_ids = self.current_label_ids
+        else:
+            index_ids = self.current_sample_ids
+
+        missing_size = 0
+        batch_size=1000
+        num_ids = len(index_ids)
+        num_batches = np.ceil(num_ids / batch_size).astype(int)
+
+        for batch in range(num_batches):
+            min_ind = batch * batch_size
+            max_ind = min((batch + 1) * batch_size, num_ids)
+            batch_ids = list(index_ids[min_ind:max_ind])
+            num_ids = len(batch_ids)
+            num_ids_found = len(self.index.fetch(ids = batch_ids)['vectors'])
+            missing_size += (num_ids - num_ids_found)
+
+        return missing_size
 
     def add_to_index(
         self,
