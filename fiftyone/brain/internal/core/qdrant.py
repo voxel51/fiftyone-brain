@@ -7,6 +7,7 @@ Qdrant similarity backend.
 """
 import logging
 
+from bson import ObjectId
 import numpy as np
 
 import eta.core.utils as etau
@@ -561,23 +562,50 @@ class QdrantSimilarityIndex(SimilarityIndex):
             )
 
     def _parse_query(self, query):
-        fo_query_ids = None
+        if query is None:
+            raise ValueError("At least one query must be provided")
+
+        if isinstance(query, np.ndarray):
+            # Query by vector(s)
+            if query.size == 0:
+                raise ValueError("At least one query vector must be provided")
+
+            return query
 
         if etau.is_str(query):
-            fo_query_ids = [query]
+            query = [query]
         else:
-            if etau.is_container(query) and type(query[0]) in (str, np.str_):
-                fo_query_ids = query
+            query = list(query)
         
-        if fo_query_ids is not None:
-            query_ids = self._convert_fiftyone_ids_to_qdrant_ids(fo_query_ids)
-            response = self._retrieve_points(
+        if not query:
+            raise ValueError("At least one query must be provided")
+        
+        if etau.is_numeric(query[0]):
+            return np.asarray(query)
+
+        try:
+            ObjectId(query[0])
+            is_prompts = False
+        except:
+            is_prompts = True
+        
+        if is_prompts:
+            if not self.config.supports_prompts:
+                raise ValueError(
+                    "Invalid query '%s'; this model does not support prompts"
+                    % query[0]
+                )
+
+            model = self.get_model()
+            return model.embed_prompts(query)
+        
+        query_ids = self._convert_fiftyone_ids_to_qdrant_ids(query)
+        response = self._retrieve_points(
                 query_ids,
                 with_vectors=True
             )
-            query = [record.vector for record in response]
-
-        query = np.asarray(query)
+        
+        query = np.asarray([record.vector for record in response])
         return query
         
     def _kneighbors(
