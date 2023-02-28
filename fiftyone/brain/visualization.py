@@ -26,11 +26,24 @@ class VisualizationResults(fob.BrainResults):
         points: a ``num_points x num_dims`` array of visualization points
         sample_ids (None): a ``num_points`` array of sample IDs
         label_ids (None): a ``num_points`` array of label IDs, if applicable
+        backend (None): a :class:`Visualization` backend
     """
 
     def __init__(
-        self, samples, config, points, sample_ids=None, label_ids=None
+        self,
+        samples,
+        config,
+        points,
+        sample_ids=None,
+        label_ids=None,
+        backend=None,
     ):
+        if backend is None:
+            backend = config.build()
+
+            # @todo distinguish between build and query-time requirements
+            # backend.ensure_requirements()
+
         if sample_ids is None:
             sample_ids, label_ids = fbu.get_ids(
                 samples,
@@ -41,6 +54,8 @@ class VisualizationResults(fob.BrainResults):
 
         self._samples = samples
         self._config = config
+        self._backend = backend
+
         self.points = points
         self.sample_ids = sample_ids
         self.label_ids = label_ids
