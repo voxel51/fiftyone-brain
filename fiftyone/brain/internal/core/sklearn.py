@@ -433,6 +433,9 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
     def _kneighbors_aggregate(
         self, query, k, reverse, aggregation, return_dists
     ):
+        if query is None:
+            raise ValueError("Full index queries do not support aggregation")
+
         if aggregation not in _AGGREGATIONS:
             raise ValueError(
                 "Unsupported aggregation method '%s'. Supported values are %s"
@@ -448,9 +451,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
 
         # Pre-aggregation
         if aggregation == "mean":
-            if query.ndim == 2:
-                query = query.mean(axis=0)
-
+            query = query.mean(axis=0, keepdims=True)
             query_inds = None
             aggregation = None
 
@@ -462,9 +463,6 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
             index_embeddings = self._embeddings
             if keep_inds is not None:
                 index_embeddings = index_embeddings[keep_inds]
-
-            if query is None:
-                query = index_embeddings
 
             dists = skm.pairwise_distances(
                 query, index_embeddings, metric=self.config.metric
