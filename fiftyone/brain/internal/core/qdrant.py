@@ -44,7 +44,8 @@ class QdrantSimilarityConfig(SimilarityConfig):
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         supports_prompts (False): whether this run supports prompt queries
-        collection_name ("fiftyone-collection"): the name of the Qdrant Index to use
+        collection_name ("fiftyone-collection"): the name of the Qdrant Index to
+            use
         metric ("euclidean"): the embedding distance metric to use. Supported
             values are ``("euclidean", "cosine", and "dotproduct")``
     """
@@ -326,7 +327,9 @@ class QdrantSimilarityIndex(SimilarityIndex):
             if not overwrite:
                 curr_fo_ids, curr_sample_ids, curr_embeddings = list(zip(*[
                     (fo_id, curr_sample_ids, embedding) 
-                    for fo_id, sid, embedding in zip(curr_fo_ids, curr_sample_ids, curr_embeddings)
+                    for fo_id, sid, embedding in zip(
+                        curr_fo_ids, curr_sample_ids, curr_embeddings
+                        )
                     if fo_id not in intersection_ids
                 ]))
                 curr_fo_ids = list(curr_fo_ids)
@@ -400,6 +403,128 @@ class QdrantSimilarityIndex(SimilarityIndex):
             )
         )
 
+    def _get_patch_embeddings_from_sample_ids(
+        self,
+        sample_ids,
+        allow_missing=True,
+        warn_missing=False
+    ):
+        _filter = qmodels.Filter(
+            should = [
+                qmodels.FieldCondition(
+                key="sample_id", 
+                match=qmodels.MatchValue(value=sid)
+                )
+                for sid in sample_ids
+            ]
+        )
+
+        response = self._client.scroll(
+            collection_name=self._collection_name,
+            scroll_filter=_filter,
+            with_vectors=True,
+            with_payload=True,
+        )[0]
+        found_sample_ids = [record.payload["sample_id"] for record in response]
+        found_label_ids = [record.id for record in response]
+        found_embeddings = [record.vector for record in response]
+
+        missing_ids = list(
+            set(sample_ids).difference(set(found_sample_ids))
+        )
+
+        num_missing_ids = len(missing_ids)
+        if num_missing_ids > 0:
+            if not allow_missing:
+                raise ValueError(
+                    "Found %d IDs (eg %s) that do not exist in the index"
+                    % (num_missing_ids, missing_ids[0])
+                )
+            
+            if warn_missing:
+                logger.warning(
+                    "Skipping %d IDs that do not exist in the index",
+                    num_missing_ids,
+                )
+
+        return found_embeddings, found_sample_ids, found_label_ids
+
+    def _get_patch_embeddings_from_label_ids(
+        self,
+        label_ids,
+        allow_missing=True,
+        warn_missing=False
+    ):
+        qdrant_query_ids = self._convert_fiftyone_ids_to_qdrant_ids(label_ids)
+
+        response = self._retrieve_points(
+            qdrant_query_ids,
+            with_vectors=True,
+            with_payload=True
+        )
+
+        found_qids = [record.id for record in response]
+        found_label_ids = self._convert_qdrant_ids_to_fiftyone_ids(found_qids)
+        found_sample_ids = [record.payload["sample_id"] for record in response]
+        found_embeddings = [record.vector for record in response]
+
+        missing_ids = list(
+            set(label_ids).difference(set(found_label_ids))
+        )
+        num_missing_ids = len(missing_ids)
+
+        if num_missing_ids > 0:
+            if not allow_missing:
+                raise ValueError(
+                    "Found %d IDs (eg %s) that do not exist in the index"
+                    % (num_missing_ids, missing_ids[0])
+                )
+            
+            if warn_missing:
+                logger.warning(
+                    "Skipping %d IDs that do not exist in the index",
+                    num_missing_ids,
+                )
+
+        return found_embeddings, found_sample_ids, found_label_ids
+
+    def _get_sample_embeddings(
+        self,
+        sample_ids,
+        allow_missing=True,
+        warn_missing=False
+    ):
+        found_label_ids = []
+
+        qdrant_query_ids = self._convert_fiftyone_ids_to_qdrant_ids(sample_ids)
+        response = self._retrieve_points(
+            qdrant_query_ids,
+            with_vectors=True,
+        )
+        found_qids = [record.id for record in response]
+        found_sample_ids = self._convert_qdrant_ids_to_fiftyone_ids(found_qids)
+        found_embeddings = [record.vector for record in response]
+
+        missing_ids = list(
+            set(sample_ids).difference(set(found_sample_ids))
+        )
+        num_missing_ids = len(missing_ids)
+
+        if num_missing_ids > 0:
+            if not allow_missing:
+                raise ValueError(
+                    "Found %d IDs (eg %s) that do not exist in the index"
+                    % (num_missing_ids, missing_ids[0])
+                )
+            
+            if warn_missing:
+                logger.warning(
+                    "Skipping %d IDs that do not exist in the index",
+                    num_missing_ids,
+                )
+
+        return found_embeddings, found_sample_ids, found_label_ids
+
     def get_embeddings(
         self,
         sample_ids=None,
@@ -415,72 +540,25 @@ class QdrantSimilarityIndex(SimilarityIndex):
                 logger.warning(
                     "Ignoring sample IDs when label IDs are provided"
                 )
-            
+
         if sample_ids is not None and self.config.patches_field is not None:
-            fo_query_ids = sample_ids
-
-            ## need to filter payload
-            _filter = qmodels.Filter(
-                should = [
-                    qmodels.FieldCondition(
-                    key="sample_id", 
-                    match=qmodels.MatchValue(value=sid)
-                    )
-                    for sid in sample_ids
-                ]
+            return self._get_patch_embeddings_from_sample_ids(
+                sample_ids,
+                allow_missing=allow_missing,
+                warn_missing=warn_missing
             )
-
-            response = self._client.scroll(
-                collection_name=self._collection_name,
-                scroll_filter=_filter,
-                with_vectors=True,
-                with_payload=True,
+        elif self.config.patches_field is not None:
+            return self._get_patch_embeddings_from_label_ids(
+                label_ids,
+                allow_missing=allow_missing,
+                warn_missing=warn_missing
             )
-            found_ids = [record.payload["sample_id"] for record in response]
-            found_sample_ids = found_ids
-            found_label_ids = [record.id for record in response]
-
         else:
-            fo_query_ids = label_ids if label_ids is not None else sample_ids
-            qdrant_query_ids = self._convert_fiftyone_ids_to_qdrant_ids(fo_query_ids)
-
-            response = self._retrieve_points(
-                qdrant_query_ids,
-                with_vectors=True,
-                with_payload=True
+            return self._get_sample_embeddings(
+                sample_ids,
+                allow_missing=allow_missing,
+                warn_missing=warn_missing
             )
-
-            found_qids = [record.id for record in response]
-            found_ids = self._convert_qdrant_ids_to_fiftyone_ids(found_qids)
-            if label_ids is not None:
-                found_label_ids = found_ids
-                found_sample_ids = [record.payload["sample_id"] for record in response]
-            else:
-                found_sample_ids = found_ids
-                found_label_ids = None
-
-        found_embeddings = [record.vector for record in response]
-
-        num_found_ids = len(found_sample_ids)
-        num_query_ids = len(fo_query_ids)
-
-        if num_found_ids!= num_query_ids:
-            missing_ids = list(set(fo_query_ids).difference(set(found_ids)))
-            num_missing_ids = len(missing_ids)
-
-            if not allow_missing:
-                raise ValueError(
-                    "Found %d IDs (eg %s) that do not exist in the index"
-                    % (num_missing_ids, missing_ids[0])
-                )
-            if warn_missing:
-                logger.warning(
-                    "Skipping %d IDs that do not exist in the index",
-                    num_missing_ids,
-                )
-        
-        return found_embeddings, found_sample_ids, found_label_ids
-
 
     def _parse_query(self, query):
         fo_query_ids = None
