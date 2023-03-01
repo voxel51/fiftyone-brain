@@ -262,13 +262,7 @@ class SimilarityIndex(fob.BrainResults):
     """
 
     def __init__(self, samples, config, backend=None):
-        if backend is None:
-            backend = config.build()
-            backend.ensure_requirements()
-
-        self._samples = samples
-        self._config = config
-        self._backend = backend
+        super().__init__(samples, config, backend=backend)
 
         self._model = None
         self._curr_view = None

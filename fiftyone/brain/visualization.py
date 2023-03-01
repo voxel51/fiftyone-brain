@@ -38,11 +38,7 @@ class VisualizationResults(fob.BrainResults):
         label_ids=None,
         backend=None,
     ):
-        if backend is None:
-            backend = config.build()
-
-            # @todo distinguish between build and query-time requirements
-            # backend.ensure_requirements()
+        super().__init__(samples, config, backend=backend)
 
         if sample_ids is None:
             sample_ids, label_ids = fbu.get_ids(
@@ -51,10 +47,6 @@ class VisualizationResults(fob.BrainResults):
                 data=points,
                 data_type="points",
             )
-
-        self._samples = samples
-        self._config = config
-        self._backend = backend
 
         self.points = points
         self.sample_ids = sample_ids
