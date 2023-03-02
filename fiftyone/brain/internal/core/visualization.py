@@ -163,12 +163,12 @@ def visualize(
         ids = results.current_sample_ids
 
     if good_inds is not None:
-        if labels is not None and not _is_expr(labels):
+        if etau.is_container(labels) and not _is_expr(labels):
             labels = fbu.filter_values(
                 labels, good_inds, patches_field=patches_field
             )
 
-        if sizes is not None and not _is_expr(sizes):
+        if etau.is_container(sizes) and not _is_expr(sizes):
             sizes = fbu.filter_values(
                 sizes, good_inds, patches_field=patches_field
             )
