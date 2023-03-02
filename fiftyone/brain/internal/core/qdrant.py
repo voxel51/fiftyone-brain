@@ -50,6 +50,7 @@ class QdrantSimilarityConfig(SimilarityConfig):
         metric ("euclidean"): the embedding distance metric to use. Supported
             values are ``("euclidean", "cosine", and "dotproduct")``
     """
+
     def __init__(
         self,
         embeddings_field=None,
@@ -65,7 +66,7 @@ class QdrantSimilarityConfig(SimilarityConfig):
         hnsw_config=None,
         optimizers_config=None,
         wal_config=None,
-        host='localhost',
+        host="localhost",
         port=6333,
         **kwargs,
     ):
@@ -161,7 +162,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
             on_disk=chc["on_disk"],
             payload_m=chc["payload_m"],
         )
-    
+
     def _construct_optimizers_config(self, config):
         coc = config.optimizers_config
         self._optimizers_config = qmodels.OptimizersConfig(
@@ -181,13 +182,13 @@ class QdrantSimilarityIndex(SimilarityIndex):
             wal_capacity_mb=cwc["wal_capacity_mb"],
             wal_segments_ahead=cwc["wal_segments_ahead"],
         )
-    
+
     def _create_collection(self, size):
         self._client.recreate_collection(
             collection_name=self._collection_name,
             vectors_config=qmodels.VectorParams(
-                size = size,
-                distance = self._metric,
+                size=size,
+                distance=self._metric,
             ),
             shard_number=self._shard_number,
             replication_factor=self._replication_factor,
@@ -196,20 +197,16 @@ class QdrantSimilarityIndex(SimilarityIndex):
             wal_config=self._wal_config,
         )
 
-    
     def _initialize_index(self, config):
         self._client = qdrant.QdrantClient(host=self._host)
         self._construct_hnsw_config(config)
         self._construct_optimizers_config(config)
         self._construct_wal_config(config)
-        
+
         if config.dimension is not None:
             self._create_collection(config.dimension)
 
-    def _reload_index(
-        self,
-        scroll_pagination=100
-        ):
+    def _reload_index(self, scroll_pagination=100):
 
         offset = 0
         self._client = qdrant.QdrantClient(host=self._host)
@@ -226,10 +223,8 @@ class QdrantSimilarityIndex(SimilarityIndex):
 
             for doc in response[0]:
                 self._fiftyone_ids.append(
-                    self._convert_qdrant_id_to_fiftyone_id(
-                        doc.id
-                        )
-                    )
+                    self._convert_qdrant_id_to_fiftyone_id(doc.id)
+                )
 
             offset = response[-1]
 
@@ -239,25 +234,24 @@ class QdrantSimilarityIndex(SimilarityIndex):
 
     def connect_to_api(self):
         return self._client
-    
+
     def _get_collection(self):
         return self._client.get_collection(
             collection_name=self._collection_name
-            )
+        )
 
     def _convert_fiftyone_id_to_qdrant_id(self, fo_id):
         ### generate UUID
-        return fo_id + '0'*8
+        return fo_id + "0" * 8
 
     def _convert_fiftyone_ids_to_qdrant_ids(self, fo_ids):
         return [
-            self._convert_fiftyone_id_to_qdrant_id(fo_id)
-            for fo_id in fo_ids
+            self._convert_fiftyone_id_to_qdrant_id(fo_id) for fo_id in fo_ids
         ]
-    
+
     def _convert_qdrant_id_to_fiftyone_id(self, qdrant_id):
         return qdrant_id.replace("-", "")[:-8]
-    
+
     def _convert_qdrant_ids_to_fiftyone_ids(self, qdrant_ids):
         return [
             self._convert_qdrant_id_to_fiftyone_id(qdrant_id)
@@ -326,17 +320,21 @@ class QdrantSimilarityIndex(SimilarityIndex):
             curr_sample_ids = sample_ids[min_ind:max_ind]
 
             if not overwrite:
-                curr_fo_ids, curr_sample_ids, curr_embeddings = list(zip(*[
-                    (fo_id, curr_sample_ids, embedding) 
-                    for fo_id, sid, embedding in zip(
-                        curr_fo_ids, curr_sample_ids, curr_embeddings
-                        )
-                    if fo_id not in intersection_ids
-                ]))
+                curr_fo_ids, curr_sample_ids, curr_embeddings = list(
+                    zip(
+                        *[
+                            (fo_id, curr_sample_ids, embedding)
+                            for fo_id, sid, embedding in zip(
+                                curr_fo_ids, curr_sample_ids, curr_embeddings
+                            )
+                            if fo_id not in intersection_ids
+                        ]
+                    )
+                )
                 curr_fo_ids = list(curr_fo_ids)
                 curr_sample_ids = list(curr_sample_ids)
                 curr_embeddings = list(curr_embeddings)
-            
+
             qids = self._convert_fiftyone_ids_to_qdrant_ids(curr_fo_ids)
             payloads = [{"sample_id": sid} for sid in curr_sample_ids]
 
@@ -346,7 +344,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
                     ids=qids,
                     payloads=payloads,
                     vectors=curr_embeddings,
-                )
+                ),
             )
 
     def _retrieve_points(
@@ -401,20 +399,16 @@ class QdrantSimilarityIndex(SimilarityIndex):
             collection_name=self._collection_name,
             points_selector=qmodels.PointIdsList(
                 points=qids,
-            )
+            ),
         )
 
     def _get_patch_embeddings_from_sample_ids(
-        self,
-        sample_ids,
-        allow_missing=True,
-        warn_missing=False
+        self, sample_ids, allow_missing=True, warn_missing=False
     ):
         _filter = qmodels.Filter(
-            should = [
+            should=[
                 qmodels.FieldCondition(
-                key="sample_id", 
-                match=qmodels.MatchValue(value=sid)
+                    key="sample_id", match=qmodels.MatchValue(value=sid)
                 )
                 for sid in sample_ids
             ]
@@ -430,9 +424,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
         found_label_ids = [record.id for record in response]
         found_embeddings = [record.vector for record in response]
 
-        missing_ids = list(
-            set(sample_ids).difference(set(found_sample_ids))
-        )
+        missing_ids = list(set(sample_ids).difference(set(found_sample_ids)))
 
         num_missing_ids = len(missing_ids)
         if num_missing_ids > 0:
@@ -441,7 +433,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
                     "Found %d IDs (eg %s) that do not exist in the index"
                     % (num_missing_ids, missing_ids[0])
                 )
-            
+
             if warn_missing:
                 logger.warning(
                     "Skipping %d IDs that do not exist in the index",
@@ -451,17 +443,12 @@ class QdrantSimilarityIndex(SimilarityIndex):
         return found_embeddings, found_sample_ids, found_label_ids
 
     def _get_patch_embeddings_from_label_ids(
-        self,
-        label_ids,
-        allow_missing=True,
-        warn_missing=False
+        self, label_ids, allow_missing=True, warn_missing=False
     ):
         qdrant_query_ids = self._convert_fiftyone_ids_to_qdrant_ids(label_ids)
 
         response = self._retrieve_points(
-            qdrant_query_ids,
-            with_vectors=True,
-            with_payload=True
+            qdrant_query_ids, with_vectors=True, with_payload=True
         )
 
         found_qids = [record.id for record in response]
@@ -469,9 +456,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
         found_sample_ids = [record.payload["sample_id"] for record in response]
         found_embeddings = [record.vector for record in response]
 
-        missing_ids = list(
-            set(label_ids).difference(set(found_label_ids))
-        )
+        missing_ids = list(set(label_ids).difference(set(found_label_ids)))
         num_missing_ids = len(missing_ids)
 
         if num_missing_ids > 0:
@@ -480,7 +465,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
                     "Found %d IDs (eg %s) that do not exist in the index"
                     % (num_missing_ids, missing_ids[0])
                 )
-            
+
             if warn_missing:
                 logger.warning(
                     "Skipping %d IDs that do not exist in the index",
@@ -490,10 +475,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
         return found_embeddings, found_sample_ids, found_label_ids
 
     def _get_sample_embeddings(
-        self,
-        sample_ids,
-        allow_missing=True,
-        warn_missing=False
+        self, sample_ids, allow_missing=True, warn_missing=False
     ):
         found_label_ids = []
 
@@ -506,9 +488,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
         found_sample_ids = self._convert_qdrant_ids_to_fiftyone_ids(found_qids)
         found_embeddings = [record.vector for record in response]
 
-        missing_ids = list(
-            set(sample_ids).difference(set(found_sample_ids))
-        )
+        missing_ids = list(set(sample_ids).difference(set(found_sample_ids)))
         num_missing_ids = len(missing_ids)
 
         if num_missing_ids > 0:
@@ -517,7 +497,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
                     "Found %d IDs (eg %s) that do not exist in the index"
                     % (num_missing_ids, missing_ids[0])
                 )
-            
+
             if warn_missing:
                 logger.warning(
                     "Skipping %d IDs that do not exist in the index",
@@ -546,19 +526,19 @@ class QdrantSimilarityIndex(SimilarityIndex):
             return self._get_patch_embeddings_from_sample_ids(
                 sample_ids,
                 allow_missing=allow_missing,
-                warn_missing=warn_missing
+                warn_missing=warn_missing,
             )
         elif self.config.patches_field is not None:
             return self._get_patch_embeddings_from_label_ids(
                 label_ids,
                 allow_missing=allow_missing,
-                warn_missing=warn_missing
+                warn_missing=warn_missing,
             )
         else:
             return self._get_sample_embeddings(
                 sample_ids,
                 allow_missing=allow_missing,
-                warn_missing=warn_missing
+                warn_missing=warn_missing,
             )
 
     def _parse_query(self, query):
@@ -576,10 +556,10 @@ class QdrantSimilarityIndex(SimilarityIndex):
             query = [query]
         else:
             query = list(query)
-        
+
         if not query:
             raise ValueError("At least one query must be provided")
-        
+
         if etau.is_numeric(query[0]):
             return np.asarray(query)
 
@@ -588,7 +568,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
             is_prompts = False
         except:
             is_prompts = True
-        
+
         if is_prompts:
             if not self.config.supports_prompts:
                 raise ValueError(
@@ -598,16 +578,13 @@ class QdrantSimilarityIndex(SimilarityIndex):
 
             model = self.get_model()
             return model.embed_prompts(query)
-        
+
         query_ids = self._convert_fiftyone_ids_to_qdrant_ids(query)
-        response = self._retrieve_points(
-                query_ids,
-                with_vectors=True
-            )
-        
+        response = self._retrieve_points(query_ids, with_vectors=True)
+
         query = np.asarray([record.vector for record in response])
         return query
-        
+
     def _kneighbors(
         self,
         query=None,
@@ -620,13 +597,13 @@ class QdrantSimilarityIndex(SimilarityIndex):
             raise ValueError(
                 "Qdrant does not support least similarity queries"
             )
-        
+
         if k is None:
             raise ValueError("k required for querying with Qdrant backend")
 
         if aggregation not in (None, "mean"):
             raise ValueError("Unsupported aggregation '%s'" % aggregation)
-        
+
         if self.config.patches_field is not None:
             fo_ids = self.current_label_ids
         else:
@@ -637,13 +614,13 @@ class QdrantSimilarityIndex(SimilarityIndex):
         query = self._parse_query(query)
         if aggregation == "mean" and query.ndim == 2:
             query = query.mean(axis=0)
-        
+
         search_results = self._client.search(
             collection_name=self._collection_name,
             query_vector=query,
             query_filter=qmodels.Filter(
                 must=[qmodels.HasIdCondition(has_id=qids)]
-                ),
+            ),
             with_payload=False,
             limit=k,
         )
@@ -656,7 +633,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
             return ids, dists
         else:
             return ids
-        
+
     @classmethod
     def _from_dict(cls, d, samples, config):
         return cls(samples, config)
