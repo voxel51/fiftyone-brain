@@ -120,11 +120,11 @@ class PineconeSimilarity(Similarity):
     def ensure_requirements(self):
         fou.ensure_package("pinecone-client")
 
+    def ensure_usage_requirements(self):
+        fou.ensure_package("pinecone-client")
+
     def initialize(self, samples):
         return PineconeSimilarityIndex(samples, self.config, backend=self)
-
-    def cleanup(self, samples, brain_key):
-        pass
 
 
 class PineconeSimilarityIndex(SimilarityIndex):
