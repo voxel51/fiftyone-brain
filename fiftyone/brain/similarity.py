@@ -93,11 +93,12 @@ def compute_similarity(
     if brain_key is not None:
         brain_method.register_run(samples, brain_key)
 
-    if embeddings is None:
+    if embeddings is not False:
         embeddings, sample_ids, label_ids = fbu.get_embeddings(
             samples,
             model=_model,
             patches_field=patches_field,
+            embeddings=embeddings,
             embeddings_field=embeddings_field,
             force_square=force_square,
             alpha=alpha,
@@ -105,16 +106,9 @@ def compute_similarity(
             num_workers=num_workers,
             skip_failures=skip_failures,
         )
-    elif embeddings is False:
+    else:
         # Special syntax to allow embeddings to be added later
         embeddings = None
-    else:
-        sample_ids, label_ids = fbu.get_ids(
-            samples,
-            patches_field=patches_field,
-            data=embeddings,
-            data_type="embeddings",
-        )
 
     results = brain_method.initialize(samples)
 
