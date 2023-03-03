@@ -50,7 +50,7 @@ class PineconeSimilarityConfig(SimilarityConfig):
         patches_field=None,
         supports_prompts=None,
         index_name="fiftyone-index",
-        metric="euclidean",
+        metric="cosine",
         dimension=None,
         pod_type="p1",
         pods=1,
