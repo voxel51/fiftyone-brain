@@ -280,11 +280,10 @@ class QdrantSimilarityIndex(SimilarityIndex):
         num_vectors = embeddings.shape[0]
         num_intersection_ids = 0
 
-        if upsert_pagination is not None:
-            num_steps = int(np.ceil(num_vectors / upsert_pagination))
-        else:
-            num_steps = 1
-            upsert_pagination = num_vectors
+        ## avoid timeouts by upserting in batches
+        if upsert_pagination is None:
+            upsert_pagination = 1000
+        num_steps = int(np.ceil(num_vectors / upsert_pagination))
 
         ## only scroll through and reload if necessary
         if warn_existing or not allow_existing or not overwrite:
