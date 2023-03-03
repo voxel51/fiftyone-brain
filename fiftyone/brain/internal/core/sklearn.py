@@ -691,14 +691,19 @@ class NeighborsHelper(object):
                 can_use_dists=can_use_dists,
             )
 
-            self._curr_keep_inds = keep_inds
-            self._curr_dists = dists
-            self._curr_neighbors = neighbors
+            if not iokay:
+                self._curr_keep_inds = keep_inds
 
-        if neighbors is self._UNAVAILABLE:
+            if self._curr_neighbors is None or not iokay:
+                self._curr_neighbors = neighbors
+
+            if self._curr_dists is None or not iokay:
+                self._curr_dists = dists
+
+        if not can_use_neighbors or neighbors is self._UNAVAILABLE:
             neighbors = None
 
-        if dists is self._UNAVAILABLE:
+        if not can_use_dists or dists is self._UNAVAILABLE:
             dists = None
 
         return neighbors, dists
