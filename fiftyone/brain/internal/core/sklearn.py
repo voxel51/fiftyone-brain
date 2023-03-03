@@ -444,16 +444,18 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
 
         query, query_inds, _, _ = self._parse_neighbors_query(query)
 
+        # Pre-aggregation
+        if aggregation == "mean":
+            if query.shape[0] > 1:
+                query = query.mean(axis=0, keepdims=True)
+                query_inds = None
+
+            aggregation = None
+
         can_use_dists = query_inds is not None
         _, dists = self._get_neighbors(
             can_use_neighbors=False, can_use_dists=can_use_dists
         )
-
-        # Pre-aggregation
-        if aggregation == "mean":
-            query = query.mean(axis=0, keepdims=True)
-            query_inds = None
-            aggregation = None
 
         if dists is not None:
             # Use pre-computed distances
