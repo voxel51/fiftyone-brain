@@ -11,6 +11,7 @@ import numpy as np
 
 import eta.core.utils as etau
 
+import fiftyone.brain as fb
 import fiftyone.core.utils as fou
 from fiftyone.brain.similarity import (
     SimilarityConfig,
@@ -49,7 +50,7 @@ class PineconeSimilarityConfig(SimilarityConfig):
         patches_field=None,
         supports_prompts=None,
         index_name="fiftyone-index",
-        metric="euclidean",
+        metric="cosine",
         dimension=None,
         pod_type="p1",
         pods=1,
@@ -138,6 +139,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
     def __init__(self, samples, config, backend=None):
         super().__init__(samples, config, backend=backend)
+        self.load_credentials(api_key=self.config.api_key)
 
         self._metric = config.metric
         self._index_name = config.index_name
@@ -160,6 +162,17 @@ class PineconeSimilarityIndex(SimilarityIndex):
         """
         self._load_config_parameters(api_key=api_key)
 
+    def _load_config_parameters(self, **kwargs):
+        config = self.config
+        parameters = fb.brain_config.similarity_backends.get(config.method, {})
+
+        for name, value in kwargs.items():
+            if value is None:
+                value = parameters.get(name, None)
+
+            if value is not None:
+                setattr(config, name, value)
+
     def _create_index(self, dimension):
         pinecone.create_index(
             self._index_name,
@@ -173,12 +186,14 @@ class PineconeSimilarityIndex(SimilarityIndex):
     def _initialize_index(self):
         pinecone.init(api_key=self._api_key, environment=self._environment)
 
-        if self.config.dimension is not None:
-            if self._index_name not in pinecone.list_indexes():
+        if self._index_name not in pinecone.list_indexes():
+            if self.config.dimension is not None:
                 self._create_index(self.config.dimension)
-            self._index = pinecone.Index(self._index_name)
+                self._index = pinecone.Index(self._index_name)
+            else:
+                self._index = None
         else:
-            self._index = None
+            self._index = pinecone.Index(self._index_name)
 
     @property
     def index(self):
@@ -573,7 +588,6 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
         _filter = {"id": {"$in": list(index_ids)}}
 
-        # @todo batch queries?
         ids = []
         dists = []
         for q in query:
