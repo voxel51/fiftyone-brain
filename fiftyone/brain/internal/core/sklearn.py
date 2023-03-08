@@ -93,14 +93,8 @@ class SklearnSimilarity(Similarity):
         config: an :class:`SklearnSimilarityConfig`
     """
 
-    def ensure_requirements(self):
-        pass
-
     def initialize(self, samples):
         return SklearnSimilarityIndex(samples, self.config, backend=self)
-
-    def cleanup(self, samples, brain_key):
-        pass
 
 
 class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):

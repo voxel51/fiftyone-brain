@@ -123,11 +123,11 @@ class QdrantSimilarity(Similarity):
     def ensure_requirements(self):
         fou.ensure_package("qdrant-client")
 
+    def ensure_usage_requirements(self):
+        fou.ensure_package("qdrant-client")
+
     def initialize(self, samples):
         return QdrantSimilarityIndex(samples, self.config, backend=self)
-
-    def cleanup(self, samples, brain_key):
-        pass
 
 
 class QdrantSimilarityIndex(SimilarityIndex):

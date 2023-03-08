@@ -201,9 +201,6 @@ def _is_expr(arg):
 
 
 class Visualization(fob.BrainMethod):
-    def ensure_requirements(self):
-        pass
-
     def fit(self, embeddings):
         raise NotImplementedError("subclass must implement fit()")
 
@@ -213,9 +210,6 @@ class Visualization(fob.BrainMethod):
             fields.append(self.config.patches_field)
 
         return fields
-
-    def cleanup(self, samples, brain_key):
-        pass
 
 
 class UMAPVisualization(Visualization):

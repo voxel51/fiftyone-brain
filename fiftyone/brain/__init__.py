@@ -11,17 +11,19 @@ See https://github.com/voxel51/fiftyone for more information.
 import fiftyone.brain.config as _foc
 
 from .similarity import (
+    Similarity,
     SimilarityConfig,
     SimilarityIndex,
 )
 from .visualization import (
     VisualizationConfig,
+    VisualizationResults,
     UMAPVisualizationConfig,
     TSNEVisualizationConfig,
     PCAVisualizationConfig,
     ManualVisualizationConfig,
-    VisualizationResults,
 )
+
 
 brain_config = _foc.load_brain_config()
 
