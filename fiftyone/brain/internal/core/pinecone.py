@@ -162,17 +162,6 @@ class PineconeSimilarityIndex(SimilarityIndex):
         """
         self._load_config_parameters(api_key=api_key)
 
-    def _load_config_parameters(self, **kwargs):
-        config = self.config
-        parameters = fb.brain_config.similarity_backends.get(config.method, {})
-
-        for name, value in kwargs.items():
-            if value is None:
-                value = parameters.get(name, None)
-
-            if value is not None:
-                setattr(config, name, value)
-
     def _create_index(self, dimension):
         pinecone.create_index(
             self._index_name,
