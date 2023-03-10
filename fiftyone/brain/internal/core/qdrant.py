@@ -7,7 +7,6 @@ Qdrant similarity backend.
 """
 import logging
 
-from bson import ObjectId
 import numpy as np
 
 import eta.core.utils as etau
@@ -27,10 +26,10 @@ qmodels = fou.lazy_import("qdrant_client.http.models")
 
 logger = logging.getLogger(__name__)
 
-_METRICS = {
-    "euclidean": qmodels.Distance.EUCLID,
+_SUPPORTED_METRICS = {
     "cosine": qmodels.Distance.COSINE,
     "dotproduct": qmodels.Distance.DOT,
+    "euclidean": qmodels.Distance.EUCLID,
 }
 
 
@@ -45,10 +44,11 @@ class QdrantSimilarityConfig(SimilarityConfig):
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         supports_prompts (False): whether this run supports prompt queries
-        collection_name ("fiftyone-collection"): the name of the Qdrant Index to
-            use
-        metric ("euclidean"): the embedding distance metric to use. Supported
-            values are ``("euclidean", "cosine", and "dotproduct")``
+        collection_name ("fiftyone-collection"): the name of a Qdrant
+            collection to use or create
+        metric (None): the embedding distance metric to use when creating a
+            new index. Supported values are
+            ``("cosine", "dotproduct", "euclidean")``
     """
 
     def __init__(
@@ -57,23 +57,22 @@ class QdrantSimilarityConfig(SimilarityConfig):
         model=None,
         patches_field=None,
         supports_prompts=None,
-        metric="euclidean",
         collection_name="fiftyone-collection",
-        dimension=None,
-        replication_factor=1,
-        shard_number=1,
+        metric=None,
+        replication_factor=None,
+        shard_number=None,
         write_consistency_factor=None,
         hnsw_config=None,
         optimizers_config=None,
         wal_config=None,
-        host="localhost",
-        port=6333,
+        url=None,
+        api_key=None,
         **kwargs,
     ):
-        if metric not in _METRICS:
+        if metric not in _SUPPORTED_METRICS:
             raise ValueError(
                 "Unsupported metric '%s'. Supported values are %s"
-                % (metric, tuple(_METRICS.keys()))
+                % (metric, tuple(_SUPPORTED_METRICS.keys()))
             )
 
         super().__init__(
@@ -84,21 +83,38 @@ class QdrantSimilarityConfig(SimilarityConfig):
             **kwargs,
         )
 
-        self.metric = metric
         self.collection_name = collection_name
-        self.dimension = dimension
+        self.metric = metric
         self.replication_factor = replication_factor
         self.shard_number = shard_number
         self.write_consistency_factor = write_consistency_factor
         self.hnsw_config = hnsw_config
         self.optimizers_config = optimizers_config
         self.wal_config = wal_config
-        self.host = host
-        self.port = port
+
+        # store privately so these aren't serialized
+        self._url = url
+        self._api_key = api_key
 
     @property
     def method(self):
         return "qdrant"
+
+    @property
+    def url(self):
+        return self._url
+
+    @url.setter
+    def url(self, value):
+        self._url = value
+
+    @property
+    def api_key(self):
+        return self._api_key
+
+    @api_key.setter
+    def api_key(self, value):
+        self._api_key = value
 
     @property
     def max_k(self):
@@ -142,121 +158,80 @@ class QdrantSimilarityIndex(SimilarityIndex):
     def __init__(self, samples, config, backend=None):
         super().__init__(samples, config, backend=backend)
 
-        self._metric = _METRICS[config.metric]
-        self._collection_name = config.collection_name
-        self._replication_factor = config.replication_factor
-        self._shard_number = config.shard_number
-        self._write_consistency_factor = config.write_consistency_factor
-        self._host = config.host
-        self._port = config.port
-
-        self._initialize_index(config)
-
-    def _construct_hnsw_config(self, config):
-        chc = config.hnsw_config
-        self._hnsw_config = qmodels.HnswConfig(
-            m=chc["m"],
-            ef_construct=chc["ef_construct"],
-            full_scan_threshold=chc["full_scan_threshold"],
-            max_indexing_threads=chc["max_indexing_threads"],
-            on_disk=chc["on_disk"],
-            payload_m=chc["payload_m"],
-        )
-
-    def _construct_optimizers_config(self, config):
-        coc = config.optimizers_config
-        self._optimizers_config = qmodels.OptimizersConfig(
-            deleted_threshold=coc["deleted_threshold"],
-            vacuum_min_vector_number=coc["vacuum_min_vector_number"],
-            default_segment_number=coc["default_segment_number"],
-            max_segment_size=coc["max_segment_size"],
-            memmap_threshold=coc["memmap_threshold"],
-            indexing_threshold=coc["indexing_threshold"],
-            flush_interval_sec=coc["flush_interval_sec"],
-            max_optimization_threads=coc["max_optimization_threads"],
-        )
-
-    def _construct_wal_config(self, config):
-        cwc = config.wal_config
-        self._wal_config = qmodels.WalConfig(
-            wal_capacity_mb=cwc["wal_capacity_mb"],
-            wal_segments_ahead=cwc["wal_segments_ahead"],
-        )
-
-    def _create_collection(self, size):
-        self._client.recreate_collection(
-            collection_name=self._collection_name,
-            vectors_config=qmodels.VectorParams(
-                size=size,
-                distance=self._metric,
-            ),
-            shard_number=self._shard_number,
-            replication_factor=self._replication_factor,
-            hnsw_config=self._hnsw_config,
-            optimizers_config=self._optimizers_config,
-            wal_config=self._wal_config,
-        )
-
-    def _initialize_index(self, config):
-        self._client = qdrant.QdrantClient(host=self._host)
-        self._construct_hnsw_config(config)
-        self._construct_optimizers_config(config)
-        self._construct_wal_config(config)
-
-        if config.dimension is not None:
-            self._create_collection(config.dimension)
-
-    def _reload_index(self, scroll_pagination=100):
-
-        offset = 0
-        self._client = qdrant.QdrantClient(host=self._host)
+        self._client = None
         self._fiftyone_ids = []
 
+        self._initialize()
+
+    def load_credentials(self, url=None, api_key=None):
+        """Loads the Qdrant credentials from the given keyword arguments or
+        the FiftyOne Brain similarity config.
+
+        Args:
+            url (None): the Qdrant service URL to use
+            api_key (None): a Qdrant Cloud API key to use
+        """
+        self._load_config_parameters(url=url, api_key=api_key)
+
+    def _initialize(self):
+        self._client = qdrant.QdrantClient(
+            url=self.config.url, api_key=self.config.api_key
+        )
+
+    def _create_collection(self, dimension):
+        if self.config.hnsw_config:
+            hnsw_config = qmodels.HnswConfig(**self.config.hnsw_config)
+        else:
+            hnsw_config = None
+
+        if self.config.optimizers_config:
+            optimizers_config = qmodels.OptimizersConfig(
+                **self.config.optimizers_config
+            )
+        else:
+            optimizers_config = None
+
+        if self.config.wal_config:
+            wal_config = qmodels.WalConfig(**self.config.wal_config)
+        else:
+            wal_config = None
+
+        self._client.recreate_collection(
+            collection_name=self.config.collection_name,
+            vectors_config=qmodels.VectorParams(
+                size=dimension,
+                distance=_SUPPORTED_METRICS[self.config.metric],
+            ),
+            shard_number=self.config.shard_number,
+            replication_factor=self.config.replication_factor,
+            hnsw_config=hnsw_config,
+            optimizers_config=optimizers_config,
+            wal_config=wal_config,
+        )
+
+    def _reload_index(self, batch_size=100):
+        ids = []
+        offset = 0
         while offset is not None:
             response = self._client.scroll(
-                collection_name=self._collection_name,
+                collection_name=self.config.collection_name,
                 offset=offset,
-                limit=scroll_pagination,
+                limit=batch_size,
                 with_payload=True,
                 with_vectors=False,
             )
-
-            for doc in response[0]:
-                self._fiftyone_ids.append(
-                    self._convert_qdrant_id_to_fiftyone_id(doc.id)
-                )
-
+            ids.extend([self._to_fiftyone_id(doc.id) for doc in response[0]])
             offset = response[-1]
+
+        self._fiftyone_ids = ids
 
     @property
     def total_index_size(self):
-        return self._client.count(self._collection_name).count
+        return self._client.count(self.config.collection_name).count
 
-    def connect_to_api(self):
+    def client(self):
+        """The ``qdrant.QdrantClient`` instance for this index."""
         return self._client
-
-    def _get_collection(self):
-        return self._client.get_collection(
-            collection_name=self._collection_name
-        )
-
-    def _convert_fiftyone_id_to_qdrant_id(self, fo_id):
-        ### generate UUID
-        return fo_id + "0" * 8
-
-    def _convert_fiftyone_ids_to_qdrant_ids(self, fo_ids):
-        return [
-            self._convert_fiftyone_id_to_qdrant_id(fo_id) for fo_id in fo_ids
-        ]
-
-    def _convert_qdrant_id_to_fiftyone_id(self, qdrant_id):
-        return qdrant_id.replace("-", "")[:-8]
-
-    def _convert_qdrant_ids_to_fiftyone_ids(self, qdrant_ids):
-        return [
-            self._convert_qdrant_id_to_fiftyone_id(qdrant_id)
-            for qdrant_id in qdrant_ids
-        ]
 
     def add_to_index(
         self,
@@ -266,99 +241,76 @@ class QdrantSimilarityIndex(SimilarityIndex):
         overwrite=True,
         allow_existing=True,
         warn_existing=False,
-        upsert_pagination=None,
+        batch_size=1000,
     ):
-        collections = self._client.get_collections().collections
-        collection_names = [c.name for c in collections]
-        if self._collection_name not in collection_names:
-            size = embeddings.shape[1]
-            self._create_collection(size)
+        if not any(
+            c.name == self.config.collection_name
+            for c in self._client.get_collections().collections
+        ):
+            self._create_collection(embeddings.shape[1])
 
-        embeddings_list = [arr.tolist() for arr in embeddings]
-        fo_ids = label_ids if label_ids is not None else sample_ids
+        if label_ids is not None:
+            ids = label_ids
+        else:
+            ids = sample_ids
 
-        num_vectors = embeddings.shape[0]
-        num_intersection_ids = 0
-
-        ## avoid timeouts by upserting in batches
-        if upsert_pagination is None:
-            upsert_pagination = 1000
-        num_steps = int(np.ceil(num_vectors / upsert_pagination))
-
-        ## only scroll through and reload if necessary
         if warn_existing or not allow_existing or not overwrite:
             self._reload_index()
-            existing_ids = set(self._fiftyone_ids)
-            new_ids = set(fo_ids)
-            intersection_ids = existing_ids.intersection(new_ids)
-            num_intersection_ids = len(intersection_ids)
 
-        if num_intersection_ids > 0:
-            if not allow_existing:
-                raise ValueError(
-                    "Found %d IDs (eg %s) that already exist in the index"
-                    % (num_intersection_ids, intersection_ids[0])
-                )
-            if warn_existing and overwrite:
-                logger.warning(
-                    "Overwriting %d IDs that already exist in the index",
-                    num_intersection_ids,
-                )
-            if warn_existing and not overwrite:
-                logger.warning(
-                    "Skipping %d IDs that already exist in the index",
-                    num_intersection_ids,
-                )
+            existing_ids = set(ids) & set(self._fiftyone_ids)
+            num_existing = len(existing_ids)
 
-        for i in range(num_steps):
-            min_ind = upsert_pagination * i
-            max_ind = min(upsert_pagination * (i + 1), num_vectors)
-
-            curr_fo_ids = fo_ids[min_ind:max_ind]
-            curr_embeddings = embeddings_list[min_ind:max_ind]
-            curr_sample_ids = sample_ids[min_ind:max_ind]
-
-            if not overwrite:
-                curr_fo_ids, curr_sample_ids, curr_embeddings = list(
-                    zip(
-                        *[
-                            (fo_id, curr_sample_ids, embedding)
-                            for fo_id, sid, embedding in zip(
-                                curr_fo_ids, curr_sample_ids, curr_embeddings
-                            )
-                            if fo_id not in intersection_ids
-                        ]
+            if num_existing > 0:
+                if not allow_existing:
+                    raise ValueError(
+                        "Found %d IDs (eg %s) that already exist in the index"
+                        % (num_existing, next(iter(existing_ids)))
                     )
-                )
-                curr_fo_ids = list(curr_fo_ids)
-                curr_sample_ids = list(curr_sample_ids)
-                curr_embeddings = list(curr_embeddings)
 
-            qids = self._convert_fiftyone_ids_to_qdrant_ids(curr_fo_ids)
-            payloads = [{"sample_id": sid} for sid in curr_sample_ids]
+                if warn_existing:
+                    if overwrite:
+                        logger.warning(
+                            "Overwriting %d IDs that already exist in the "
+                            "index",
+                            num_existing,
+                        )
+                    else:
+                        logger.warning(
+                            "Skipping %d IDs that already exist in the index",
+                            num_existing,
+                        )
+        else:
+            existing_ids = set()
 
+        if existing_ids and not overwrite:
+            del_inds = [i for i, _id in enumerate(ids) if _id in existing_ids]
+
+            embeddings = np.delete(embeddings, del_inds)
+            sample_ids = np.delete(sample_ids, del_inds)
+            if label_ids is not None:
+                label_ids = np.delete(label_ids, del_inds)
+
+        embeddings = [e.tolist() for e in embeddings]
+        sample_ids = list(sample_ids)
+
+        if label_ids is not None:
+            ids = list(label_ids)
+        else:
+            ids = sample_ids
+
+        for _embeddings, _ids, _sample_ids in zip(
+            fou.iter_batches(embeddings, batch_size),
+            fou.iter_batches(ids, batch_size),
+            fou.iter_batches(sample_ids, batch_size),
+        ):
             self._client.upsert(
-                collection_name=self._collection_name,
+                collection_name=self.config.collection_name,
                 points=qmodels.Batch(
-                    ids=qids,
-                    payloads=payloads,
-                    vectors=curr_embeddings,
+                    ids=self._to_qdrant_ids(_ids),
+                    payloads=[{"sample_id": _id} for _id in _sample_ids],
+                    vectors=_embeddings,
                 ),
             )
-
-    def _retrieve_points(
-        self,
-        qids,
-        with_vectors=True,
-        with_payload=True,
-    ):
-        response = self._client.retrieve(
-            collection_name=self._collection_name,
-            ids=qids,
-            with_vectors=with_vectors,
-            with_payload=with_payload,
-        )
-        return response
 
     def remove_from_index(
         self,
@@ -367,22 +319,20 @@ class QdrantSimilarityIndex(SimilarityIndex):
         allow_missing=True,
         warn_missing=False,
     ):
-        fo_ids = label_ids if label_ids is not None else sample_ids
-        qids = self._convert_fiftyone_ids_to_qdrant_ids(fo_ids)
+        if label_ids is not None:
+            ids = label_ids
+        else:
+            ids = sample_ids
+
+        qids = self._to_qdrant_ids(ids)
 
         if warn_missing or not allow_missing:
-            response = self._retrieve_points(
-                qids,
-                with_vectors=False,
-            )
+            response = self._retrieve_points(qids, with_vectors=False)
 
-            existing_qids = [record.id for record in response]
-            existing_fo_ids = self._convert_qdrant_ids_to_fiftyone_ids(
-                existing_qids
-            )
-
-            missing_ids = list(set(fo_ids).difference(set(existing_fo_ids)))
+            existing_ids = self._to_fiftyone_ids([r.id for r in response])
+            missing_ids = list(set(ids) - set(existing_ids))
             num_missing_ids = len(missing_ids)
+
             if num_missing_ids > 0:
                 if not allow_missing:
                     raise ValueError(
@@ -394,116 +344,11 @@ class QdrantSimilarityIndex(SimilarityIndex):
                         "Skipping %d IDs that do not exist in the index",
                         num_missing_ids,
                     )
+
         self._client.delete(
-            collection_name=self._collection_name,
-            points_selector=qmodels.PointIdsList(
-                points=qids,
-            ),
+            collection_name=self.config.collection_name,
+            points_selector=qmodels.PointIdsList(points=qids),
         )
-
-    def _get_patch_embeddings_from_sample_ids(
-        self, sample_ids, allow_missing=True, warn_missing=False
-    ):
-        _filter = qmodels.Filter(
-            should=[
-                qmodels.FieldCondition(
-                    key="sample_id", match=qmodels.MatchValue(value=sid)
-                )
-                for sid in sample_ids
-            ]
-        )
-
-        response = self._client.scroll(
-            collection_name=self._collection_name,
-            scroll_filter=_filter,
-            with_vectors=True,
-            with_payload=True,
-        )[0]
-        found_sample_ids = [record.payload["sample_id"] for record in response]
-        found_label_ids = [record.id for record in response]
-        found_embeddings = [record.vector for record in response]
-
-        missing_ids = list(set(sample_ids).difference(set(found_sample_ids)))
-
-        num_missing_ids = len(missing_ids)
-        if num_missing_ids > 0:
-            if not allow_missing:
-                raise ValueError(
-                    "Found %d IDs (eg %s) that do not exist in the index"
-                    % (num_missing_ids, missing_ids[0])
-                )
-
-            if warn_missing:
-                logger.warning(
-                    "Skipping %d IDs that do not exist in the index",
-                    num_missing_ids,
-                )
-
-        return found_embeddings, found_sample_ids, found_label_ids
-
-    def _get_patch_embeddings_from_label_ids(
-        self, label_ids, allow_missing=True, warn_missing=False
-    ):
-        qdrant_query_ids = self._convert_fiftyone_ids_to_qdrant_ids(label_ids)
-
-        response = self._retrieve_points(
-            qdrant_query_ids, with_vectors=True, with_payload=True
-        )
-
-        found_qids = [record.id for record in response]
-        found_label_ids = self._convert_qdrant_ids_to_fiftyone_ids(found_qids)
-        found_sample_ids = [record.payload["sample_id"] for record in response]
-        found_embeddings = [record.vector for record in response]
-
-        missing_ids = list(set(label_ids).difference(set(found_label_ids)))
-        num_missing_ids = len(missing_ids)
-
-        if num_missing_ids > 0:
-            if not allow_missing:
-                raise ValueError(
-                    "Found %d IDs (eg %s) that do not exist in the index"
-                    % (num_missing_ids, missing_ids[0])
-                )
-
-            if warn_missing:
-                logger.warning(
-                    "Skipping %d IDs that do not exist in the index",
-                    num_missing_ids,
-                )
-
-        return found_embeddings, found_sample_ids, found_label_ids
-
-    def _get_sample_embeddings(
-        self, sample_ids, allow_missing=True, warn_missing=False
-    ):
-        found_label_ids = []
-
-        qdrant_query_ids = self._convert_fiftyone_ids_to_qdrant_ids(sample_ids)
-        response = self._retrieve_points(
-            qdrant_query_ids,
-            with_vectors=True,
-        )
-        found_qids = [record.id for record in response]
-        found_sample_ids = self._convert_qdrant_ids_to_fiftyone_ids(found_qids)
-        found_embeddings = [record.vector for record in response]
-
-        missing_ids = list(set(sample_ids).difference(set(found_sample_ids)))
-        num_missing_ids = len(missing_ids)
-
-        if num_missing_ids > 0:
-            if not allow_missing:
-                raise ValueError(
-                    "Found %d IDs (eg %s) that do not exist in the index"
-                    % (num_missing_ids, missing_ids[0])
-                )
-
-            if warn_missing:
-                logger.warning(
-                    "Skipping %d IDs that do not exist in the index",
-                    num_missing_ids,
-                )
-
-        return found_embeddings, found_sample_ids, found_label_ids
 
     def get_embeddings(
         self,
@@ -522,67 +367,105 @@ class QdrantSimilarityIndex(SimilarityIndex):
                 )
 
         if sample_ids is not None and self.config.patches_field is not None:
-            return self._get_patch_embeddings_from_sample_ids(
+            (
+                embeddings,
                 sample_ids,
-                allow_missing=allow_missing,
-                warn_missing=warn_missing,
-            )
-        elif self.config.patches_field is not None:
-            return self._get_patch_embeddings_from_label_ids(
                 label_ids,
-                allow_missing=allow_missing,
-                warn_missing=warn_missing,
-            )
-        else:
-            return self._get_sample_embeddings(
+                missing_ids,
+            ) = self._get_patch_embeddings_from_sample_ids(sample_ids)
+        elif self.config.patches_field is not None:
+            (
+                embeddings,
                 sample_ids,
-                allow_missing=allow_missing,
-                warn_missing=warn_missing,
-            )
-
-    def _parse_query(self, query):
-        if query is None:
-            raise ValueError("At least one query must be provided")
-
-        if isinstance(query, np.ndarray):
-            # Query by vector(s)
-            if query.size == 0:
-                raise ValueError("At least one query vector must be provided")
-
-            return query
-
-        if etau.is_str(query):
-            query = [query]
+                label_ids,
+                missing_ids,
+            ) = self._get_patch_embeddings_from_label_ids(label_ids)
         else:
-            query = list(query)
+            (
+                embeddings,
+                sample_ids,
+                label_ids,
+                missing_ids,
+            ) = self._get_sample_embeddings(sample_ids)
 
-        if not query:
-            raise ValueError("At least one query must be provided")
-
-        if etau.is_numeric(query[0]):
-            return np.asarray(query)
-
-        try:
-            ObjectId(query[0])
-            is_prompts = False
-        except:
-            is_prompts = True
-
-        if is_prompts:
-            if not self.config.supports_prompts:
+        num_missing_ids = len(missing_ids)
+        if num_missing_ids > 0:
+            if not allow_missing:
                 raise ValueError(
-                    "Invalid query '%s'; this model does not support prompts"
-                    % query[0]
+                    "Found %d IDs (eg %s) that do not exist in the index"
+                    % (num_missing_ids, missing_ids[0])
                 )
 
-            model = self.get_model()
-            return model.embed_prompts(query)
+            if warn_missing:
+                logger.warning(
+                    "Skipping %d IDs that do not exist in the index",
+                    num_missing_ids,
+                )
 
-        query_ids = self._convert_fiftyone_ids_to_qdrant_ids(query)
-        response = self._retrieve_points(query_ids, with_vectors=True)
+        embeddings = np.array(embeddings)
+        sample_ids = np.array(sample_ids)
+        if label_ids is not None:
+            label_ids = np.array(label_ids)
 
-        query = np.asarray([record.vector for record in response])
-        return query
+        return embeddings, sample_ids, label_ids
+
+    def _retrieve_points(self, qids, with_vectors=True, with_payload=True):
+        return self._client.retrieve(
+            collection_name=self.config.collection_name,
+            ids=qids,
+            with_vectors=with_vectors,
+            with_payload=with_payload,
+        )
+
+    def _get_sample_embeddings(self, sample_ids):
+        response = self._retrieve_points(
+            self._to_qdrant_ids(sample_ids),
+            with_vectors=True,
+        )
+
+        found_embeddings = [r.vector for r in response]
+        found_sample_ids = self._to_fiftyone_ids([r.id for r in response])
+        missing_ids = list(set(sample_ids) - set(found_sample_ids))
+
+        return found_embeddings, found_sample_ids, None, missing_ids
+
+    def _get_patch_embeddings_from_sample_ids(self, sample_ids):
+        _filter = qmodels.Filter(
+            should=[
+                qmodels.FieldCondition(
+                    key="sample_id", match=qmodels.MatchValue(value=sid)
+                )
+                for sid in sample_ids
+            ]
+        )
+
+        response = self._client.scroll(
+            collection_name=self.config.collection_name,
+            scroll_filter=_filter,
+            with_vectors=True,
+            with_payload=True,
+        )[0]
+
+        found_embeddings = [r.vector for r in response]
+        found_sample_ids = [r.payload["sample_id"] for r in response]
+        found_label_ids = [r.id for r in response]
+        missing_ids = list(set(sample_ids) - set(found_sample_ids))
+
+        return found_embeddings, found_sample_ids, found_label_ids, missing_ids
+
+    def _get_patch_embeddings_from_label_ids(self, label_ids):
+        response = self._retrieve_points(
+            self._to_qdrant_ids(label_ids),
+            with_vectors=True,
+            with_payload=True,
+        )
+
+        found_embeddings = [r.vector for r in response]
+        found_sample_ids = [r.payload["sample_id"] for r in response]
+        found_label_ids = self._to_fiftyone_ids([r.id for r in response])
+        missing_ids = list(set(label_ids) - set(found_label_ids))
+
+        return found_embeddings, found_sample_ids, found_label_ids, missing_ids
 
     def _kneighbors(
         self,
@@ -592,7 +475,10 @@ class QdrantSimilarityIndex(SimilarityIndex):
         aggregation=None,
         return_dists=False,
     ):
-        if reverse == True:
+        if query is None:
+            raise ValueError("Qdrant does not support full index neighbors")
+
+        if reverse is True:
             raise ValueError(
                 "Qdrant does not support least similarity queries"
             )
@@ -603,35 +489,78 @@ class QdrantSimilarityIndex(SimilarityIndex):
         if aggregation not in (None, "mean"):
             raise ValueError("Unsupported aggregation '%s'" % aggregation)
 
-        if self.config.patches_field is not None:
-            fo_ids = self.current_label_ids
-        else:
-            fo_ids = self.current_sample_ids
-
-        qids = self._convert_fiftyone_ids_to_qdrant_ids(fo_ids)
-
-        query = self._parse_query(query)
+        query = self._parse_neighbors_query(query)
         if aggregation == "mean" and query.ndim == 2:
             query = query.mean(axis=0)
 
-        search_results = self._client.search(
-            collection_name=self._collection_name,
+        single_query = query.ndim == 1
+        if single_query:
+            query = [query]
+
+        if self.config.patches_field is not None:
+            ids = self.current_label_ids
+        else:
+            ids = self.current_sample_ids
+
+        results = self._client.search(
+            collection_name=self.config.collection_name,
             query_vector=query,
             query_filter=qmodels.Filter(
-                must=[qmodels.HasIdCondition(has_id=qids)]
+                must=[qmodels.HasIdCondition(has_id=self._to_qdrant_ids(ids))]
             ),
             with_payload=False,
             limit=k,
         )
 
-        ids = self._convert_qdrant_ids_to_fiftyone_ids(
-            [res.id for res in search_results]
-        )
+        ids = self._to_fiftyone_ids([r.id for r in results])
         if return_dists:
-            dists = [res.score for res in search_results]
+            dists = [r.score for r in results]
+
+        if single_query:
+            ids = ids[0]
+            if return_dists:
+                dists = dists[0]
+
+        if return_dists:
             return ids, dists
+
+        return ids
+
+    def _parse_neighbors_query(self, query):
+        if etau.is_str(query):
+            query_ids = [query]
+            single_query = True
         else:
-            return ids
+            query = np.asarray(query)
+
+            # Query by vector(s)
+            if np.issubdtype(query.dtype, np.number):
+                return query
+
+            query_ids = list(query)
+            single_query = False
+
+        # Query by ID(s)
+        qids = self._to_qdrant_ids(query_ids)
+        response = self._retrieve_points(qids, with_vectors=True)
+        query = np.array([r.vector for r in response])
+
+        if single_query:
+            query = query[0, :]
+
+        return query
+
+    def _to_qdrant_id(self, fo_id):
+        return fo_id + "0" * 8
+
+    def _to_qdrant_ids(self, fo_ids):
+        return [self._to_qdrant_id(fo_id) for fo_id in fo_ids]
+
+    def _to_fiftyone_id(self, qdrant_id):
+        return qdrant_id.replace("-", "")[:-8]
+
+    def _to_fiftyone_ids(self, qdrant_ids):
+        return [self._to_fiftyone_id(qdrant_id) for qdrant_id in qdrant_ids]
 
     @classmethod
     def _from_dict(cls, d, samples, config):

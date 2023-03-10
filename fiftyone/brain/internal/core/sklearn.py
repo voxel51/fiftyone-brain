@@ -318,7 +318,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
             self._curr_ids_to_inds = None
             self._neighbors_helper = None
 
-        self.use_view(self._curr_view)
+        super().reload()
 
     def attributes(self):
         attrs = super().attributes()
