@@ -46,7 +46,7 @@ class SklearnSimilarityConfig(SimilarityConfig):
             the model that was used to compute embeddings, if one was provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
-        supports_prompts (False): whether this run supports prompt queries
+        supports_prompts (None): whether this run supports prompt queries
         metric ("euclidean"): the embedding distance metric to use. See
             ``sklearn.metrics.pairwise_distance`` for supported values
     """
@@ -324,6 +324,9 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
             self._neighbors_helper = None
 
         super().reload()
+
+    def cleanup(self):
+        pass
 
     def attributes(self):
         attrs = super().attributes()

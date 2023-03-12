@@ -115,6 +115,10 @@ def compute_similarity(
     if embeddings is not None:
         results.add_to_index(embeddings, sample_ids, label_ids=label_ids)
 
+    # It is possible that the backend may update the run's config (eg when
+    # creating a new index), so we update the config now
+    brain_method.update_run_config(samples, brain_key, config)
+
     brain_method.save_run_results(samples, brain_key, results)
 
     return results
@@ -535,6 +539,10 @@ class SimilarityIndex(fob.BrainResults):
         since the index was last loaded.
         """
         self.use_view(self._curr_view)
+
+    def cleanup(self):
+        """Deletes the similarity index from the backend."""
+        raise NotImplementedError("subclass must implement cleanup()")
 
     def values(self, path_or_expr):
         """Extracts a flat list of values from the given field or expression

@@ -17,6 +17,7 @@ from fiftyone.brain.similarity import (
     Similarity,
     SimilarityIndex,
 )
+import fiftyone.brain.internal.core.utils as fbu
 
 qdrant = fou.lazy_import("qdrant_client")
 qmodels = fou.lazy_import("qdrant_client.http.models")
@@ -41,9 +42,9 @@ class QdrantSimilarityConfig(SimilarityConfig):
             the model that was used to compute embeddings, if one was provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
-        supports_prompts (False): whether this run supports prompt queries
-        collection_name ("fiftyone-collection"): the name of a Qdrant
-            collection to use or create
+        supports_prompts (None): whether this run supports prompt queries
+        collection_name (None): the name of a Qdrant collection to use or
+            create. If none is provided, a new collection will be created
         metric (None): the embedding distance metric to use when creating a
             new index. Supported values are
             ``("cosine", "dotproduct", "euclidean")``
@@ -67,7 +68,7 @@ class QdrantSimilarityConfig(SimilarityConfig):
         model=None,
         patches_field=None,
         supports_prompts=None,
-        collection_name="fiftyone-collection",
+        collection_name=None,
         metric=None,
         replication_factor=None,
         shard_number=None,
@@ -172,7 +173,6 @@ class QdrantSimilarityIndex(SimilarityIndex):
         super().__init__(samples, config, backend=backend)
 
         self._client = None
-        self._fiftyone_ids = []
 
         self._initialize()
 
@@ -182,7 +182,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
         )
 
         try:
-            self._client.get_collections()
+            collection_names = self._get_collection_names()
         except Exception as e:
             # @todo update help link once integration docs are available
             raise ValueError(
@@ -190,6 +190,15 @@ class QdrantSimilarityIndex(SimilarityIndex):
                 "https://docs.voxel51.com for more information"
                 % self.config.url
             ) from e
+
+        if self.config.collection_name is None:
+            root = "fiftyone-" + self.samples._root_dataset.name
+            collection_name = fbu.get_unique_name(root, collection_names)
+
+            self.config.collection_name = collection_name
+
+    def _get_collection_names(self):
+        return [c.name for c in self._client.get_collections().collections]
 
     def _create_collection(self, dimension):
         if self.config.metric:
@@ -229,8 +238,9 @@ class QdrantSimilarityIndex(SimilarityIndex):
             wal_config=wal_config,
         )
 
-    def _reload_index(self, batch_size=100):
+    def _get_index_ids(self, batch_size=1000):
         ids = []
+
         offset = 0
         while offset is not None:
             response = self._client.scroll(
@@ -243,7 +253,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
             ids.extend([self._to_fiftyone_id(doc.id) for doc in response[0]])
             offset = response[-1]
 
-        self._fiftyone_ids = ids
+        return ids
 
     @property
     def total_index_size(self):
@@ -263,10 +273,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
         warn_existing=False,
         batch_size=1000,
     ):
-        if not any(
-            c.name == self.config.collection_name
-            for c in self._client.get_collections().collections
-        ):
+        if self.config.collection_name not in self._get_collection_names():
             self._create_collection(embeddings.shape[1])
 
         if label_ids is not None:
@@ -275,9 +282,9 @@ class QdrantSimilarityIndex(SimilarityIndex):
             ids = sample_ids
 
         if warn_existing or not allow_existing or not overwrite:
-            self._reload_index()
+            index_ids = self._get_index_ids()
 
-            existing_ids = set(ids) & set(self._fiftyone_ids)
+            existing_ids = set(ids) & set(index_ids)
             num_existing = len(existing_ids)
 
             if num_existing > 0:
@@ -429,7 +436,11 @@ class QdrantSimilarityIndex(SimilarityIndex):
 
         return embeddings, sample_ids, label_ids
 
+    def cleanup(self):
+        self._client.delete_collection(self.config.collection_name)
+
     def _retrieve_points(self, qids, with_vectors=True, with_payload=True):
+        # @todo add batching?
         return self._client.retrieve(
             collection_name=self.config.collection_name,
             ids=qids,
@@ -438,6 +449,9 @@ class QdrantSimilarityIndex(SimilarityIndex):
         )
 
     def _get_sample_embeddings(self, sample_ids):
+        if sample_ids is None:
+            sample_ids = self._get_index_ids()
+
         response = self._retrieve_points(
             self._to_qdrant_ids(sample_ids),
             with_vectors=True,
@@ -448,6 +462,23 @@ class QdrantSimilarityIndex(SimilarityIndex):
         missing_ids = list(set(sample_ids) - set(found_sample_ids))
 
         return found_embeddings, found_sample_ids, None, missing_ids
+
+    def _get_patch_embeddings_from_label_ids(self, label_ids):
+        if label_ids is None:
+            label_ids = self._get_index_ids()
+
+        response = self._retrieve_points(
+            self._to_qdrant_ids(label_ids),
+            with_vectors=True,
+            with_payload=True,
+        )
+
+        found_embeddings = [r.vector for r in response]
+        found_sample_ids = [r.payload["sample_id"] for r in response]
+        found_label_ids = self._to_fiftyone_ids([r.id for r in response])
+        missing_ids = list(set(label_ids) - set(found_label_ids))
+
+        return found_embeddings, found_sample_ids, found_label_ids, missing_ids
 
     def _get_patch_embeddings_from_sample_ids(self, sample_ids):
         _filter = qmodels.Filter(
@@ -470,20 +501,6 @@ class QdrantSimilarityIndex(SimilarityIndex):
         found_sample_ids = [r.payload["sample_id"] for r in response]
         found_label_ids = [r.id for r in response]
         missing_ids = list(set(sample_ids) - set(found_sample_ids))
-
-        return found_embeddings, found_sample_ids, found_label_ids, missing_ids
-
-    def _get_patch_embeddings_from_label_ids(self, label_ids):
-        response = self._retrieve_points(
-            self._to_qdrant_ids(label_ids),
-            with_vectors=True,
-            with_payload=True,
-        )
-
-        found_embeddings = [r.vector for r in response]
-        found_sample_ids = [r.payload["sample_id"] for r in response]
-        found_label_ids = self._to_fiftyone_ids([r.id for r in response])
-        missing_ids = list(set(label_ids) - set(found_label_ids))
 
         return found_embeddings, found_sample_ids, found_label_ids, missing_ids
 
