@@ -518,23 +518,30 @@ class QdrantSimilarityIndex(SimilarityIndex):
             query = [query]
 
         if self.config.patches_field is not None:
-            ids = self.current_label_ids
+            index_ids = self.current_label_ids
         else:
-            ids = self.current_sample_ids
+            index_ids = self.current_sample_ids
 
-        results = self._client.search(
-            collection_name=self.config.collection_name,
-            query_vector=query,
-            query_filter=qmodels.Filter(
-                must=[qmodels.HasIdCondition(has_id=self._to_qdrant_ids(ids))]
-            ),
-            with_payload=False,
-            limit=k,
+        _filter = qmodels.Filter(
+            must=[
+                qmodels.HasIdCondition(has_id=self._to_qdrant_ids(index_ids))
+            ]
         )
 
-        ids = self._to_fiftyone_ids([r.id for r in results])
-        if return_dists:
-            dists = [r.score for r in results]
+        ids = []
+        dists = []
+        for q in query:
+            results = self._client.search(
+                collection_name=self.config.collection_name,
+                query_vector=q,
+                query_filter=_filter,
+                with_payload=False,
+                limit=k,
+            )
+
+            ids.append(self._to_fiftyone_ids([r.id for r in results]))
+            if return_dists:
+                dists.append([r.score for r in results])
 
         if single_query:
             ids = ids[0]

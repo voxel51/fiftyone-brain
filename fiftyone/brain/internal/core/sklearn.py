@@ -119,9 +119,6 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         label_ids=None,
         backend=None,
     ):
-        SimilarityIndex.__init__(self, samples, config, backend=backend)
-        DuplicatesMixin.__init__(self)
-
         embeddings, sample_ids, label_ids = self._parse_data(
             samples,
             config,
@@ -137,6 +134,9 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         self._ids_to_inds = None
         self._curr_ids_to_inds = None
         self._neighbors_helper = None
+
+        SimilarityIndex.__init__(self, samples, config, backend=backend)
+        DuplicatesMixin.__init__(self)
 
     @property
     def embeddings(self):
@@ -190,7 +190,12 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
             )
 
         _e = self._embeddings
-        n, d = _e.shape
+
+        n = _e.shape[0]
+        if n == 0:
+            _e = np.empty((0, embeddings.shape[1]), dtype=embeddings.dtype)
+
+        d = _e.shape[1]
         m = jj[-1] - n + 1
 
         if m > 0:

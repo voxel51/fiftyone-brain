@@ -421,7 +421,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
         index_size = 0
         missing_size = 0
         for batch_ids in fou.iter_batches(index_ids, 1000):
-            num_found = len(self._index.fetch(ids=batch_ids)["vectors"])
+            num_found = len(self._index.fetch(ids=list(batch_ids))["vectors"])
             index_size += num_found
             missing_size += len(batch_ids) - num_found
 
@@ -434,7 +434,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
         missing_ids = []
 
         for batch_ids in fou.iter_batches(sample_ids, batch_size):
-            response = self._index.fetch(ids=batch_ids)["vectors"]
+            response = self._index.fetch(ids=list(batch_ids))["vectors"]
 
             curr_found_ids = list(response.keys())
             curr_found_embeddings = [
@@ -455,7 +455,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
         missing_ids = []
 
         for batch_ids in fou.iter_batches(label_ids, batch_size):
-            response = self._index.fetch(ids=batch_ids)["vectors"]
+            response = self._index.fetch(ids=list(batch_ids))["vectors"]
 
             curr_found_label_ids = list(response.keys())
             curr_found_embeddings = [
@@ -487,7 +487,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
         for batch_ids in fou.iter_batches(sample_ids, batch_size):
             response = self._index.query(
                 vector=query_vector,
-                filter={"sample_id": {"$in": batch_ids}},
+                filter={"sample_id": {"$in": list(batch_ids)}},
                 top_k=top_k,
                 include_values=True,
                 include_metadata=True,
