@@ -183,7 +183,17 @@ class PineconeSimilarityIndex(SimilarityIndex):
             api_key=self.config.api_key,
         )
 
-        if self.config.index_name in pinecone.list_indexes():
+        try:
+            index_names = pinecone.list_indexes()
+        except Exception as e:
+            # @todo update help link once integration docs are available
+            raise ValueError(
+                "Failed to connect to Pinecone backend at environment '%s'. "
+                "Refer to https://docs.voxel51.com for more information"
+                % self.config.environment
+            ) from e
+
+        if self.config.index_name in index_names:
             index = pinecone.Index(self.config.index_name)
         else:
             index = None
@@ -321,13 +331,13 @@ class PineconeSimilarityIndex(SimilarityIndex):
         warn_missing=False,
     ):
         if label_ids is not None:
-            ids_to_remove = label_ids
+            ids = label_ids
         else:
-            ids_to_remove = sample_ids
+            ids = sample_ids
 
         if not allow_missing or warn_missing:
-            existing_ids = self._index.fetch(ids_to_remove).vectors.keys()
-            missing_ids = set(existing_ids) - set(ids_to_remove)
+            existing_ids = self._index.fetch(ids).vectors.keys()
+            missing_ids = set(existing_ids) - set(ids)
             num_missing = len(missing_ids)
 
             if num_missing > 0:
@@ -343,7 +353,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
                         num_missing,
                     )
 
-        self._index.delete(ids=ids_to_remove)
+        self._index.delete(ids=ids)
 
     def get_embeddings(
         self,

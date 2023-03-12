@@ -18,8 +18,6 @@ from fiftyone.brain.similarity import (
     SimilarityIndex,
 )
 
-fbu = fou.lazy_import("fiftyone.brain.internal.core.utils")
-
 qdrant = fou.lazy_import("qdrant_client")
 qmodels = fou.lazy_import("qdrant_client.http.models")
 
@@ -49,6 +47,18 @@ class QdrantSimilarityConfig(SimilarityConfig):
         metric (None): the embedding distance metric to use when creating a
             new index. Supported values are
             ``("cosine", "dotproduct", "euclidean")``
+        replication_factor (None): an optional replication factor to use when
+            creating a new index
+        shard_number (None): an optional number of shards to use when creating
+            a new index
+        write_consistency_factor (None): an optional write consistsency factor
+            to use when creating a new index
+        hnsw_config (None): an optional dict of HNSW config parameters to use
+            when creating a new index
+        optimizers_config (None): an optional dict of optimizer parameters to
+            use when creating a new index
+        wal_config (None): an optional dict of WAL config parameters to use
+            when creating a new index
     """
 
     def __init__(
@@ -69,7 +79,7 @@ class QdrantSimilarityConfig(SimilarityConfig):
         api_key=None,
         **kwargs,
     ):
-        if metric not in _SUPPORTED_METRICS:
+        if metric is not None and metric not in _SUPPORTED_METRICS:
             raise ValueError(
                 "Unsupported metric '%s'. Supported values are %s"
                 % (metric, tuple(_SUPPORTED_METRICS.keys()))
@@ -178,7 +188,27 @@ class QdrantSimilarityIndex(SimilarityIndex):
             url=self.config.url, api_key=self.config.api_key
         )
 
+        try:
+            self._client.get_collections()
+        except Exception as e:
+            # @todo update help link once integration docs are available
+            raise ValueError(
+                "Failed to connect to Qdrant backend at URL '%s'. Refer to "
+                "https://docs.voxel51.com for more information"
+                % self.config.url
+            ) from e
+
     def _create_collection(self, dimension):
+        if self.config.metric:
+            metric = self.config.metric
+        else:
+            metric = "cosine"
+
+        vectors_config = qmodels.VectorParams(
+            size=dimension,
+            distance=_SUPPORTED_METRICS[metric],
+        )
+
         if self.config.hnsw_config:
             hnsw_config = qmodels.HnswConfig(**self.config.hnsw_config)
         else:
@@ -198,10 +228,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
 
         self._client.recreate_collection(
             collection_name=self.config.collection_name,
-            vectors_config=qmodels.VectorParams(
-                size=dimension,
-                distance=_SUPPORTED_METRICS[self.config.metric],
-            ),
+            vectors_config=vectors_config,
             shard_number=self.config.shard_number,
             replication_factor=self.config.replication_factor,
             hnsw_config=hnsw_config,
@@ -483,11 +510,11 @@ class QdrantSimilarityIndex(SimilarityIndex):
                 "Qdrant does not support least similarity queries"
             )
 
-        if k is None:
-            raise ValueError("k required for querying with Qdrant backend")
-
         if aggregation not in (None, "mean"):
             raise ValueError("Unsupported aggregation '%s'" % aggregation)
+
+        if k is None:
+            k = self.index_size
 
         query = self._parse_neighbors_query(query)
         if aggregation == "mean" and query.ndim == 2:
@@ -550,17 +577,17 @@ class QdrantSimilarityIndex(SimilarityIndex):
 
         return query
 
-    def _to_qdrant_id(self, fo_id):
-        return fo_id + "0" * 8
+    def _to_qdrant_id(self, _id):
+        return _id + "00000000"
 
-    def _to_qdrant_ids(self, fo_ids):
-        return [self._to_qdrant_id(fo_id) for fo_id in fo_ids]
+    def _to_qdrant_ids(self, ids):
+        return [self._to_qdrant_id(_id) for _id in ids]
 
-    def _to_fiftyone_id(self, qdrant_id):
-        return qdrant_id.replace("-", "")[:-8]
+    def _to_fiftyone_id(self, qid):
+        return qid.replace("-", "")[:-8]
 
-    def _to_fiftyone_ids(self, qdrant_ids):
-        return [self._to_fiftyone_id(qdrant_id) for qdrant_id in qdrant_ids]
+    def _to_fiftyone_ids(self, qids):
+        return [self._to_fiftyone_id(qid) for qid in qids]
 
     @classmethod
     def _from_dict(cls, d, samples, config):

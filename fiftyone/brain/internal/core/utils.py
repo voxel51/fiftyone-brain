@@ -326,6 +326,11 @@ def add_ids(
 
         m = jj[-1] - n + 1
 
+        if n == 0:
+            index_sample_ids = np.array([], dtype=sample_ids.dtype)
+            if patches_field is not None:
+                index_label_ids = np.array([], dtype=label_ids.dtype)
+
         if m > 0:
             index_sample_ids = np.concatenate(
                 (index_sample_ids, np.empty(m, dtype=index_sample_ids.dtype))
