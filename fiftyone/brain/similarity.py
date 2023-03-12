@@ -210,6 +210,21 @@ class SimilarityConfig(fob.BrainMethodConfig):
             "subclass must implement supported_aggregations"
         )
 
+    def load_credentials(self, **kwargs):
+        self._load_parameters(**kwargs)
+
+    def _load_parameters(self, **kwargs):
+        # @todo what if user used a different name in their similarity config?
+        name = self.method
+        parameters = fb.brain_config.similarity_backends.get(name, {})
+
+        for name, value in kwargs.items():
+            if value is None:
+                value = parameters.get(name, None)
+
+            if value is not None:
+                setattr(self, name, value)
+
 
 class Similarity(fob.BrainMethod):
     """Base class for similarity factories.
@@ -279,18 +294,6 @@ class SimilarityIndex(fob.BrainResults):
     def config(self):
         """The :class:`SimilarityConfig` for these results."""
         return self._config
-
-    def _load_config_parameters(self, **kwargs):
-        config = self.config
-        name = config.method  # @todo what if user used a different name?
-        parameters = fb.brain_config.similarity_backends.get(name, {})
-
-        for name, value in kwargs.items():
-            if value is None:
-                value = parameters.get(name, None)
-
-            if value is not None:
-                setattr(config, name, value)
 
     @property
     def sample_ids(self):

@@ -131,6 +131,9 @@ class PineconeSimilarityConfig(SimilarityConfig):
     def supported_aggregations(self):
         return ("mean",)
 
+    def load_credentials(self, environment=None, api_key=None):
+        self._load_parameters(environment=environment, api_key=api_key)
+
 
 class PineconeSimilarity(Similarity):
     """Pinecone similarity factory.
@@ -166,16 +169,6 @@ class PineconeSimilarityIndex(SimilarityIndex):
         self._pinecone_missing_size = None
 
         self._initialize()
-
-    def load_credentials(self, environment=None, api_key=None):
-        """Loads the Pinecone credentials from the given keyword arguments or
-        the FiftyOne Brain similarity config.
-
-        Args:
-            environment (None): a Pinecone environment to use
-            api_key (None): a Pinecone API key to use
-        """
-        self._load_config_parameters(environment=environment, api_key=api_key)
 
     def _initialize(self):
         pinecone.init(

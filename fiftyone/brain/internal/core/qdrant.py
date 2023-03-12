@@ -138,6 +138,9 @@ class QdrantSimilarityConfig(SimilarityConfig):
     def supported_aggregations(self):
         return ("mean",)
 
+    def load_credentials(self, url=None, api_key=None):
+        self._load_parameters(url=url, api_key=api_key)
+
 
 class QdrantSimilarity(Similarity):
     """Qdrant similarity factory.
@@ -172,16 +175,6 @@ class QdrantSimilarityIndex(SimilarityIndex):
         self._fiftyone_ids = []
 
         self._initialize()
-
-    def load_credentials(self, url=None, api_key=None):
-        """Loads the Qdrant credentials from the given keyword arguments or
-        the FiftyOne Brain similarity config.
-
-        Args:
-            url (None): the Qdrant service URL to use
-            api_key (None): a Qdrant Cloud API key to use
-        """
-        self._load_config_parameters(url=url, api_key=api_key)
 
     def _initialize(self):
         self._client = qdrant.QdrantClient(
