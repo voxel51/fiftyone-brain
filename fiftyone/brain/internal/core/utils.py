@@ -7,6 +7,8 @@ Utilities.
 """
 import itertools
 import logging
+import random
+import string
 
 import numpy as np
 
@@ -326,6 +328,11 @@ def add_ids(
 
         m = jj[-1] - n + 1
 
+        if n == 0:
+            index_sample_ids = np.array([], dtype=sample_ids.dtype)
+            if patches_field is not None:
+                index_label_ids = np.array([], dtype=label_ids.dtype)
+
         if m > 0:
             index_sample_ids = np.concatenate(
                 (index_sample_ids, np.empty(m, dtype=index_sample_ids.dtype))
@@ -624,6 +631,24 @@ def get_embeddings(
     )
 
     return embeddings, sample_ids, label_ids
+
+
+def get_unique_name(name, ref_names):
+    ref_names = set(ref_names)
+
+    if name in ref_names:
+        name += "_" + _get_random_characters(6)
+
+    while name in ref_names:
+        name += _get_random_characters(1)
+
+    return name
+
+
+def _get_random_characters(n):
+    return "".join(
+        random.choice(string.ascii_lowercase + string.digits) for _ in range(n)
+    )
 
 
 def _empty_embeddings(patches_field):

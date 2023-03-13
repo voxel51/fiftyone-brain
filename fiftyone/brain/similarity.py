@@ -110,7 +110,7 @@ def compute_similarity(
         # Special syntax to allow embeddings to be added later
         embeddings = None
 
-    results = brain_method.initialize(samples)
+    results = brain_method.initialize(samples, brain_key)
 
     if embeddings is not None:
         results.add_to_index(embeddings, sample_ids, label_ids=label_ids)
@@ -210,6 +210,21 @@ class SimilarityConfig(fob.BrainMethodConfig):
             "subclass must implement supported_aggregations"
         )
 
+    def load_credentials(self, **kwargs):
+        self._load_parameters(**kwargs)
+
+    def _load_parameters(self, **kwargs):
+        # @todo what if user used a different name in their similarity config?
+        name = self.method
+        parameters = fb.brain_config.similarity_backends.get(name, {})
+
+        for name, value in kwargs.items():
+            if value is None:
+                value = parameters.get(name, None)
+
+            if value is not None:
+                setattr(self, name, value)
+
 
 class Similarity(fob.BrainMethod):
     """Base class for similarity factories.
@@ -218,14 +233,12 @@ class Similarity(fob.BrainMethod):
         config: a :class:`SimilarityConfig`
     """
 
-    def ensure_requirements(self):
-        pass
-
-    def initialize(self, samples):
+    def initialize(self, samples, brain_key):
         """Initializes a similarity index.
 
         Args:
             samples: a :class:`fiftyone.core.collections.SampleColllection`
+            brain_key: the brain key
 
         Returns:
             a :class:`SimilarityIndex`
@@ -242,9 +255,6 @@ class Similarity(fob.BrainMethod):
 
         return fields
 
-    def cleanup(self, samples, brain_key):
-        pass
-
 
 class SimilarityIndex(fob.BrainResults):
     """Base class for similarity indexes.
@@ -252,11 +262,12 @@ class SimilarityIndex(fob.BrainResults):
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
         config: the :class:`SimilarityConfig` used
+        brain_key: the brain key
         backend (None): a :class:`Similarity` backend
     """
 
-    def __init__(self, samples, config, backend=None):
-        super().__init__(samples, config, backend=backend)
+    def __init__(self, samples, config, brain_key, backend=None):
+        super().__init__(samples, config, brain_key, backend=backend)
 
         self._model = None
         self._curr_view = None
@@ -285,17 +296,6 @@ class SimilarityIndex(fob.BrainResults):
     def config(self):
         """The :class:`SimilarityConfig` for these results."""
         return self._config
-
-    def _load_config_parameters(self, **kwargs):
-        config = self.config
-        parameters = fb.brain_config.similarity_backends.get(config.method, {})
-
-        for name, value in kwargs.items():
-            if value is None:
-                value = parameters.get(name, None)
-
-            if value is not None:
-                setattr(config, name, value)
 
     @property
     def sample_ids(self):
@@ -537,6 +537,10 @@ class SimilarityIndex(fob.BrainResults):
         since the index was last loaded.
         """
         self.use_view(self._curr_view)
+
+    def cleanup(self):
+        """Deletes the similarity index from the backend."""
+        raise NotImplementedError("subclass must implement cleanup()")
 
     def values(self, path_or_expr):
         """Extracts a flat list of values from the given field or expression
@@ -885,6 +889,22 @@ class SimilarityIndex(fob.BrainResults):
             num_workers=num_workers,
             skip_failures=skip_failures,
         )
+
+    @classmethod
+    def _from_dict(cls, d, samples, config, brain_key):
+        """Builds a :class:`SimilarityIndex` from a JSON representation of it.
+
+        Args:
+            d: a JSON dict
+            samples: the :class:`fiftyone.core.collections.SampleCollection`
+                for the run
+            config: the :class:`SimilarityConfig` for the run
+            brain_key: the brain key
+
+        Returns:
+            a :class:`SimilarityIndex`
+        """
+        raise NotImplementedError("subclass must implement _from_dict()")
 
 
 class DuplicatesMixin(object):

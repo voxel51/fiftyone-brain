@@ -11,20 +11,20 @@ import numpy as np
 
 import eta.core.utils as etau
 
-import fiftyone.brain as fb
 import fiftyone.core.utils as fou
 from fiftyone.brain.similarity import (
     SimilarityConfig,
     Similarity,
     SimilarityIndex,
 )
+import fiftyone.brain.internal.core.utils as fbu
 
 pinecone = fou.lazy_import("pinecone")
 
 
 logger = logging.getLogger(__name__)
 
-_METRICS = ("euclidean", "cosine", "dotproduct")
+_SUPPORTED_METRICS = ("cosine", "dotproduct", "euclidean")
 
 
 class PineconeSimilarityConfig(SimilarityConfig):
@@ -37,10 +37,22 @@ class PineconeSimilarityConfig(SimilarityConfig):
             the model that was used to compute embeddings, if one was provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
-        supports_prompts (False): whether this run supports prompt queries
-        index_name ("fiftyone-index"): the name of the Pinecone Index to use
-        metric ("euclidean"): the embedding distance metric to use. Supported
-            values are ``("euclidean", "cosine", and "dotproduct")``
+        supports_prompts (None): whether this run supports prompt queries
+        index_name (None): the name of a Pinecone index to use or create. If
+            none is provided, a new index will be created
+        index_type (None): the index type to use when creating a new index
+        namespace (None): a namespace under which to store vectors added to the
+            index
+        metric (None): the embedding distance metric to use when creating a
+            new index. Supported values are
+            ``("cosine", "dotproduct", "euclidean")``
+        replicas (None): an optional number of replicas when creating a new
+            index
+        shards (None): an optional number of shards when creating a new index
+        pods (None): an optional number of pods when creating a new index
+        pod_type (None): an optional pod type when creating a new index
+        environment (None): a Pinecone environment to use
+        api_key (None): a Pinecone API key to use
     """
 
     def __init__(
@@ -49,21 +61,22 @@ class PineconeSimilarityConfig(SimilarityConfig):
         model=None,
         patches_field=None,
         supports_prompts=None,
-        index_name="fiftyone-index",
-        metric="cosine",
-        dimension=None,
-        pod_type="p1",
-        pods=1,
-        replicas=1,
-        api_key=None,
-        environment=None,
+        index_name=None,
+        index_type=None,
         namespace=None,
+        metric=None,
+        replicas=None,
+        shards=None,
+        pods=None,
+        pod_type=None,
+        environment=None,
+        api_key=None,
         **kwargs,
     ):
-        if metric not in _METRICS:
+        if metric is not None and metric not in _SUPPORTED_METRICS:
             raise ValueError(
                 "Unsupported metric '%s'. Supported values are %s"
-                % (metric, _METRICS)
+                % (metric, _SUPPORTED_METRICS)
             )
 
         super().__init__(
@@ -75,16 +88,29 @@ class PineconeSimilarityConfig(SimilarityConfig):
         )
 
         self.index_name = index_name
-        self.metric = metric
-        self.dimension = dimension
-        self.pod_type = pod_type
-        self.pods = pods
-        self.replicas = replicas
-        self.environment = environment
+        self.index_type = index_type
         self.namespace = namespace
+        self.metric = metric
+        self.replicas = replicas
+        self.shards = shards
+        self.pods = pods
+        self.pod_type = pod_type
 
-        # store privately so not serialized
+        # store privately so these aren't serialized
+        self._environment = environment
         self._api_key = api_key
+
+    @property
+    def method(self):
+        return "pinecone"
+
+    @property
+    def environment(self):
+        return self._environment
+
+    @environment.setter
+    def environment(self, value):
+        self._environment = value
 
     @property
     def api_key(self):
@@ -93,10 +119,6 @@ class PineconeSimilarityConfig(SimilarityConfig):
     @api_key.setter
     def api_key(self, value):
         self._api_key = value
-
-    @property
-    def method(self):
-        return "pinecone"
 
     @property
     def max_k(self):
@@ -109,6 +131,9 @@ class PineconeSimilarityConfig(SimilarityConfig):
     @property
     def supported_aggregations(self):
         return ("mean",)
+
+    def load_credentials(self, environment=None, api_key=None):
+        self._load_parameters(environment=environment, api_key=api_key)
 
 
 class PineconeSimilarity(Similarity):
@@ -124,8 +149,10 @@ class PineconeSimilarity(Similarity):
     def ensure_usage_requirements(self):
         fou.ensure_package("pinecone-client")
 
-    def initialize(self, samples):
-        return PineconeSimilarityIndex(samples, self.config, backend=self)
+    def initialize(self, samples, brain_key):
+        return PineconeSimilarityIndex(
+            samples, self.config, brain_key, backend=self
+        )
 
 
 class PineconeSimilarityIndex(SimilarityIndex):
@@ -134,55 +161,63 @@ class PineconeSimilarityIndex(SimilarityIndex):
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
         config: the :class:`PineconeSimilarityConfig` used
+        brain_key: the brain key
         backend (None): a :class:`PineconeSimilarity` instance
     """
 
-    def __init__(self, samples, config, backend=None):
-        super().__init__(samples, config, backend=backend)
-        self.load_credentials(api_key=self.config.api_key)
+    def __init__(self, samples, config, brain_key, backend=None):
+        super().__init__(samples, config, brain_key, backend=backend)
+        self._index = None
+        self._initialize()
 
-        self._metric = config.metric
-        self._index_name = config.index_name
-        self._dimension = config.dimension or 0
-        self._pod_type = config.pod_type
-        self._pods = config.pods
-        self._replicas = config.replicas
-        self._api_key = config.api_key
-        self._environment = config.environment
-        self._namespace = config.namespace
-
-        self._initialize_index()
-
-    def load_credentials(self, api_key=None):
-        """Load the Pinecone credentials from the given keyword arguments or the
-        FiftyOne Brain similarity config.
-
-        Args:
-            api_key (None): the api_key for accessing the Pinecone index
-        """
-        self._load_config_parameters(api_key=api_key)
-
-    def _create_index(self, dimension):
-        pinecone.create_index(
-            self._index_name,
-            dimension=dimension,
-            metric=self._metric,
-            pod_type=self._pod_type,
-            pods=self._pods,
-            replicas=self._replicas,
+    def _initialize(self):
+        pinecone.init(
+            environment=self.config.environment,
+            api_key=self.config.api_key,
         )
 
-    def _initialize_index(self):
-        pinecone.init(api_key=self._api_key, environment=self._environment)
+        try:
+            index_names = pinecone.list_indexes()
+        except Exception as e:
+            # @todo update help link once integration docs are available
+            raise ValueError(
+                "Failed to connect to Pinecone backend at environment '%s'. "
+                "Refer to https://docs.voxel51.com for more information"
+                % self.config.environment
+            ) from e
 
-        if self._index_name not in pinecone.list_indexes():
-            if self.config.dimension is not None:
-                self._create_index(self.config.dimension)
-                self._index = pinecone.Index(self._index_name)
-            else:
-                self._index = None
+        if self.config.index_name is None:
+            root = "fiftyone-" + self.samples._root_dataset.name
+            index_name = fbu.get_unique_name(root, index_names)
+
+            self.config.index_name = index_name
+            self.save_config()
+
+        if self.config.index_name in index_names:
+            index = pinecone.Index(self.config.index_name)
         else:
-            self._index = pinecone.Index(self._index_name)
+            index = None
+
+        self._index = index
+
+    def _create_index(self, dimension):
+        kwargs = dict(
+            index_type=self.config.index_type,
+            metric=self.config.metric,
+            replicas=self.config.replicas,
+            shards=self.config.shards,
+            pods=self.config.pods,
+            pod_type=self.config.pod_type,
+        )
+        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+
+        pinecone.create_index(
+            self.config.index_name,
+            dimension=dimension,
+            **kwargs,
+        )
+
+        self._index = pinecone.Index(self.config.index_name)
 
     @property
     def index(self):
@@ -191,51 +226,10 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
     @property
     def total_index_size(self):
-        index_stats = self.index.describe_index_stats()
-        return index_stats["total_vector_count"]
+        if self._index is None:
+            return None
 
-    @property
-    def index_size(self):
-        if self.config.patches_field is not None:
-            index_ids = self.current_label_ids
-        else:
-            index_ids = self.current_sample_ids
-
-        index_size = 0
-        batch_size = 1000
-        num_ids = len(index_ids)
-        num_batches = np.ceil(num_ids / batch_size).astype(int)
-
-        for batch in range(num_batches):
-            min_ind = batch * batch_size
-            max_ind = min((batch + 1) * batch_size, num_ids)
-            batch_ids = list(index_ids[min_ind:max_ind])
-
-            index_size += len(self.index.fetch(ids=batch_ids)["vectors"])
-
-        return index_size
-
-    @property
-    def missing_size(self):
-        if self.config.patches_field is not None:
-            index_ids = self.current_label_ids
-        else:
-            index_ids = self.current_sample_ids
-
-        missing_size = 0
-        batch_size = 1000
-        num_ids = len(index_ids)
-        num_batches = np.ceil(num_ids / batch_size).astype(int)
-
-        for batch in range(num_batches):
-            min_ind = batch * batch_size
-            max_ind = min((batch + 1) * batch_size, num_ids)
-            batch_ids = list(index_ids[min_ind:max_ind])
-            num_ids = len(batch_ids)
-            num_ids_found = len(self.index.fetch(ids=batch_ids)["vectors"])
-            missing_size += num_ids - num_ids_found
-
-        return missing_size
+        return self._index.describe_index_stats()["total_vector_count"]
 
     def add_to_index(
         self,
@@ -245,69 +239,74 @@ class PineconeSimilarityIndex(SimilarityIndex):
         overwrite=True,
         allow_existing=True,
         warn_existing=False,
-        upsert_pagination=100,
+        batch_size=100,
         namespace=None,
     ):
+        if namespace is None:
+            namespace = self.config.namespace
 
-        if self._index_name not in pinecone.list_indexes():
-            dimension = embeddings.shape[1]
-            self._create_index(dimension)
-        if self.index is None:
-            self._index = pinecone.Index(self._index_name)
+        if self._index is None:
+            self._create_index(embeddings.shape[1])
 
-        embeddings_list = [arr.tolist() for arr in embeddings]
         if label_ids is not None:
-            id_dicts = [
-                {"id": lid, "sample_id": sid}
-                for lid, sid in zip(label_ids, sample_ids)
-            ]
-            index_vectors = list(zip(label_ids, embeddings_list, id_dicts))
+            ids = label_ids
         else:
-            id_dicts = [{"id": sid, "sample_id": sid} for sid in sample_ids]
-            index_vectors = list(zip(sample_ids, embeddings_list, id_dicts))
+            ids = sample_ids
 
-        num_vectors = embeddings.shape[0]
-        num_steps = np.ceil(num_vectors / upsert_pagination).astype(int)
+        if warn_existing or not allow_existing or not overwrite:
+            existing_ids = self._get_existing_ids(ids)
+            num_existing = len(existing_ids)
 
-        index = self.index
-        num_existing_ids = 0
-
-        for i in range(num_steps):
-            min_ind = upsert_pagination * i
-            max_ind = min(upsert_pagination * (i + 1), num_vectors)
-
-            if overwrite and allow_existing and not warn_existing:
-                # Simplest case
-                index.upsert(
-                    index_vectors[min_ind:max_ind], namespace=namespace
-                )
-            else:
-                curr_index_vectors = index_vectors[min_ind:max_ind]
-                curr_index_vector_ids = [r[0] for r in curr_index_vectors]
-                response = index.fetch(curr_index_vector_ids)
-                curr_existing_ids = list(response.vectors.keys())
-                num_existing_ids += len(curr_existing_ids)
-
-                if num_existing_ids > 0 and not allow_existing:
+            if num_existing > 0:
+                if not allow_existing:
                     raise ValueError(
                         "Found %d IDs (eg %s) that already exist in the index"
-                        % (num_existing_ids, curr_existing_ids[0])
+                        % (num_existing, next(iter(existing_ids)))
                     )
 
-                if not overwrite:
-                    # Pick out non-existing vectors to add
-                    curr_index_vectors = [
-                        civ
-                        for civ in curr_index_vectors
-                        if civ[0] not in curr_existing_ids
-                    ]
+                if warn_existing:
+                    if overwrite:
+                        logger.warning(
+                            "Overwriting %d IDs that already exist in the "
+                            "index",
+                            num_existing,
+                        )
+                    else:
+                        logger.warning(
+                            "Skipping %d IDs that already exist in the index",
+                            num_existing,
+                        )
+        else:
+            existing_ids = set()
 
-                index.upsert(curr_index_vectors, namespace=namespace)
+        if existing_ids and not overwrite:
+            del_inds = [i for i, _id in enumerate(ids) if _id in existing_ids]
 
-        if warn_existing and num_existing_ids > 0:
-            logger.warning(
-                "Skipped %d IDs that already exist in the index",
-                num_existing_ids,
+            embeddings = np.delete(embeddings, del_inds)
+            sample_ids = np.delete(sample_ids, del_inds)
+            if label_ids is not None:
+                label_ids = np.delete(label_ids, del_inds)
+
+        embeddings = [e.tolist() for e in embeddings]
+        sample_ids = list(sample_ids)
+
+        if label_ids is not None:
+            ids = list(label_ids)
+        else:
+            ids = sample_ids
+
+        for _embeddings, _ids, _sample_ids in zip(
+            fou.iter_batches(embeddings, batch_size),
+            fou.iter_batches(ids, batch_size),
+            fou.iter_batches(sample_ids, batch_size),
+        ):
+            _id_dicts = [
+                {"id": _id, "sample_id": _sid}
+                for _id, _sid in zip(_ids, _sample_ids)
+            ]
+            self._index.upsert(
+                list(zip(_ids, _embeddings, _id_dicts)),
+                namespace=namespace,
             )
 
     def remove_from_index(
@@ -317,16 +316,14 @@ class PineconeSimilarityIndex(SimilarityIndex):
         allow_missing=True,
         warn_missing=False,
     ):
-        index = self.index
-
         if label_ids is not None:
-            ids_to_remove = label_ids
+            ids = label_ids
         else:
-            ids_to_remove = sample_ids
+            ids = sample_ids
 
         if not allow_missing or warn_missing:
-            existing_ids = index.fetch(ids_to_remove).vectors.keys()
-            missing_ids = set(existing_ids) - set(ids_to_remove)
+            existing_ids = self._index.fetch(ids).vectors.keys()
+            missing_ids = set(existing_ids) - set(ids)
             num_missing = len(missing_ids)
 
             if num_missing > 0:
@@ -342,166 +339,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
                         num_missing,
                     )
 
-        index.delete(ids=ids_to_remove)
-
-    def _get_sample_embeddings(
-        self,
-        sample_ids,
-        batch_size=1000,
-        allow_missing=True,
-        warn_missing=False,
-    ):
-        found_sample_ids, found_embeddings = [], []
-        found_label_ids = None
-        index = self.index
-
-        missing_ids = []
-
-        num_sample_ids = len(sample_ids)
-        num_batches = np.ceil(num_sample_ids / batch_size).astype(int)
-
-        for batch in range(num_batches):
-            min_ind = batch * batch_size
-            max_ind = min((batch + 1) * batch_size, num_sample_ids)
-            batch_ids = sample_ids[min_ind:max_ind]
-
-            response = index.fetch(ids=batch_ids)["vectors"]
-            curr_found_ids = list(response.keys())
-            curr_missing_ids = list(set(batch_ids).difference(curr_found_ids))
-            missing_ids.append(curr_missing_ids)
-
-            curr_found_embeddings = [
-                response[k]["values"] for k in curr_found_ids
-            ]
-
-            found_sample_ids.append(curr_found_ids)
-            found_embeddings.append(curr_found_embeddings)
-
-        num_missing_ids = len(missing_ids)
-        if num_missing_ids > 0:
-            if not allow_missing:
-                raise ValueError(
-                    "Found %d IDs (eg %s) that do not exist in the index"
-                    % (num_missing_ids, missing_ids[0])
-                )
-
-            if warn_missing:
-                logger.warning(
-                    "Skipping %d IDs that do not exist in the index",
-                    num_missing_ids,
-                )
-
-        return found_embeddings, found_sample_ids, found_label_ids
-
-    def _get_patch_embeddings_from_label_ids(
-        self,
-        label_ids,
-        batch_size=1000,
-        allow_missing=True,
-        warn_missing=False,
-    ):
-        found_sample_ids, found_label_ids, found_embeddings = [], [], []
-        index = self.index
-
-        missing_ids = []
-
-        num_sample_ids = len(label_ids)
-        num_batches = np.ceil(num_sample_ids / batch_size).astype(int)
-
-        for batch in range(num_batches):
-            min_ind = batch * batch_size
-            max_ind = min((batch + 1) * batch_size, num_sample_ids)
-            batch_ids = label_ids[min_ind:max_ind]
-
-            response = index.fetch(ids=batch_ids)["vectors"]
-            curr_found_label_ids = list(response.keys())
-            curr_missing_ids = list(
-                set(batch_ids).difference(curr_found_label_ids)
-            )
-            missing_ids.append(curr_missing_ids)
-
-            curr_found_embeddings = [
-                response[k]["values"] for k in curr_found_label_ids
-            ]
-
-            curr_found_sample_ids = [
-                response[k]["metadata"]["sample_id"]
-                for k in curr_found_label_ids
-            ]
-
-            found_label_ids.append(curr_found_label_ids)
-            found_sample_ids.append(curr_found_sample_ids)
-            found_embeddings.append(curr_found_embeddings)
-
-        num_missing_ids = len(missing_ids)
-        if num_missing_ids > 0:
-            if not allow_missing:
-                raise ValueError(
-                    "Found %d IDs (eg %s) that do not exist in the index"
-                    % (num_missing_ids, missing_ids[0])
-                )
-
-            if warn_missing:
-                logger.warning(
-                    "Skipping %d IDs that do not exist in the index",
-                    num_missing_ids,
-                )
-
-        return found_embeddings, found_sample_ids, found_label_ids
-
-    def _get_patch_embeddings_from_sample_ids(
-        self,
-        sample_ids,
-        batch_size=100,
-        allow_missing=True,
-        warn_missing=False,
-    ):
-
-        found_sample_ids, found_label_ids, found_embeddings = [], [], []
-
-        index = self.index
-        query_vector = [0.0] * self.index.describe_index_stats().dimension
-
-        num_sample_ids = len(sample_ids)
-        num_batches = np.ceil(num_sample_ids / batch_size).astype(int)
-
-        for batch in range(num_batches):
-            min_ind = batch * batch_size
-            max_ind = min((batch + 1) * batch_size, num_sample_ids)
-            batch_ids = sample_ids[min_ind:max_ind]
-            _filter = {
-                "sample_id": {"$in": batch_ids},
-            }
-            response = index.query(
-                vector=query_vector,
-                filter=_filter,
-                top_k=min(batch_size, self.config.max_k),
-                include_values=True,
-                include_metadata=True,
-            )
-
-            for res in response["matches"]:
-                found_label_ids.append(res["id"])
-                found_sample_ids.append(res["metadata"]["sample_id"])
-                found_embeddings.append(res["values"])
-
-        missing_ids = list(set(sample_ids).difference(set(found_sample_ids)))
-
-        num_missing_ids = len(missing_ids)
-        if num_missing_ids > 0:
-            if not allow_missing:
-                raise ValueError(
-                    "Found %d IDs (eg %s) that do not exist in the index"
-                    % (num_missing_ids, missing_ids[0])
-                )
-
-            if warn_missing:
-                logger.warning(
-                    "Skipping %d IDs that do not exist in the index",
-                    num_missing_ids,
-                )
-
-        return found_embeddings, found_sample_ids, found_label_ids
+        self._index.delete(ids=ids)
 
     def get_embeddings(
         self,
@@ -520,23 +358,129 @@ class PineconeSimilarityIndex(SimilarityIndex):
                 )
 
         if sample_ids is not None and self.config.patches_field is not None:
-            return self._get_patch_embeddings_from_sample_ids(
+            (
+                embeddings,
                 sample_ids,
-                allow_missing=allow_missing,
-                warn_missing=warn_missing,
-            )
-        elif self.config.patches_field is not None:
-            return self._get_patch_embeddings_from_label_ids(
                 label_ids,
-                allow_missing=allow_missing,
-                warn_missing=warn_missing,
-            )
-        else:
-            return self._get_sample_embeddings(
+                missing_ids,
+            ) = self._get_patch_embeddings_from_sample_ids(sample_ids)
+        elif self.config.patches_field is not None:
+            (
+                embeddings,
                 sample_ids,
-                allow_missing=allow_missing,
-                warn_missing=warn_missing,
+                label_ids,
+                missing_ids,
+            ) = self._get_patch_embeddings_from_label_ids(label_ids)
+        else:
+            (
+                embeddings,
+                sample_ids,
+                label_ids,
+                missing_ids,
+            ) = self._get_sample_embeddings(sample_ids)
+
+        num_missing_ids = len(missing_ids)
+        if num_missing_ids > 0:
+            if not allow_missing:
+                raise ValueError(
+                    "Found %d IDs (eg %s) that do not exist in the index"
+                    % (num_missing_ids, missing_ids[0])
+                )
+
+            if warn_missing:
+                logger.warning(
+                    "Skipping %d IDs that do not exist in the index",
+                    num_missing_ids,
+                )
+
+        embeddings = np.array(embeddings)
+        sample_ids = np.array(sample_ids)
+        if label_ids is not None:
+            label_ids = np.array(label_ids)
+
+        return embeddings, sample_ids, label_ids
+
+    def cleanup(self):
+        pinecone.delete_index(self.config.index_name)
+        self._index = None
+
+    def _get_existing_ids(self, ids, batch_size=1000):
+        existing_ids = set()
+        for batch_ids in fou.iter_batches(ids, batch_size):
+            response = self._index.fetch(ids=list(batch_ids))["vectors"]
+            existing_ids.update(response.keys())
+
+        return existing_ids
+
+    def _get_sample_embeddings(self, sample_ids, batch_size=1000):
+        found_embeddings = []
+        found_sample_ids = []
+
+        if sample_ids is None:
+            raise ValueError(
+                "Pinecone does not support retrieving all vectors in an index"
             )
+
+        for batch_ids in fou.iter_batches(sample_ids, batch_size):
+            response = self._index.fetch(ids=list(batch_ids))["vectors"]
+
+            for r in response.values():
+                found_embeddings.append(np.array(r["values"]))
+                found_sample_ids.append(r["id"])
+
+        missing_ids = list(set(sample_ids) - set(found_sample_ids))
+
+        return found_embeddings, found_sample_ids, None, missing_ids
+
+    def _get_patch_embeddings_from_label_ids(self, label_ids, batch_size=1000):
+        found_embeddings = []
+        found_sample_ids = []
+        found_label_ids = []
+
+        if label_ids is None:
+            raise ValueError(
+                "Pinecone does not support retrieving all vectors in an index"
+            )
+
+        for batch_ids in fou.iter_batches(label_ids, batch_size):
+            response = self._index.fetch(ids=list(batch_ids))["vectors"]
+
+            for r in response.values():
+                found_embeddings.append(np.array(r["values"]))
+                found_sample_ids.append(r["metadata"]["sample_id"])
+                found_label_ids.append(r["id"])
+
+        missing_ids = list(set(label_ids) - set(found_label_ids))
+
+        return found_embeddings, found_sample_ids, found_label_ids, missing_ids
+
+    def _get_patch_embeddings_from_sample_ids(
+        self, sample_ids, batch_size=100
+    ):
+        found_embeddings = []
+        found_sample_ids = []
+        found_label_ids = []
+
+        query_vector = [0.0] * self._index.describe_index_stats().dimension
+        top_k = min(batch_size, self.config.max_k)
+
+        for batch_ids in fou.iter_batches(sample_ids, batch_size):
+            response = self._index.query(
+                vector=query_vector,
+                filter={"sample_id": {"$in": list(batch_ids)}},
+                top_k=top_k,
+                include_values=True,
+                include_metadata=True,
+            )
+
+            for r in response["matches"]:
+                found_embeddings.append(np.array(r["values"]))
+                found_sample_ids.append(r["metadata"]["sample_id"])
+                found_label_ids.append(r["id"])
+
+        missing_ids = list(set(sample_ids) - set(found_sample_ids))
+
+        return found_embeddings, found_sample_ids, found_label_ids, missing_ids
 
     def _kneighbors(
         self,
@@ -549,20 +493,18 @@ class PineconeSimilarityIndex(SimilarityIndex):
         if query is None:
             raise ValueError("Pinecone does not support full index neighbors")
 
-        if reverse == True:
+        if reverse is True:
             raise ValueError(
                 "Pinecone does not support least similarity queries"
             )
 
         if k is None or k > self.config.max_k:
-            raise ValueError("Pincone requires k <= 10000")
+            raise ValueError("Pincone requires k<=%s" % self.config.max_k)
 
         if aggregation not in (None, "mean"):
             raise ValueError("Unsupported aggregation '%s'" % aggregation)
 
-        index = self.index
-
-        query = self._parse_neighbors_query(query, index)
+        query = self._parse_neighbors_query(query)
         if aggregation == "mean" and query.ndim == 2:
             query = query.mean(axis=0)
 
@@ -580,7 +522,9 @@ class PineconeSimilarityIndex(SimilarityIndex):
         ids = []
         dists = []
         for q in query:
-            response = index.query(vector=q.tolist(), top_k=k, filter=_filter)
+            response = self._index.query(
+                vector=q.tolist(), top_k=k, filter=_filter
+            )
             ids.append([r["id"] for r in response["matches"]])
             if return_dists:
                 dists.append([r["score"] for r in response["matches"]])
@@ -595,7 +539,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
         return ids
 
-    def _parse_neighbors_query(self, query, index):
+    def _parse_neighbors_query(self, query):
         if etau.is_str(query):
             query_ids = [query]
             single_query = True
@@ -610,7 +554,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
             single_query = False
 
         # Query by ID(s)
-        response = index.fetch(query_ids)["vectors"]
+        response = self._index.fetch(query_ids)["vectors"]
         query = np.array([response[_id]["values"] for _id in query_ids])
 
         if single_query:
@@ -619,5 +563,5 @@ class PineconeSimilarityIndex(SimilarityIndex):
         return query
 
     @classmethod
-    def _from_dict(cls, d, samples, config):
-        return cls(samples, config)
+    def _from_dict(cls, d, samples, config, brain_key):
+        return cls(samples, config, brain_key)
