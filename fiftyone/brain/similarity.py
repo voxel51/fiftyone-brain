@@ -110,14 +110,10 @@ def compute_similarity(
         # Special syntax to allow embeddings to be added later
         embeddings = None
 
-    results = brain_method.initialize(samples)
+    results = brain_method.initialize(samples, brain_key)
 
     if embeddings is not None:
         results.add_to_index(embeddings, sample_ids, label_ids=label_ids)
-
-    # It is possible that the backend may update the run's config (eg when
-    # creating a new index), so we update the config now
-    brain_method.update_run_config(samples, brain_key, config)
 
     brain_method.save_run_results(samples, brain_key, results)
 
@@ -237,11 +233,12 @@ class Similarity(fob.BrainMethod):
         config: a :class:`SimilarityConfig`
     """
 
-    def initialize(self, samples):
+    def initialize(self, samples, brain_key):
         """Initializes a similarity index.
 
         Args:
             samples: a :class:`fiftyone.core.collections.SampleColllection`
+            brain_key: the brain key
 
         Returns:
             a :class:`SimilarityIndex`
@@ -265,11 +262,12 @@ class SimilarityIndex(fob.BrainResults):
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
         config: the :class:`SimilarityConfig` used
+        brain_key: the brain key
         backend (None): a :class:`Similarity` backend
     """
 
-    def __init__(self, samples, config, backend=None):
-        super().__init__(samples, config, backend=backend)
+    def __init__(self, samples, config, brain_key, backend=None):
+        super().__init__(samples, config, brain_key, backend=backend)
 
         self._model = None
         self._curr_view = None
@@ -891,6 +889,22 @@ class SimilarityIndex(fob.BrainResults):
             num_workers=num_workers,
             skip_failures=skip_failures,
         )
+
+    @classmethod
+    def _from_dict(cls, d, samples, config, brain_key):
+        """Builds a :class:`SimilarityIndex` from a JSON representation of it.
+
+        Args:
+            d: a JSON dict
+            samples: the :class:`fiftyone.core.collections.SampleCollection`
+                for the run
+            config: the :class:`SimilarityConfig` for the run
+            brain_key: the brain key
+
+        Returns:
+            a :class:`SimilarityIndex`
+        """
+        raise NotImplementedError("subclass must implement _from_dict()")
 
 
 class DuplicatesMixin(object):

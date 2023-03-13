@@ -149,8 +149,10 @@ class PineconeSimilarity(Similarity):
     def ensure_usage_requirements(self):
         fou.ensure_package("pinecone-client")
 
-    def initialize(self, samples):
-        return PineconeSimilarityIndex(samples, self.config, backend=self)
+    def initialize(self, samples, brain_key):
+        return PineconeSimilarityIndex(
+            samples, self.config, brain_key, backend=self
+        )
 
 
 class PineconeSimilarityIndex(SimilarityIndex):
@@ -159,14 +161,13 @@ class PineconeSimilarityIndex(SimilarityIndex):
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
         config: the :class:`PineconeSimilarityConfig` used
+        brain_key: the brain key
         backend (None): a :class:`PineconeSimilarity` instance
     """
 
-    def __init__(self, samples, config, backend=None):
-        super().__init__(samples, config, backend=backend)
-
+    def __init__(self, samples, config, brain_key, backend=None):
+        super().__init__(samples, config, brain_key, backend=backend)
         self._index = None
-
         self._initialize()
 
     def _initialize(self):
@@ -190,6 +191,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
             index_name = fbu.get_unique_name(root, index_names)
 
             self.config.index_name = index_name
+            self.save_config()
 
         if self.config.index_name in index_names:
             index = pinecone.Index(self.config.index_name)
@@ -561,5 +563,5 @@ class PineconeSimilarityIndex(SimilarityIndex):
         return query
 
     @classmethod
-    def _from_dict(cls, d, samples, config):
-        return cls(samples, config)
+    def _from_dict(cls, d, samples, config, brain_key):
+        return cls(samples, config, brain_key)

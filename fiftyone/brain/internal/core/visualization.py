@@ -122,6 +122,7 @@ def compute_visualization(
     results = VisualizationResults(
         samples,
         config,
+        brain_key,
         points,
         sample_ids=sample_ids,
         label_ids=label_ids,

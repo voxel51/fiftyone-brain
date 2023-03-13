@@ -93,8 +93,10 @@ class SklearnSimilarity(Similarity):
         config: an :class:`SklearnSimilarityConfig`
     """
 
-    def initialize(self, samples):
-        return SklearnSimilarityIndex(samples, self.config, backend=self)
+    def initialize(self, samples, brain_key):
+        return SklearnSimilarityIndex(
+            samples, self.config, brain_key, backend=self
+        )
 
 
 class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
@@ -103,6 +105,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
         config: the :class:`SklearnSimilarityConfig` used
+        brain_key: the brain key
         embeddings (None): a ``num_embeddings x num_dims`` array of embeddings
         sample_ids (None): a ``num_embeddings`` array of sample IDs
         label_ids (None): a ``num_embeddings`` array of label IDs, if
@@ -114,6 +117,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         self,
         samples,
         config,
+        brain_key,
         embeddings=None,
         sample_ids=None,
         label_ids=None,
@@ -135,7 +139,9 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         self._curr_ids_to_inds = None
         self._neighbors_helper = None
 
-        SimilarityIndex.__init__(self, samples, config, backend=backend)
+        SimilarityIndex.__init__(
+            self, samples, config, brain_key, backend=backend
+        )
         DuplicatesMixin.__init__(self)
 
     @property
@@ -636,7 +642,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         return embeddings, sample_ids, label_ids
 
     @classmethod
-    def _from_dict(cls, d, samples, config):
+    def _from_dict(cls, d, samples, config, brain_key):
         embeddings = d.get("embeddings", None)
         if embeddings is not None:
             embeddings = np.array(embeddings)
@@ -652,6 +658,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         return cls(
             samples,
             config,
+            brain_key,
             embeddings=embeddings,
             sample_ids=sample_ids,
             label_ids=label_ids,

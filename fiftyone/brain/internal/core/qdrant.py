@@ -156,8 +156,10 @@ class QdrantSimilarity(Similarity):
     def ensure_usage_requirements(self):
         fou.ensure_package("qdrant-client")
 
-    def initialize(self, samples):
-        return QdrantSimilarityIndex(samples, self.config, backend=self)
+    def initialize(self, samples, brain_key):
+        return QdrantSimilarityIndex(
+            samples, self.config, brain_key, backend=self
+        )
 
 
 class QdrantSimilarityIndex(SimilarityIndex):
@@ -166,14 +168,13 @@ class QdrantSimilarityIndex(SimilarityIndex):
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
         config: the :class:`QdrantSimilarityConfig` used
+        brain_key: the brain key
         backend (None): a :class:`QdrantSimilarity` instance
     """
 
-    def __init__(self, samples, config, backend=None):
-        super().__init__(samples, config, backend=backend)
-
+    def __init__(self, samples, config, brain_key, backend=None):
+        super().__init__(samples, config, brain_key, backend=backend)
         self._client = None
-
         self._initialize()
 
     def _initialize(self):
@@ -196,6 +197,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
             collection_name = fbu.get_unique_name(root, collection_names)
 
             self.config.collection_name = collection_name
+            self.save_config()
 
     def _get_collection_names(self):
         return [c.name for c in self._client.get_collections().collections]
@@ -607,5 +609,5 @@ class QdrantSimilarityIndex(SimilarityIndex):
         return [self._to_fiftyone_id(qid) for qid in qids]
 
     @classmethod
-    def _from_dict(cls, d, samples, config):
-        return cls(samples, config)
+    def _from_dict(cls, d, samples, config, brain_key):
+        return cls(samples, config, brain_key)

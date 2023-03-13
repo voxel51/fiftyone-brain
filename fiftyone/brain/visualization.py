@@ -23,6 +23,7 @@ class VisualizationResults(fob.BrainResults):
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
         config: the :class:`VisualizationConfig` used
+        brain_key: the brain key
         points: a ``num_points x num_dims`` array of visualization points
         sample_ids (None): a ``num_points`` array of sample IDs
         label_ids (None): a ``num_points`` array of label IDs, if applicable
@@ -33,12 +34,13 @@ class VisualizationResults(fob.BrainResults):
         self,
         samples,
         config,
+        brain_key,
         points,
         sample_ids=None,
         label_ids=None,
         backend=None,
     ):
-        super().__init__(samples, config, backend=backend)
+        super().__init__(samples, config, brain_key, backend=backend)
 
         if sample_ids is None:
             sample_ids, label_ids = fbu.get_ids(
@@ -314,7 +316,7 @@ class VisualizationResults(fob.BrainResults):
         )
 
     @classmethod
-    def _from_dict(cls, d, samples, config):
+    def _from_dict(cls, d, samples, config, brain_key):
         points = np.array(d["points"])
 
         sample_ids = d.get("sample_ids", None)
@@ -328,6 +330,7 @@ class VisualizationResults(fob.BrainResults):
         return cls(
             samples,
             config,
+            brain_key,
             points,
             sample_ids=sample_ids,
             label_ids=label_ids,
