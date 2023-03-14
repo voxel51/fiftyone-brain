@@ -193,7 +193,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
             ) from e
 
         if self.config.collection_name is None:
-            root = "fiftyone-" + self.samples._root_dataset.name
+            root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
             collection_name = fbu.get_unique_name(root, collection_names)
 
             self.config.collection_name = collection_name

@@ -187,7 +187,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
             ) from e
 
         if self.config.index_name is None:
-            root = "fiftyone-" + self.samples._root_dataset.name
+            root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
             index_name = fbu.get_unique_name(root, index_names)
 
             self.config.index_name = index_name
