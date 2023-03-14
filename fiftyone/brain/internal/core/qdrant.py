@@ -252,7 +252,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
                 with_payload=True,
                 with_vectors=False,
             )
-            ids.extend([self._to_fiftyone_id(doc.id) for doc in response[0]])
+            ids.extend([self._to_fiftyone_id(r.id) for r in response[0]])
             offset = response[-1]
 
         return ids
