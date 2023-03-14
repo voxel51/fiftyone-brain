@@ -441,7 +441,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
             response = self._index.fetch(ids=list(batch_ids))["vectors"]
 
             for r in response.values():
-                found_embeddings.append(np.array(r["values"]))
+                found_embeddings.append(r["values"])
                 found_sample_ids.append(r["id"])
 
         missing_ids = list(set(sample_ids) - set(found_sample_ids))
@@ -462,7 +462,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
             response = self._index.fetch(ids=list(batch_ids))["vectors"]
 
             for r in response.values():
-                found_embeddings.append(np.array(r["values"]))
+                found_embeddings.append(r["values"])
                 found_sample_ids.append(r["metadata"]["sample_id"])
                 found_label_ids.append(r["id"])
 
@@ -490,7 +490,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
             )
 
             for r in response["matches"]:
-                found_embeddings.append(np.array(r["values"]))
+                found_embeddings.append(r["values"])
                 found_sample_ids.append(r["metadata"]["sample_id"])
                 found_label_ids.append(r["id"])
 
