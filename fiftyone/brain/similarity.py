@@ -91,7 +91,10 @@ def compute_similarity(
     brain_method.ensure_requirements()
 
     if brain_key is not None:
-        brain_method.register_run(samples, brain_key)
+        # Don't allow overwriting an existing run with same key, since we
+        # need the existing run in order to perform workflows like
+        # automatically cleaning up the backend's index
+        brain_method.register_run(samples, brain_key, overwrite=False)
 
     if embeddings is not False:
         embeddings, sample_ids, label_ids = fbu.get_embeddings(
