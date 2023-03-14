@@ -305,11 +305,10 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
         embeddings = [e.tolist() for e in embeddings]
         sample_ids = list(sample_ids)
-
         if label_ids is not None:
             ids = list(label_ids)
         else:
-            ids = sample_ids
+            ids = list(sample_ids)
 
         for _embeddings, _ids, _sample_ids in zip(
             fou.iter_batches(embeddings, batch_size),
