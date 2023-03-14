@@ -472,8 +472,9 @@ def compute_similarity(
         skip_failures (True): whether to gracefully continue without raising an
             error if embeddings cannot be generated for a sample
         backend (None): the similarity backend to use. The supported values are
-            ``fiftyone.brain_config.backends.keys()`` and the default
-            is ``fiftyone.brain_config.default_backend``
+            ``fiftyone.brain.brain_config.similarity_backends.keys()`` and the
+            default is
+            ``fiftyone.brain.brain_config.default_similarity_backend``
         **kwargs: keyword arguments for the
             :class:`fiftyone.brian.SimilarityConfig` subclass of the backend
             being used
