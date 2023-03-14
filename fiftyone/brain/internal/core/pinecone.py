@@ -51,8 +51,9 @@ class PineconeSimilarityConfig(SimilarityConfig):
         shards (None): an optional number of shards when creating a new index
         pods (None): an optional number of pods when creating a new index
         pod_type (None): an optional pod type when creating a new index
-        environment (None): a Pinecone environment to use
         api_key (None): a Pinecone API key to use
+        environment (None): a Pinecone environment to use
+        project_name (None): a Pinecone project to use
     """
 
     def __init__(
@@ -69,8 +70,9 @@ class PineconeSimilarityConfig(SimilarityConfig):
         shards=None,
         pods=None,
         pod_type=None,
-        environment=None,
         api_key=None,
+        environment=None,
+        project_name=None,
         **kwargs,
     ):
         if metric is not None and metric not in _SUPPORTED_METRICS:
@@ -97,12 +99,21 @@ class PineconeSimilarityConfig(SimilarityConfig):
         self.pod_type = pod_type
 
         # store privately so these aren't serialized
-        self._environment = environment
         self._api_key = api_key
+        self._environment = environment
+        self._project_name = project_name
 
     @property
     def method(self):
         return "pinecone"
+
+    @property
+    def api_key(self):
+        return self._api_key
+
+    @api_key.setter
+    def api_key(self, value):
+        self._api_key = value
 
     @property
     def environment(self):
@@ -113,12 +124,12 @@ class PineconeSimilarityConfig(SimilarityConfig):
         self._environment = value
 
     @property
-    def api_key(self):
-        return self._api_key
+    def project_name(self):
+        return self._project_name
 
-    @api_key.setter
-    def api_key(self, value):
-        self._api_key = value
+    @project_name.setter
+    def project_name(self, value):
+        self._project_name = value
 
     @property
     def max_k(self):
@@ -132,8 +143,12 @@ class PineconeSimilarityConfig(SimilarityConfig):
     def supported_aggregations(self):
         return ("mean",)
 
-    def load_credentials(self, environment=None, api_key=None):
-        self._load_parameters(environment=environment, api_key=api_key)
+    def load_credentials(
+        self, api_key=None, environment=None, project_name=None
+    ):
+        self._load_parameters(
+            api_key=api_key, environment=environment, project_name=project_name
+        )
 
 
 class PineconeSimilarity(Similarity):
@@ -172,8 +187,9 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
     def _initialize(self):
         pinecone.init(
-            environment=self.config.environment,
             api_key=self.config.api_key,
+            environment=self.config.environment,
+            project_name=self.config.project_name,
         )
 
         try:
@@ -187,7 +203,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
             ) from e
 
         if self.config.index_name is None:
-            root = "fiftyone-" + self.samples._root_dataset.name
+            root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
             index_name = fbu.get_unique_name(root, index_names)
 
             self.config.index_name = index_name
@@ -289,11 +305,10 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
         embeddings = [e.tolist() for e in embeddings]
         sample_ids = list(sample_ids)
-
         if label_ids is not None:
             ids = list(label_ids)
         else:
-            ids = sample_ids
+            ids = list(sample_ids)
 
         for _embeddings, _ids, _sample_ids in zip(
             fou.iter_batches(embeddings, batch_size),
@@ -425,7 +440,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
             response = self._index.fetch(ids=list(batch_ids))["vectors"]
 
             for r in response.values():
-                found_embeddings.append(np.array(r["values"]))
+                found_embeddings.append(r["values"])
                 found_sample_ids.append(r["id"])
 
         missing_ids = list(set(sample_ids) - set(found_sample_ids))
@@ -446,7 +461,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
             response = self._index.fetch(ids=list(batch_ids))["vectors"]
 
             for r in response.values():
-                found_embeddings.append(np.array(r["values"]))
+                found_embeddings.append(r["values"])
                 found_sample_ids.append(r["metadata"]["sample_id"])
                 found_label_ids.append(r["id"])
 
@@ -474,7 +489,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
             )
 
             for r in response["matches"]:
-                found_embeddings.append(np.array(r["values"]))
+                found_embeddings.append(r["values"])
                 found_sample_ids.append(r["metadata"]["sample_id"])
                 found_label_ids.append(r["id"])
 

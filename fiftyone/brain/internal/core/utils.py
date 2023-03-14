@@ -637,7 +637,7 @@ def get_unique_name(name, ref_names):
     ref_names = set(ref_names)
 
     if name in ref_names:
-        name += "_" + _get_random_characters(6)
+        name += "-" + _get_random_characters(6)
 
     while name in ref_names:
         name += _get_random_characters(1)

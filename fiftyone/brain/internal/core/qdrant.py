@@ -193,7 +193,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
             ) from e
 
         if self.config.collection_name is None:
-            root = "fiftyone-" + self.samples._root_dataset.name
+            root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
             collection_name = fbu.get_unique_name(root, collection_names)
 
             self.config.collection_name = collection_name
@@ -252,7 +252,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
                 with_payload=True,
                 with_vectors=False,
             )
-            ids.extend([self._to_fiftyone_id(doc.id) for doc in response[0]])
+            ids.extend([self._to_fiftyone_id(r.id) for r in response[0]])
             offset = response[-1]
 
         return ids
@@ -321,11 +321,10 @@ class QdrantSimilarityIndex(SimilarityIndex):
 
         embeddings = [e.tolist() for e in embeddings]
         sample_ids = list(sample_ids)
-
         if label_ids is not None:
             ids = list(label_ids)
         else:
-            ids = sample_ids
+            ids = list(sample_ids)
 
         for _embeddings, _ids, _sample_ids in zip(
             fou.iter_batches(embeddings, batch_size),

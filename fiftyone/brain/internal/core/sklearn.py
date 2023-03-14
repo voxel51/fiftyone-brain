@@ -47,7 +47,7 @@ class SklearnSimilarityConfig(SimilarityConfig):
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         supports_prompts (None): whether this run supports prompt queries
-        metric ("euclidean"): the embedding distance metric to use. See
+        metric ("cosine"): the embedding distance metric to use. See
             ``sklearn.metrics.pairwise_distance`` for supported values
     """
 
@@ -57,7 +57,7 @@ class SklearnSimilarityConfig(SimilarityConfig):
         model=None,
         patches_field=None,
         supports_prompts=None,
-        metric="euclidean",
+        metric="cosine",
         **kwargs,
     ):
         super().__init__(
