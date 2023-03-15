@@ -434,19 +434,29 @@ def compute_similarity(
             :class:`fiftyone.core.labels.Detections`,
             :class:`fiftyone.core.labels.Polyline`, or
             :class:`fiftyone.core.labels.Polylines`
-        embeddings (None): if no ``model`` is provided, this argument specifies
-            pre-computed embeddings to use. Can be any of the following:
+        embeddings (None): embeddings to feed the index. This argument's
+            behavior depends on whether a ``model`` is provided, as described
+            below.
+
+            If no ``model`` is provided, this argument specifies precomputed
+            embeddings to use:
 
             -   a ``num_samples x num_dims`` array of embeddings
             -   if ``patches_field`` is specified,  a dict mapping sample IDs
                 to ``num_patches x num_dims`` arrays of patch embeddings
-            -   the name of a dataset field containing the embeddings to use
+            -   the name of a dataset field from which to load embeddings
+            -   ``None``: use the default model to compute embeddings
+            -   ``False``: **do not** compute embeddings right now
 
-            If a ``model`` is provided, this argument specifies the name of a
-            field in which to store the computed embeddings. In either case,
-            when working with patch embeddings, you can provide either the
-            fully-qualified path to the patch embeddings or just the name of
-            the label attribute in ``patches_field``
+            If a ``model`` is provided, this argument specifies where to store
+            the model's embeddings:
+
+            -   the name of a field in which to store the computed embeddings
+            -   ``False``: **do not** compute or store embeddings right now
+
+            In either case, when working with patch embeddings, you can provide
+            either the fully-qualified path to the patch embeddings or just the
+            name of the label attribute in ``patches_field``
         brain_key (None): a brain key under which to store the results of this
             method
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
