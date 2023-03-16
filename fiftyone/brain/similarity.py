@@ -732,7 +732,8 @@ class SimilarityIndex(fob.BrainResults):
                 )
 
             model = self.get_model()
-            return model.embed_prompts(query)
+            with model:
+                return model.embed_prompts(query)
 
         return query
 
