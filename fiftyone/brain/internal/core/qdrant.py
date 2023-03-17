@@ -260,6 +260,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
     def total_index_size(self):
         return self._client.count(self.config.collection_name).count
 
+    @property
     def client(self):
         """The ``qdrant.QdrantClient`` instance for this index."""
         return self._client
