@@ -565,7 +565,7 @@ def get_embeddings(
     if model is None and embeddings_field is None and embeddings is None:
         return _empty_embeddings(patches_field)
 
-    if model is not None:
+    if embeddings is None and model is not None:
         if etau.is_str(model):
             model = foz.load_zoo_model(model)
 
@@ -592,7 +592,7 @@ def get_embeddings(
                 skip_failures=skip_failures,
             )
 
-    if embeddings_field is not None:
+    if embeddings is None and embeddings_field is not None:
         embeddings, samples = _load_embeddings(
             samples, embeddings_field, patches_field=patches_field
         )

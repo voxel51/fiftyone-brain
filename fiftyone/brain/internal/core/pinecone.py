@@ -195,11 +195,10 @@ class PineconeSimilarityIndex(SimilarityIndex):
         try:
             index_names = pinecone.list_indexes()
         except Exception as e:
-            # @todo update help link once integration docs are available
             raise ValueError(
                 "Failed to connect to Pinecone backend at environment '%s'. "
-                "Refer to https://docs.voxel51.com for more information"
-                % self.config.environment
+                "Refer to https://docs.voxel51.com/integrations/pinecone.html "
+                "for more information" % self.config.environment
             ) from e
 
         if self.config.index_name is None:

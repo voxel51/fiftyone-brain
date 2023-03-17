@@ -174,7 +174,6 @@ class SimilarityConfig(fob.BrainMethodConfig):
         **kwargs,
     ):
         if model is not None and not etau.is_str(model):
-            # model = etau.get_class_name(model)
             model = None
 
         self.embeddings_field = embeddings_field
@@ -732,7 +731,8 @@ class SimilarityIndex(fob.BrainResults):
                 )
 
             model = self.get_model()
-            return model.embed_prompts(query)
+            with model:
+                return model.embed_prompts(query)
 
         return query
 

@@ -185,11 +185,10 @@ class QdrantSimilarityIndex(SimilarityIndex):
         try:
             collection_names = self._get_collection_names()
         except Exception as e:
-            # @todo update help link once integration docs are available
             raise ValueError(
                 "Failed to connect to Qdrant backend at URL '%s'. Refer to "
-                "https://docs.voxel51.com for more information"
-                % self.config.url
+                "https://docs.voxel51.com/integrations/qdrant.html for more "
+                "information" % self.config.url
             ) from e
 
         if self.config.collection_name is None:
@@ -261,6 +260,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
     def total_index_size(self):
         return self._client.count(self.config.collection_name).count
 
+    @property
     def client(self):
         """The ``qdrant.QdrantClient`` instance for this index."""
         return self._client
