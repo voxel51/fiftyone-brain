@@ -67,6 +67,7 @@ def test_image_similarity_backends():
     index1 = fob.compute_similarity(
         dataset,
         model="clip-vit-base32-torch",
+        metric="euclidean",
         embeddings=False,
         backend="sklearn",
         brain_key="clip_sklearn",
@@ -75,6 +76,7 @@ def test_image_similarity_backends():
     index2 = fob.compute_similarity(
         dataset,
         model="clip-vit-base32-torch",
+        metric="euclidean",
         embeddings=False,
         backend="qdrant",
         brain_key="clip_qdrant",
@@ -83,6 +85,7 @@ def test_image_similarity_backends():
     index3 = fob.compute_similarity(
         dataset,
         model="clip-vit-base32-torch",
+        metric="euclidean",
         embeddings=False,
         backend="pinecone",
         brain_key="clip_pinecone",
@@ -172,9 +175,7 @@ def test_image_similarity_backends():
     assert set(sample_ids1) == set(sample_ids2)
     assert set(sample_ids1) == set(sample_ids3)
 
-    # @todo why is this wrong?
-    # assert np.allclose(embeddings1, _embeddings2)
-
+    assert np.allclose(embeddings1, _embeddings2)
     assert np.allclose(embeddings1, _embeddings3)
 
     index1.remove_from_index(sample_ids=ids)
@@ -202,6 +203,7 @@ def test_patch_similarity_backends():
         dataset,
         patches_field="ground_truth",
         model="clip-vit-base32-torch",
+        metric="euclidean",
         embeddings=False,
         backend="sklearn",
         brain_key="gt_clip_sklearn",
@@ -211,6 +213,7 @@ def test_patch_similarity_backends():
         dataset,
         patches_field="ground_truth",
         model="clip-vit-base32-torch",
+        metric="euclidean",
         embeddings=False,
         backend="qdrant",
         brain_key="gt_clip_qdrant",
@@ -220,6 +223,7 @@ def test_patch_similarity_backends():
         dataset,
         patches_field="ground_truth",
         model="clip-vit-base32-torch",
+        metric="euclidean",
         embeddings=False,
         backend="pinecone",
         brain_key="gt_clip_pinecone",
@@ -317,9 +321,7 @@ def test_patch_similarity_backends():
     assert set(label_ids1) == set(label_ids2)
     assert set(label_ids1) == set(label_ids3)
 
-    # @todo why is this wrong?
-    # assert np.allclose(embeddings1, _embeddings2)
-
+    assert np.allclose(embeddings1, _embeddings2)
     assert np.allclose(embeddings1, _embeddings3)
 
     index1.remove_from_index(label_ids=ids)
