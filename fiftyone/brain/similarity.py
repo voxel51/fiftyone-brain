@@ -216,7 +216,6 @@ class SimilarityConfig(fob.BrainMethodConfig):
         self._load_parameters(**kwargs)
 
     def _load_parameters(self, **kwargs):
-        # @todo what if user used a different name in their similarity config?
         name = self.method
         parameters = fb.brain_config.similarity_backends.get(name, {})
 
