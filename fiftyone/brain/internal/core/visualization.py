@@ -70,7 +70,7 @@ def compute_visualization(
         embeddings_field = None
         num_dims = points.shape[1]
     elif model is None and embeddings is None:
-        model = foz.load_zoo_model(_DEFAULT_MODEL)
+        model = _DEFAULT_MODEL
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
 

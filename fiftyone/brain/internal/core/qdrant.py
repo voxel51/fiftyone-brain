@@ -38,8 +38,8 @@ class QdrantSimilarityConfig(SimilarityConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
-        model (None): the :class:`fiftyone.core.models.Model` or class name of
-            the model that was used to compute embeddings, if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or name of the
+            zoo model that was used to compute embeddings, if known
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         supports_prompts (None): whether this run supports prompt queries
