@@ -70,7 +70,7 @@ def compute_visualization(
         embeddings_field = None
         num_dims = points.shape[1]
     elif model is None and embeddings is None:
-        model = foz.load_zoo_model(_DEFAULT_MODEL)
+        model = _DEFAULT_MODEL
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
 
@@ -112,7 +112,7 @@ def compute_visualization(
         logger.info("Generating visualization...")
         points = brain_method.fit(embeddings)
     else:
-        sample_ids, label_ids = fbu.get_ids(
+        points, sample_ids, label_ids = fbu.parse_data(
             samples,
             patches_field=patches_field,
             data=points,
@@ -122,6 +122,7 @@ def compute_visualization(
     results = VisualizationResults(
         samples,
         config,
+        brain_key,
         points,
         sample_ids=sample_ids,
         label_ids=label_ids,
@@ -201,9 +202,6 @@ def _is_expr(arg):
 
 
 class Visualization(fob.BrainMethod):
-    def ensure_requirements(self):
-        pass
-
     def fit(self, embeddings):
         raise NotImplementedError("subclass must implement fit()")
 
@@ -213,9 +211,6 @@ class Visualization(fob.BrainMethod):
             fields.append(self.config.patches_field)
 
         return fields
-
-    def cleanup(self, samples, brain_key):
-        pass
 
 
 class UMAPVisualization(Visualization):

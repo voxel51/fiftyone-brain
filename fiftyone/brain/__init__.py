@@ -8,18 +8,24 @@ See https://github.com/voxel51/fiftyone for more information.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+import fiftyone.brain.config as _foc
+
 from .similarity import (
+    Similarity,
     SimilarityConfig,
-    SimilarityResults,
+    SimilarityIndex,
 )
 from .visualization import (
     VisualizationConfig,
+    VisualizationResults,
     UMAPVisualizationConfig,
     TSNEVisualizationConfig,
     PCAVisualizationConfig,
     ManualVisualizationConfig,
-    VisualizationResults,
 )
+
+
+brain_config = _foc.load_brain_config()
 
 
 def compute_hardness(samples, label_field, hardness_field="hardness"):
@@ -264,7 +270,7 @@ def compute_visualization(
     patches that can be interactively visualized.
 
     The representation can be visualized by calling the
-    :meth:`sort_by_similarity() <fiftyone.brain.similarity.SimilarityResults.sort_by_similarity>`
+    :meth:`visualize() <fiftyone.brain.visualization.VisualizationResults.visualize>`
     method of the returned
     :class:`fiftyone.brain.visualization.VisualizationResults` object.
 
@@ -299,11 +305,17 @@ def compute_visualization(
         embeddings (None): if no ``model`` is provided, this argument specifies
             pre-computed embeddings to use, which can be any of the following:
 
+            -   a dict mapping sample IDs to embedding vectors
             -   a ``num_samples x num_embedding_dims`` array of embeddings
+                corresponding to the samples in ``samples``
+            -   if ``patches_field`` is specified, a dict mapping label IDs to
+                to embedding vectors
             -   if ``patches_field`` is specified,  a dict mapping sample IDs
                 to ``num_patches x num_embedding_dims`` arrays of patch
                 embeddings
             -   the name of a dataset field containing the embeddings to use
+            -   a :class:`fiftyone.brain.similarity.SimilarityIndex` from which
+                to retrieve embeddings for all samples/patches in ``samples``
 
             If a ``model`` is provided, this argument specifies the name of a
             field in which to store the computed embeddings. In either case,
@@ -311,10 +323,14 @@ def compute_visualization(
             fully-qualified path to the patch embeddings or just the name of
             the label attribute in ``patches_field``
         points (None): a pre-computed low-dimensional representation to use. If
-            provided, no embeddings will be computed. Can be any of the
+            provided, no embeddings will be used/computed. Can be any of the
             following:
 
-            -   a ``num_samples x num_dims`` array of points
+            -   a dict mapping sample IDs to points vectors
+            -   a ``num_samples x num_dims`` array of points corresponding to
+                the samples in ``samples``
+            -   if ``patches_field`` is specified, a dict mapping label IDs to
+                points vectors
             -   if ``patches_field`` is specified, a ``num_patches x num_dims``
                 array of points whose rows correspond to the flattened list of
                 patches whose IDs are shown below::
@@ -382,31 +398,34 @@ def compute_similarity(
     patches_field=None,
     embeddings=None,
     brain_key=None,
-    metric="euclidean",
     model=None,
     force_square=False,
     alpha=None,
     batch_size=None,
     num_workers=None,
     skip_failures=True,
+    backend=None,
+    **kwargs,
 ):
     """Uses embeddings to index the samples or their patches so that you can
-    query/sort by visual similarity.
+    query/sort by similarity.
 
-    Calling this method (or loading existing results) only generates the index.
-    You can then call the methods exposed on the retuned
-    :class:`fiftyone.brain.similarity.SimilarityResults` object to perform the
-    following operations:
+    Calling this method only creates the index. You can then call the methods
+    exposed on the retuned :class:`fiftyone.brain.similarity.SimilarityIndex`
+    object to perform the following operations:
 
-    -   :meth:`sort_by_similarity() <fiftyone.brain.similarity.SimilarityResults.sort_by_similarity>`:
-        Sort the samples in the collection by visual similarity to a specific
-        example or example(s)
+    -   :meth:`sort_by_similarity() <fiftyone.brain.similarity.SimilarityIndex.sort_by_similarity>`:
+        Sort the samples in the collection by similarity to a specific example
+        or example(s)
 
-    -   :meth:`find_duplicates() <fiftyone.brain.similarity.SimilarityResults.find_duplicates>`:
+    In addition, if the backend supports it, you can call the following
+    duplicate detection methods:
+
+    -   :meth:`find_duplicates() <fiftyone.brain.similarity.DuplicatesMixin.find_duplicates>`:
         Query the index to find all examples with near-duplicates in the
         collection
 
-    -   :meth:`find_unique() <fiftyone.brain.similarity.SimilarityResults.find_unique>`:
+    -   :meth:`find_unique() <fiftyone.brain.similarity.DuplicatesMixin.find_unique>`:
         Query the index to select a subset of examples of a specified size that
         are maximally unique with respect to each other
 
@@ -425,23 +444,31 @@ def compute_similarity(
             :class:`fiftyone.core.labels.Detections`,
             :class:`fiftyone.core.labels.Polyline`, or
             :class:`fiftyone.core.labels.Polylines`
-        embeddings (None): if no ``model`` is provided, this argument specifies
-            pre-computed embeddings to use. Can be any of the following:
+        embeddings (None): embeddings to feed the index. This argument's
+            behavior depends on whether a ``model`` is provided, as described
+            below.
+
+            If no ``model`` is provided, this argument specifies precomputed
+            embeddings to use:
 
             -   a ``num_samples x num_dims`` array of embeddings
             -   if ``patches_field`` is specified,  a dict mapping sample IDs
                 to ``num_patches x num_dims`` arrays of patch embeddings
-            -   the name of a dataset field containing the embeddings to use
+            -   the name of a dataset field from which to load embeddings
+            -   ``None``: use the default model to compute embeddings
+            -   ``False``: **do not** compute embeddings right now
 
-            If a ``model`` is provided, this argument specifies the name of a
-            field in which to store the computed embeddings. In either case,
-            when working with patch embeddings, you can provide either the
-            fully-qualified path to the patch embeddings or just the name of
-            the label attribute in ``patches_field``
+            If a ``model`` is provided, this argument specifies where to store
+            the model's embeddings:
+
+            -   the name of a field in which to store the computed embeddings
+            -   ``False``: **do not** compute or store embeddings right now
+
+            In either case, when working with patch embeddings, you can provide
+            either the fully-qualified path to the patch embeddings or just the
+            name of the label attribute in ``patches_field``
         brain_key (None): a brain key under which to store the results of this
             method
-        metric ("euclidean"): the embedding distance metric to use. See
-            ``sklearn.metrics.pairwise_distance`` for supported values
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
@@ -464,24 +491,32 @@ def compute_similarity(
             embeddings
         skip_failures (True): whether to gracefully continue without raising an
             error if embeddings cannot be generated for a sample
+        backend (None): the similarity backend to use. The supported values are
+            ``fiftyone.brain.brain_config.similarity_backends.keys()`` and the
+            default is
+            ``fiftyone.brain.brain_config.default_similarity_backend``
+        **kwargs: keyword arguments for the
+            :class:`fiftyone.brian.SimilarityConfig` subclass of the backend
+            being used
 
     Returns:
-        a :class:`fiftyone.brain.similarity.SimilarityResults`
+        a :class:`fiftyone.brain.similarity.SimilarityIndex`
     """
-    import fiftyone.brain.internal.core.similarity as fbs
+    import fiftyone.brain.similarity as fbs
 
     return fbs.compute_similarity(
         samples,
         patches_field,
         embeddings,
         brain_key,
-        metric,
         model,
         force_square,
         alpha,
         batch_size,
         num_workers,
         skip_failures,
+        backend,
+        **kwargs,
     )
 
 

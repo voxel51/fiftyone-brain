@@ -7,11 +7,14 @@ Utilities.
 """
 import itertools
 import logging
+import random
+import string
 
 import numpy as np
 
 import eta.core.utils as etau
 
+import fiftyone.brain as fob
 import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
 import fiftyone.core.patches as fop
@@ -20,6 +23,154 @@ from fiftyone import ViewField as F
 
 
 logger = logging.getLogger(__name__)
+
+
+def parse_data(
+    samples,
+    patches_field=None,
+    data=None,
+    data_type="embeddings",
+    allow_missing=True,
+    warn_missing=True,
+):
+    if isinstance(data, fob.SimilarityIndex):
+        return get_embeddings_from_index(
+            samples,
+            data,
+            patches_field=None,
+            allow_missing=True,
+            warn_missing=True,
+        )
+
+    if patches_field is None:
+        if isinstance(data, dict):
+            sample_ids, data = zip(*data.items())
+            return np.array(data), np.array(sample_ids), None
+
+        sample_ids, _ = get_ids(samples, data=data, data_type=data_type)
+        return data, sample_ids, None
+
+    if isinstance(data, dict):
+        value = next(iter(data.values()), None)
+        if isinstance(value, np.ndarray) and value.ndim == 1:
+            label_ids, data = zip(*data.items())
+            return _parse_label_data(
+                samples,
+                patches_field,
+                label_ids,
+                data,
+                data_type,
+                allow_missing,
+                warn_missing,
+            )
+
+    sample_ids, label_ids = get_ids(
+        samples,
+        patches_field=patches_field,
+        data=data,
+        data_type=data_type,
+    )
+
+    return data, sample_ids, label_ids
+
+
+def _parse_label_data(
+    samples,
+    patches_field,
+    label_ids,
+    data,
+    data_type,
+    allow_missing,
+    warn_missing,
+):
+    if samples._is_patches:
+        sample_id_path = "sample_id"
+    else:
+        sample_id_path = "id"
+
+    label_type, label_id_path = samples._get_label_field_path(
+        patches_field, "id"
+    )
+    is_list_field = issubclass(label_type, fol._LABEL_LIST_FIELDS)
+
+    ref_sample_ids, ref_label_ids = samples._dataset.values(
+        [sample_id_path, label_id_path]
+    )
+
+    if is_list_field:
+        ids_map = {}
+        for _sample_id, _lids in zip(ref_sample_ids, ref_label_ids):
+            if _lids:
+                for _label_id in _lids:
+                    ids_map[_label_id] = _sample_id
+    else:
+        ids_map = dict(zip(ref_label_ids, ref_sample_ids))
+
+    _data = []
+    _sample_ids = []
+    _label_ids = []
+    _missing_ids = []
+    for _lid, _d in zip(label_ids, data):
+        _sid = ids_map.get(_lid, None)
+        if _sid is not None:
+            _data.append(_d)
+            _sample_ids.append(_sid)
+            _label_ids.append(_lid)
+        else:
+            _missing_ids.append(_lid)
+
+    num_missing = len(_missing_ids)
+    if num_missing > 0:
+        if not allow_missing:
+            raise ValueError(
+                "Unable to retrieve sample IDs for %d label IDs (eg %s)"
+                % (num_missing, _missing_ids[0])
+            )
+
+        if warn_missing:
+            logger.warning(
+                "Ignoring %s for %d label IDs (eg %s) for which sample IDs "
+                "could not be retrieved",
+                data_type,
+                num_missing,
+                _missing_ids[0],
+            )
+
+    return np.array(_data), np.array(_sample_ids), np.array(_label_ids)
+
+
+def get_embeddings_from_index(
+    samples,
+    similarity_index,
+    patches_field=None,
+    allow_missing=True,
+    warn_missing=True,
+):
+    if patches_field is None:
+        if samples._is_patches:
+            sample_id_path = "sample_id"
+        else:
+            sample_id_path = "id"
+
+        sample_ids = samples.values(sample_id_path)
+        label_ids = None
+    else:
+        if samples._is_patches:
+            label_id_path = "id"
+        else:
+            _, label_id_path = samples._get_label_field_path(
+                patches_field, "id"
+            )
+
+        sample_ids = None
+        label_ids = samples.values(label_id_path, unwind=True)
+
+    return similarity_index.get_embeddings(
+        sample_ids=sample_ids,
+        label_ids=label_ids,
+        allow_missing=allow_missing,
+        warn_missing=warn_missing,
+    )
 
 
 def get_ids(
@@ -80,6 +231,9 @@ def filter_ids(
         else:
             sample_ids = np.array(samples.values("id"))
 
+        if index_sample_ids is None:
+            return sample_ids, None, None, None
+
         keep_inds, good_inds, bad_ids = _parse_ids(
             sample_ids,
             index_sample_ids,
@@ -94,6 +248,9 @@ def filter_ids(
         return sample_ids, None, keep_inds, good_inds
 
     sample_ids, label_ids = _get_patch_ids(samples, patches_field)
+
+    if index_label_ids is None:
+        return sample_ids, label_ids, None, None
 
     keep_inds, good_inds, bad_ids = _parse_ids(
         label_ids,
@@ -228,6 +385,243 @@ def _parse_ids(ids, index_ids, ftype, allow_missing, warn_missing):
     return keep_inds, good_inds, bad_ids
 
 
+def skip_ids(samples, ids, patches_field=None, warn_existing=False):
+    sample_ids, label_ids = get_ids(samples, patches_field=patches_field)
+
+    if patches_field is not None:
+        exclude_ids = list(set(label_ids) - set(ids))
+        num_existing = len(exclude_ids)
+
+        if num_existing > 0:
+            if warn_existing:
+                logger.warning("Skipping %d existing label IDs", num_existing)
+
+            samples = samples.exclude_labels(
+                ids=exclude_ids, fields=patches_field
+            )
+    else:
+        exclude_ids = list(set(sample_ids) - set(ids))
+        num_existing = len(exclude_ids)
+
+        if num_existing > 0:
+            if warn_existing:
+                logger.warning("Skipping %d existing sample IDs", num_existing)
+
+        samples = samples.exclude(exclude_ids)
+
+    return samples
+
+
+def add_ids(
+    sample_ids,
+    label_ids,
+    index_sample_ids,
+    index_label_ids,
+    patches_field=None,
+    overwrite=True,
+    allow_existing=True,
+    warn_existing=False,
+):
+    if patches_field is not None:
+        ids = label_ids
+        index_ids = index_label_ids
+    else:
+        ids = sample_ids
+        index_ids = index_sample_ids
+
+    ii = []
+    jj = []
+
+    ids_map = {_id: _i for _i, _id in enumerate(index_ids)}
+    new_idx = len(index_ids)
+    for _i, _id in enumerate(ids):
+        _idx = ids_map.get(_id, None)
+        if _idx is None:
+            ii.append(_i)
+            jj.append(new_idx)
+            new_idx += 1
+        elif overwrite:
+            ii.append(_i)
+            jj.append(_idx)
+
+    ii = np.array(ii)
+    jj = np.array(jj)
+
+    n = len(index_sample_ids)
+
+    if not allow_existing:
+        existing_inds = np.nonzero(jj < n)[0]
+        num_existing = existing_inds.size
+
+        if num_existing > 0:
+            if warn_existing:
+                logger.warning(
+                    "Ignoring %d IDs (eg '%s') that are already present in "
+                    "the index",
+                    num_existing,
+                    ids[ii[0]],
+                )
+
+                ii = np.delete(ii, existing_inds)
+                jj = np.delete(jj, existing_inds)
+            else:
+                raise ValueError(
+                    "Found %d IDs (eg '%s') that are already present in the "
+                    "index" % (num_existing, ids[ii[0]])
+                )
+
+    if ii.size > 0:
+        sample_ids = np.array(sample_ids)
+        if patches_field is not None:
+            label_ids = np.array(label_ids)
+
+        m = jj[-1] - n + 1
+
+        if n == 0:
+            index_sample_ids = np.array([], dtype=sample_ids.dtype)
+            if patches_field is not None:
+                index_label_ids = np.array([], dtype=label_ids.dtype)
+
+        if m > 0:
+            index_sample_ids = np.concatenate(
+                (index_sample_ids, np.empty(m, dtype=index_sample_ids.dtype))
+            )
+            if patches_field is not None:
+                index_label_ids = np.concatenate(
+                    (index_label_ids, np.empty(m, dtype=index_label_ids.dtype))
+                )
+
+        index_sample_ids[jj] = sample_ids[ii]
+        if patches_field is not None:
+            index_label_ids[jj] = label_ids[ii]
+
+    return index_sample_ids, index_label_ids, ii, jj
+
+
+def add_embeddings(
+    samples,
+    embeddings,
+    sample_ids,
+    label_ids,
+    embeddings_field,
+    patches_field=None,
+):
+    dataset = samples._dataset
+
+    if patches_field is not None:
+        _, embeddings_path = dataset._get_label_field_path(
+            patches_field, embeddings_field
+        )
+
+        values = dict(zip(label_ids, embeddings))
+        dataset.set_label_values(embeddings_path, values)
+    else:
+        values = dict(zip(sample_ids, embeddings))
+        dataset.set_values(embeddings_field, values, key_field="id")
+
+
+def remove_ids(
+    sample_ids,
+    label_ids,
+    index_sample_ids,
+    index_label_ids,
+    patches_field=None,
+    allow_missing=True,
+    warn_missing=False,
+):
+    rm_inds = []
+
+    if sample_ids is not None:
+        rm_inds.extend(
+            _find_ids(
+                sample_ids,
+                index_sample_ids,
+                allow_missing,
+                warn_missing,
+                "sample",
+            )
+        )
+
+    if label_ids is not None:
+        rm_inds.extend(
+            _find_ids(
+                label_ids,
+                index_label_ids,
+                allow_missing,
+                warn_missing,
+                "label",
+            )
+        )
+
+    rm_inds = np.array(rm_inds)
+
+    if rm_inds.size > 0:
+        index_sample_ids = np.delete(index_sample_ids, rm_inds)
+        if patches_field is not None:
+            index_label_ids = np.delete(index_label_ids, rm_inds)
+
+    return index_sample_ids, index_label_ids, rm_inds
+
+
+def _find_ids(ids, index_ids, allow_missing, warn_missing, ftype):
+    found_inds = []
+    missing_ids = []
+
+    ids_map = {_id: _i for _i, _id in enumerate(index_ids)}
+    for _id in ids:
+        ind = ids_map.get(_id, None)
+        if ind is not None:
+            found_inds.append(ind)
+        elif not allow_missing:
+            missing_ids.append(_id)
+
+    num_missing = len(missing_ids)
+
+    if num_missing > 0:
+        if not allow_missing:
+            raise ValueError(
+                "Found %d %d IDs (eg '%s') that are not present in the index"
+                % (num_missing, ftype, missing_ids[0])
+            )
+
+        if warn_missing:
+            logger.warning(
+                "Ignoring %d %d IDs (eg '%s') that are not present in the "
+                "index",
+                num_missing,
+                ftype,
+                missing_ids[0],
+            )
+
+    return found_inds
+
+
+def remove_embeddings(
+    samples,
+    embeddings_field,
+    sample_ids=None,
+    label_ids=None,
+    patches_field=None,
+):
+    dataset = samples._dataset
+
+    if patches_field is not None:
+        _, embeddings_path = dataset._get_label_field_path(
+            patches_field, embeddings_field
+        )
+
+        if sample_ids is not None and label_ids is None:
+            _, id_path = dataset._get_label_field_path(patches_field, "id")
+            label_ids = dataset.select(sample_ids).values(id_path, unwind=True)
+
+        if label_ids is not None:
+            values = dict(zip(label_ids, itertools.repeat(None)))
+            dataset.set_label_values(embeddings_path, values)
+    elif sample_ids is not None:
+        values = dict(zip(sample_ids, itertools.repeat(None)))
+        dataset.set_values(embeddings_field, values, key_field="id")
+
+
 def filter_values(values, keep_inds, patches_field=None):
     if patches_field:
         _values = list(itertools.chain.from_iterable(values))
@@ -318,12 +712,19 @@ def get_embeddings(
     skip_failures=True,
 ):
     if model is None and embeddings_field is None and embeddings is None:
-        raise ValueError(
-            "One of `model`, `embeddings_field`, or `embeddings` must be "
-            "provided"
+        return _empty_embeddings(patches_field)
+
+    if isinstance(embeddings, fob.SimilarityIndex):
+        allow_missing = handle_missing == "skip"
+        return get_embeddings_from_index(
+            samples,
+            embeddings,
+            patches_field=patches_field,
+            allow_missing=allow_missing,
+            warn_missing=True,
         )
 
-    if model is not None:
+    if embeddings is None and model is not None:
         if etau.is_str(model):
             model = foz.load_zoo_model(model)
 
@@ -350,7 +751,7 @@ def get_embeddings(
                 skip_failures=skip_failures,
             )
 
-    if embeddings_field is not None:
+    if embeddings is None and embeddings_field is not None:
         embeddings, samples = _load_embeddings(
             samples, embeddings_field, patches_field=patches_field
         )
@@ -366,14 +767,7 @@ def get_embeddings(
         )
 
     if not isinstance(embeddings, np.ndarray) and not embeddings:
-        embeddings = np.empty((0, 0), dtype=float)
-        sample_ids = np.array([], dtype="<U24")
-        if patches_field is not None:
-            label_ids = np.array([], dtype="<U24")
-        else:
-            label_ids = None
-
-        return embeddings, sample_ids, label_ids
+        return _empty_embeddings(patches_field)
 
     if patches_field is not None:
         if agg_fcn is not None:
@@ -394,6 +788,36 @@ def get_embeddings(
         handle_missing=handle_missing,
         ref_sample_ids=ref_sample_ids,
     )
+
+    return embeddings, sample_ids, label_ids
+
+
+def get_unique_name(name, ref_names):
+    ref_names = set(ref_names)
+
+    if name in ref_names:
+        name += "-" + _get_random_characters(6)
+
+    while name in ref_names:
+        name += _get_random_characters(1)
+
+    return name
+
+
+def _get_random_characters(n):
+    return "".join(
+        random.choice(string.ascii_lowercase + string.digits) for _ in range(n)
+    )
+
+
+def _empty_embeddings(patches_field):
+    embeddings = np.empty((0, 0), dtype=float)
+    sample_ids = np.array([], dtype="<U24")
+
+    if patches_field is not None:
+        label_ids = np.array([], dtype="<U24")
+    else:
+        label_ids = None
 
     return embeddings, sample_ids, label_ids
 
