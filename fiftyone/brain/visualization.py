@@ -343,8 +343,8 @@ class VisualizationConfig(fob.BrainMethodConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
-        model (None): the :class:`fiftyone.core.models.Model` or class name of
-            the model that was used to compute embeddings, if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or name of the
+            zoo model that was used to compute embeddings, if known
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
@@ -359,7 +359,7 @@ class VisualizationConfig(fob.BrainMethodConfig):
         **kwargs,
     ):
         if model is not None and not etau.is_str(model):
-            model = etau.get_class_name(model)
+            model = None
 
         self.embeddings_field = embeddings_field
         self.model = model
@@ -383,8 +383,8 @@ class UMAPVisualizationConfig(VisualizationConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
-        model (None): the :class:`fiftyone.core.models.Model` or class name of
-            the model that was used to compute embeddings, if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or name of the
+            zoo model that was used to compute embeddings, if known
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
@@ -445,8 +445,8 @@ class TSNEVisualizationConfig(VisualizationConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
-        model (None): the :class:`fiftyone.core.models.Model` or class name of
-            the model that was used to compute embeddings, if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or name of the
+            zoo model that was used to compute embeddings, if known
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
@@ -524,8 +524,8 @@ class PCAVisualizationConfig(VisualizationConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
-        model (None): the :class:`fiftyone.core.models.Model` or class name of
-            the model that was used to compute embeddings, if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or name of the
+            zoo model that was used to compute embeddings, if known
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
