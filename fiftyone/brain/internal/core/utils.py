@@ -14,6 +14,7 @@ import numpy as np
 
 import eta.core.utils as etau
 
+import fiftyone.brain as fob
 import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
 import fiftyone.core.patches as fop
@@ -22,6 +23,154 @@ from fiftyone import ViewField as F
 
 
 logger = logging.getLogger(__name__)
+
+
+def parse_data(
+    samples,
+    patches_field=None,
+    data=None,
+    data_type="embeddings",
+    allow_missing=True,
+    warn_missing=True,
+):
+    if isinstance(data, fob.SimilarityIndex):
+        return get_embeddings_from_index(
+            samples,
+            data,
+            patches_field=None,
+            allow_missing=True,
+            warn_missing=True,
+        )
+
+    if patches_field is None:
+        if isinstance(data, dict):
+            sample_ids, data = zip(*data.items())
+            return np.array(data), np.array(sample_ids), None
+
+        sample_ids, _ = get_ids(samples, data=data, data_type=data_type)
+        return data, sample_ids, None
+
+    if isinstance(data, dict):
+        value = next(iter(data.values()), None)
+        if isinstance(value, np.ndarray) and value.ndim == 1:
+            label_ids, data = zip(*data.items())
+            return _parse_label_data(
+                samples,
+                patches_field,
+                label_ids,
+                data,
+                data_type,
+                allow_missing,
+                warn_missing,
+            )
+
+    sample_ids, label_ids = get_ids(
+        samples,
+        patches_field=patches_field,
+        data=data,
+        data_type=data_type,
+    )
+
+    return data, sample_ids, label_ids
+
+
+def _parse_label_data(
+    samples,
+    patches_field,
+    label_ids,
+    data,
+    data_type,
+    allow_missing,
+    warn_missing,
+):
+    if samples._is_patches:
+        sample_id_path = "sample_id"
+    else:
+        sample_id_path = "id"
+
+    label_type, label_id_path = samples._get_label_field_path(
+        patches_field, "id"
+    )
+    is_list_field = issubclass(label_type, fol._LABEL_LIST_FIELDS)
+
+    ref_sample_ids, ref_label_ids = samples._dataset.values(
+        [sample_id_path, label_id_path]
+    )
+
+    if is_list_field:
+        ids_map = {}
+        for _sample_id, _lids in zip(ref_sample_ids, ref_label_ids):
+            if _lids:
+                for _label_id in _lids:
+                    ids_map[_label_id] = _sample_id
+    else:
+        ids_map = dict(zip(ref_label_ids, ref_sample_ids))
+
+    _data = []
+    _sample_ids = []
+    _label_ids = []
+    _missing_ids = []
+    for _lid, _d in zip(label_ids, data):
+        _sid = ids_map.get(_lid, None)
+        if _sid is not None:
+            _data.append(_d)
+            _sample_ids.append(_sid)
+            _label_ids.append(_lid)
+        else:
+            _missing_ids.append(_lid)
+
+    num_missing = len(_missing_ids)
+    if num_missing > 0:
+        if not allow_missing:
+            raise ValueError(
+                "Unable to retrieve sample IDs for %d label IDs (eg %s)"
+                % (num_missing, _missing_ids[0])
+            )
+
+        if warn_missing:
+            logger.warning(
+                "Ignoring %s for %d label IDs (eg %s) for which sample IDs "
+                "could not be retrieved",
+                data_type,
+                num_missing,
+                _missing_ids[0],
+            )
+
+    return np.array(_data), np.array(_sample_ids), np.array(_label_ids)
+
+
+def get_embeddings_from_index(
+    samples,
+    similarity_index,
+    patches_field=None,
+    allow_missing=True,
+    warn_missing=True,
+):
+    if patches_field is None:
+        if samples._is_patches:
+            sample_id_path = "sample_id"
+        else:
+            sample_id_path = "id"
+
+        sample_ids = samples.values(sample_id_path)
+        label_ids = None
+    else:
+        if samples._is_patches:
+            label_id_path = "id"
+        else:
+            _, label_id_path = samples._get_label_field_path(
+                patches_field, "id"
+            )
+
+        sample_ids = None
+        label_ids = samples.values(label_id_path, unwind=True)
+
+    return similarity_index.get_embeddings(
+        sample_ids=sample_ids,
+        label_ids=label_ids,
+        allow_missing=allow_missing,
+        warn_missing=warn_missing,
+    )
 
 
 def get_ids(
@@ -236,11 +385,11 @@ def _parse_ids(ids, index_ids, ftype, allow_missing, warn_missing):
     return keep_inds, good_inds, bad_ids
 
 
-def skip_ids(samples, skip_ids, patches_field=None, warn_existing=False):
+def skip_ids(samples, ids, patches_field=None, warn_existing=False):
     sample_ids, label_ids = get_ids(samples, patches_field=patches_field)
 
     if patches_field is not None:
-        exclude_ids = list(set(label_ids) - set(skip_ids))
+        exclude_ids = list(set(label_ids) - set(ids))
         num_existing = len(exclude_ids)
 
         if num_existing > 0:
@@ -251,7 +400,7 @@ def skip_ids(samples, skip_ids, patches_field=None, warn_existing=False):
                 ids=exclude_ids, fields=patches_field
             )
     else:
-        exclude_ids = list(set(sample_ids) - set(skip_ids))
+        exclude_ids = list(set(sample_ids) - set(ids))
         num_existing = len(exclude_ids)
 
         if num_existing > 0:
@@ -564,6 +713,16 @@ def get_embeddings(
 ):
     if model is None and embeddings_field is None and embeddings is None:
         return _empty_embeddings(patches_field)
+
+    if isinstance(embeddings, fob.SimilarityIndex):
+        allow_missing = handle_missing == "skip"
+        return get_embeddings_from_index(
+            samples,
+            embeddings,
+            patches_field=patches_field,
+            allow_missing=allow_missing,
+            warn_missing=True,
+        )
 
     if embeddings is None and model is not None:
         if etau.is_str(model):

@@ -305,11 +305,17 @@ def compute_visualization(
         embeddings (None): if no ``model`` is provided, this argument specifies
             pre-computed embeddings to use, which can be any of the following:
 
+            -   a dict mapping sample IDs to embedding vectors
             -   a ``num_samples x num_embedding_dims`` array of embeddings
+                corresponding to the samples in ``samples``
+            -   if ``patches_field`` is specified, a dict mapping label IDs to
+                to embedding vectors
             -   if ``patches_field`` is specified,  a dict mapping sample IDs
                 to ``num_patches x num_embedding_dims`` arrays of patch
                 embeddings
             -   the name of a dataset field containing the embeddings to use
+            -   a :class:`fiftyone.brain.similarity.SimilarityIndex` from which
+                to retrieve embeddings for all samples/patches in ``samples``
 
             If a ``model`` is provided, this argument specifies the name of a
             field in which to store the computed embeddings. In either case,
@@ -317,10 +323,14 @@ def compute_visualization(
             fully-qualified path to the patch embeddings or just the name of
             the label attribute in ``patches_field``
         points (None): a pre-computed low-dimensional representation to use. If
-            provided, no embeddings will be computed. Can be any of the
+            provided, no embeddings will be used/computed. Can be any of the
             following:
 
-            -   a ``num_samples x num_dims`` array of points
+            -   a dict mapping sample IDs to points vectors
+            -   a ``num_samples x num_dims`` array of points corresponding to
+                the samples in ``samples``
+            -   if ``patches_field`` is specified, a dict mapping label IDs to
+                points vectors
             -   if ``patches_field`` is specified, a ``num_patches x num_dims``
                 array of points whose rows correspond to the flattened list of
                 patches whose IDs are shown below::

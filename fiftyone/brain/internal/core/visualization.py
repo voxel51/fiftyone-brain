@@ -112,7 +112,7 @@ def compute_visualization(
         logger.info("Generating visualization...")
         points = brain_method.fit(embeddings)
     else:
-        sample_ids, label_ids = fbu.get_ids(
+        points, sample_ids, label_ids = fbu.parse_data(
             samples,
             patches_field=patches_field,
             data=points,
