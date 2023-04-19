@@ -96,6 +96,8 @@ def compute_similarity(
         # automatically cleaning up the backend's index
         brain_method.register_run(samples, brain_key, overwrite=False)
 
+    results = brain_method.initialize(samples, brain_key)
+
     if embeddings is not False:
         embeddings, sample_ids, label_ids = fbu.get_embeddings(
             samples,
@@ -112,8 +114,6 @@ def compute_similarity(
     else:
         # Special syntax to allow embeddings to be added later
         embeddings = None
-
-    results = brain_method.initialize(samples, brain_key)
 
     if embeddings is not None:
         results.add_to_index(embeddings, sample_ids, label_ids=label_ids)
