@@ -99,26 +99,17 @@ def locate_brain_config():
     override this path by setting the ``FIFTYONE_BRAIN_CONFIG_PATH``
     environment variable.
 
-    Note that a config file may not actually exist on disk in the default
-    location, in which case the default config settings will be used.
+    Note that a config file may not actually exist on disk.
 
     Returns:
         the path to the :class:`BrainConfig` on disk
-
-    Raises:
-        OSError: if the brain config path has been customized but the file does
-            not exist on disk
     """
     if "FIFTYONE_BRAIN_CONFIG_PATH" not in os.environ:
         return os.path.join(
             os.path.expanduser("~"), ".fiftyone", "brain_config.json"
         )
 
-    config_path = os.environ["FIFTYONE_BRAIN_CONFIG_PATH"]
-    if not os.path.isfile(config_path):
-        raise OSError("Brain config file '%s' not found" % config_path)
-
-    return config_path
+    return os.environ["FIFTYONE_BRAIN_CONFIG_PATH"]
 
 
 def load_brain_config():
