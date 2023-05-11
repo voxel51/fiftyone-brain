@@ -44,6 +44,8 @@ def parse_data(
             warn_missing=True,
         )
 
+    _validate_args(samples, patches_field=patches_field)
+
     if patches_field is None:
         if isinstance(data, dict):
             sample_ids, data = zip(*data.items())
@@ -183,6 +185,8 @@ def get_ids(
     handle_missing="skip",
     ref_sample_ids=None,
 ):
+    _validate_args(samples, patches_field=patches_field)
+
     if patches_field is None:
         if ref_sample_ids is not None:
             sample_ids = ref_sample_ids
@@ -225,7 +229,7 @@ def filter_ids(
     allow_missing=True,
     warn_missing=False,
 ):
-    _validate_args(samples, None, patches_field)
+    _validate_args(samples, patches_field=patches_field)
 
     if patches_field is None:
         if samples._is_patches:
@@ -650,7 +654,9 @@ def filter_values(values, keep_inds, patches_field=None):
 
 
 def get_values(samples, path_or_expr, ids, patches_field=None):
-    _validate_args(samples, path_or_expr, patches_field)
+    _validate_args(
+        samples, patches_field=patches_field, path_or_expr=path_or_expr
+    )
     return samples._get_values_by_id(
         path_or_expr, ids, link_field=patches_field
     )
@@ -713,6 +719,8 @@ def get_embeddings(
     num_workers=None,
     skip_failures=True,
 ):
+    _validate_args(samples, patches_field=patches_field)
+
     if model is None and embeddings_field is None and embeddings is None:
         return _empty_embeddings(patches_field)
 
@@ -755,7 +763,8 @@ def get_embeddings(
             ):
                 raise ValueError(
                     "This method cannot use image models to compute video "
-                    "embeddings. Try providing precomputed embeddings"
+                    "embeddings. Try providing precomputed video embeddings "
+                    "or converting to a frames view via `to_frames()` first"
                 )
 
             logger.info("Computing embeddings...")
@@ -868,14 +877,16 @@ def _load_embeddings(samples, embeddings_field, patches_field=None):
     return embeddings, samples
 
 
-def _validate_args(samples, path_or_expr, patches_field):
+def _validate_args(samples, patches_field=None, path_or_expr=None):
     if patches_field is not None:
-        _validate_patches_args(samples, path_or_expr, patches_field)
+        _validate_patches_args(
+            samples, patches_field, path_or_expr=path_or_expr
+        )
     else:
-        _validate_samples_args(samples, path_or_expr)
+        _validate_samples_args(samples, path_or_expr=path_or_expr)
 
 
-def _validate_samples_args(samples, path_or_expr):
+def _validate_samples_args(samples, path_or_expr=None):
     if not etau.is_str(path_or_expr):
         return
 
@@ -888,7 +899,14 @@ def _validate_samples_args(samples, path_or_expr):
         )
 
 
-def _validate_patches_args(samples, path_or_expr, patches_field):
+def _validate_patches_args(samples, patches_field, path_or_expr=None):
+    if samples.media_type == fomm.VIDEO:
+        raise ValueError(
+            "This method does not directly support frame patches for video "
+            "collections. Try converting to a frames view via `to_frames()` "
+            "first"
+        )
+
     if etau.is_str(path_or_expr) and not path_or_expr.startswith(
         patches_field + "."
     ):
