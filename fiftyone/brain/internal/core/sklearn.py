@@ -168,6 +168,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         overwrite=True,
         allow_existing=True,
         warn_existing=False,
+        reload=True,
     ):
         _sample_ids, _label_ids, ii, jj = fbu.add_ids(
             sample_ids,
@@ -216,12 +217,16 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         self._sample_ids = _sample_ids
         self._label_ids = _label_ids
 
+        if reload:
+            self.reload()
+
     def remove_from_index(
         self,
         sample_ids=None,
         label_ids=None,
         allow_missing=True,
         warn_missing=False,
+        reload=True,
     ):
         _sample_ids, _label_ids, rm_inds = fbu.remove_ids(
             sample_ids,
@@ -250,6 +255,9 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         self._embeddings = _embeddings
         self._sample_ids = _sample_ids
         self._label_ids = _label_ids
+
+        if reload:
+            self.reload()
 
     def use_view(self, *args, **kwargs):
         self._curr_ids_to_inds = None

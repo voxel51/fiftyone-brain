@@ -383,6 +383,7 @@ class SimilarityIndex(fob.BrainResults):
         overwrite=True,
         allow_existing=True,
         warn_existing=False,
+        reload=True,
     ):
         """Adds the given embeddings to the index.
 
@@ -398,6 +399,8 @@ class SimilarityIndex(fob.BrainResults):
                 exists in the
             warn_missing (False): whether to log a warning if an embedding is
                 not added to the index because its ID already exists
+            reload (True): whether to call :meth:`reload` to refresh the
+                current view after the update
         """
         raise NotImplementedError("subclass must implement add_to_index()")
 
@@ -407,6 +410,7 @@ class SimilarityIndex(fob.BrainResults):
         label_ids=None,
         allow_missing=True,
         warn_missing=False,
+        reload=True,
     ):
         """Removes the specified embeddings from the index.
 
@@ -418,6 +422,8 @@ class SimilarityIndex(fob.BrainResults):
                 case (False)
             warn_missing (False): whether to log a warning if the index does
                 not contain IDs that you provide
+            reload (True): whether to call :meth:`reload` to refresh the
+                current view after the update
         """
         raise NotImplementedError(
             "subclass must implement remove_from_index()"
