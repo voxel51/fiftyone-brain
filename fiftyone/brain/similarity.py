@@ -1168,7 +1168,7 @@ class DuplicatesMixin(object):
             if ind in keep:
                 keep -= {i for i in nearest_inds[ind] if i > ind}
 
-        return {ids[i] for i in keep}
+        return [ids[i] for i in keep]
 
     def plot_distances(self, bins=100, log=False, backend="plotly", **kwargs):
         """Plots a histogram of the distance between each example and its
