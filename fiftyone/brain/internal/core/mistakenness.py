@@ -15,6 +15,7 @@ from scipy.stats import entropy
 from fiftyone import ViewField as F
 import fiftyone.core.brain as fob
 import fiftyone.core.labels as fol
+import fiftyone.core.media as fom
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 
@@ -27,6 +28,8 @@ _ALLOWED_TYPES = (
     fol.Classifications,
     fol.Detections,
     fol.Polylines,
+    fol.Keypoints,
+    fol.TemporalDetections,
 )
 _MISSED_CONFIDENCE_THRESHOLD = 0.95
 _DETECTION_IOU = 0.5
@@ -63,16 +66,19 @@ def compute_mistakenness(
     # mistakenness, and low confidence predictions result in middling
     # mistakenness.
     #
-    # See the docstring above for additional handling of missing and spurious
-    # detections/polylines.
-    #
 
     fov.validate_collection_label_fields(
         samples, (pred_field, label_field), _ALLOWED_TYPES, same_type=True
     )
 
+    if samples.media_type == fom.VIDEO:
+        mistakenness_field, _ = samples._handle_frame_field(mistakenness_field)
+        missing_field, _ = samples._handle_frame_field(missing_field)
+        spurious_field, _ = samples._handle_frame_field(spurious_field)
+
     is_objects = samples._is_label_field(
-        pred_field, (fol.Detections, fol.Polylines)
+        pred_field,
+        (fol.Detections, fol.Polylines, fol.Keypoints, fol.TemporalDetections),
     )
     if is_objects:
         eval_key = _make_eval_key(samples, mistakenness_field)

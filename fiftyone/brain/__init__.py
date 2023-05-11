@@ -62,29 +62,26 @@ def compute_hardness(samples, label_field, hardness_field="hardness"):
 def compute_mistakenness(
     samples,
     pred_field,
-    label_field="ground_truth",
+    label_field,
     mistakenness_field="mistakenness",
     missing_field="possible_missing",
     spurious_field="possible_spurious",
     use_logits=False,
     copy_missing=False,
 ):
-    """Computes the mistakenness of the labels in the specified
-    ``label_field``, scoring the chance that the labels are incorrect.
+    """Computes the mistakenness (likelihood of being incorrect) of the labels
+    in ``label_field`` based on the predcted labels in ``pred_field``.
 
-    Mistakenness is computed based on the predictions in the ``pred_field``,
-    through either their ``confidence`` or ``logits`` attributes. This measure
-    can be used to detect things like annotation errors and unusually hard
-    samples.
-
-    This method supports both classifications and detections/polylines.
+    Mistakenness is measured based on either the ``confidence`` or ``logits``
+    of the predictions in ``pred_field``. This measure can be used to detect
+    things like annotation errors and unusually hard samples.
 
     For classifications, a ``mistakenness_field`` field is populated on each
     sample that quantifies the likelihood that the label in the ``label_field``
     of that sample is incorrect.
 
-    For detections/polylines, the mistakenness of each object in
-    ``label_field`` is computed, using
+    For objects (detections, polylines, keypoints, etc), the mistakenness of
+    each object in ``label_field`` is computed, using
     :meth:`fiftyone.core.collections.SampleCollection.evaluate_detections` to
     locate corresponding objects in ``pred_field``. Three types of mistakes
     are identified:
@@ -92,9 +89,9 @@ def compute_mistakenness(
     -   **(Mistakes)** Objects in ``label_field`` with a match in
         ``pred_field`` are assigned a mistakenness value in their
         ``mistakenness_field`` that captures the likelihood that the class
-        label of the detection in ``label_field`` is a mistake. A
+        label of the object in ``label_field`` is a mistake. A
         ``mistakenness_field + "_loc"`` field is also populated that captures
-        the likelihood that the detection in ``label_field`` is a mistake due
+        the likelihood that the object in ``label_field`` is a mistake due
         to its localization (bounding box).
 
     -   **(Missing)** Objects in ``pred_field`` with no matches in
@@ -107,8 +104,7 @@ def compute_mistakenness(
         ``pred_field`` but which are likely to be incorrect will have their
         ``spurious_field`` attribute set to True.
 
-    In addition, for detections/polylines, the following sample-level fields
-    are populated:
+    In addition, for objects, the following sample-level fields are populated:
 
     -   **(Mistakes)** The ``mistakenness_field`` of each sample is populated
         with the maximum mistakenness of the objects in ``label_field``
@@ -131,23 +127,25 @@ def compute_mistakenness(
         pred_field: the name of the predicted label field to use from each
             sample. Can be of type
             :class:`fiftyone.core.labels.Classification`,
-            :class:`fiftyone.core.labels.Classifications`, or
-            :class:`fiftyone.core.labels.Detections`
-        label_field ("ground_truth"): the name of the "ground truth" label
-            field that you want to test for mistakes with respect to the
-            predictions in ``pred_field``. Must have the same type as
-            ``pred_field``
+            :class:`fiftyone.core.labels.Classifications`,
+            :class:`fiftyone.core.labels.Detections`,
+            :class:`fiftyone.core.labels.Polylines`,
+            :class:`fiftyone.core.labels.Keypoints`, or
+            :class:`fiftyone.core.labels.TemporalDetections`
+        label_field: the name of the "ground truth" label field that you want
+            to test for mistakes with respect to the predictions in
+            ``pred_field``. Must have the same type as ``pred_field``
         mistakenness_field ("mistakenness"): the field name to use to store the
             mistakenness value for each sample
         missing_field ("possible_missing): the field in which to store
-            per-sample counts of potential missing detections/polylines
+            per-sample counts of potential missing objects
         spurious_field ("possible_spurious): the field in which to store
-            per-sample counts of potential spurious detections/polylines
+            per-sample counts of potential spurious objects
         use_logits (False): whether to use logits (True) or confidence (False)
             to compute mistakenness. Logits typically yield better results,
             when they are available
-        copy_missing (False): whether to copy predicted detections/polylines
-            that were deemed to be missing into ``label_field``
+        copy_missing (False): whether to copy predicted objects that were
+            deemed to be missing into ``label_field``
     """
     import fiftyone.brain.internal.core.mistakenness as fbm
 

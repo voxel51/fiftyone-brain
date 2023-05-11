@@ -17,6 +17,8 @@ import eta.core.utils as etau
 import fiftyone.brain as fob
 import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
+import fiftyone.core.models as fom
+import fiftyone.core.media as fomm
 import fiftyone.core.patches as fop
 import fiftyone.zoo as foz
 from fiftyone import ViewField as F
@@ -728,6 +730,11 @@ def get_embeddings(
         if etau.is_str(model):
             model = foz.load_zoo_model(model)
 
+        if not isinstance(model, fom.Model):
+            raise ValueError(
+                "Model must be a %s; found %s" % (fom.Model, type(model))
+            )
+
         if patches_field is not None:
             logger.info("Computing patch embeddings...")
             embeddings = samples.compute_patch_embeddings(
@@ -742,6 +749,15 @@ def get_embeddings(
                 skip_failures=skip_failures,
             )
         else:
+            if (
+                samples.media_type == fomm.VIDEO
+                and model.media_type == fomm.IMAGE
+            ):
+                raise ValueError(
+                    "This method cannot use image models to compute video "
+                    "embeddings. Try providing precomputed embeddings"
+                )
+
             logger.info("Computing embeddings...")
             embeddings = samples.compute_embeddings(
                 model,
