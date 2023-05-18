@@ -273,6 +273,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
         overwrite=True,
         allow_existing=True,
         warn_existing=False,
+        reload=True,
         batch_size=1000,
     ):
         if self.config.collection_name not in self._get_collection_names():
@@ -340,12 +341,16 @@ class QdrantSimilarityIndex(SimilarityIndex):
                 ),
             )
 
+        if reload:
+            self.reload()
+
     def remove_from_index(
         self,
         sample_ids=None,
         label_ids=None,
         allow_missing=True,
         warn_missing=False,
+        reload=True,
     ):
         if label_ids is not None:
             ids = label_ids
@@ -377,6 +382,9 @@ class QdrantSimilarityIndex(SimilarityIndex):
             collection_name=self.config.collection_name,
             points_selector=qmodels.PointIdsList(points=qids),
         )
+
+        if reload:
+            self.reload()
 
     def get_embeddings(
         self,

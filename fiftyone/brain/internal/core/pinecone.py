@@ -254,6 +254,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
         overwrite=True,
         allow_existing=True,
         warn_existing=False,
+        reload=True,
         batch_size=100,
         namespace=None,
     ):
@@ -323,12 +324,16 @@ class PineconeSimilarityIndex(SimilarityIndex):
                 namespace=namespace,
             )
 
+        if reload:
+            self.reload()
+
     def remove_from_index(
         self,
         sample_ids=None,
         label_ids=None,
         allow_missing=True,
         warn_missing=False,
+        reload=True,
     ):
         if label_ids is not None:
             ids = label_ids
@@ -354,6 +359,9 @@ class PineconeSimilarityIndex(SimilarityIndex):
                     )
 
         self._index.delete(ids=ids)
+
+        if reload:
+            self.reload()
 
     def get_embeddings(
         self,
