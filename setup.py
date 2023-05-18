@@ -2,7 +2,7 @@
 """
 Installs `fiftyone-brain`.
 
-| Copyright 2017-2022, Voxel51, Inc.
+| Copyright 2017-2023, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -17,7 +17,7 @@ with open("LICENSE", "r") as fh:
     long_description += "\n## License\n\n" + fh.read()
 
 
-VERSION = "0.9.1"
+VERSION = "0.12.0"
 
 
 def get_version():

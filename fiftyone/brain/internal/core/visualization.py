@@ -1,7 +1,7 @@
 """
 Visualization methods.
 
-| Copyright 2017-2022, Voxel51, Inc.
+| Copyright 2017-2023, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -14,6 +14,8 @@ import sklearn.manifold as skm
 import eta.core.utils as etau
 
 import fiftyone.core.brain as fob
+import fiftyone.core.expressions as foe
+import fiftyone.core.plots as fop
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 import fiftyone.zoo as foz
@@ -31,7 +33,6 @@ umap = fou.lazy_import("umap")
 
 
 logger = logging.getLogger(__name__)
-
 
 _DEFAULT_MODEL = "mobilenet-v2-imagenet-torch"
 _DEFAULT_BATCH_SIZE = None
@@ -69,12 +70,17 @@ def compute_visualization(
         embeddings_field = None
         num_dims = points.shape[1]
     elif model is None and embeddings is None:
-        model = foz.load_zoo_model(_DEFAULT_MODEL)
+        model = _DEFAULT_MODEL
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
 
     if etau.is_str(embeddings):
-        embeddings_field = embeddings
+        embeddings_field = fbu.parse_embeddings_field(
+            samples,
+            embeddings,
+            patches_field=patches_field,
+            allow_embedded=model is None,
+        )
         embeddings = None
     else:
         embeddings_field = None
@@ -90,7 +96,7 @@ def compute_visualization(
         brain_method.register_run(samples, brain_key)
 
     if points is None:
-        embeddings = fbu.get_embeddings(
+        embeddings, sample_ids, label_ids = fbu.get_embeddings(
             samples,
             model=model,
             patches_field=patches_field,
@@ -105,17 +111,97 @@ def compute_visualization(
 
         logger.info("Generating visualization...")
         points = brain_method.fit(embeddings)
+    else:
+        points, sample_ids, label_ids = fbu.parse_data(
+            samples,
+            patches_field=patches_field,
+            data=points,
+            data_type="points",
+        )
 
-    results = VisualizationResults(samples, config, points)
+    results = VisualizationResults(
+        samples,
+        config,
+        brain_key,
+        points,
+        sample_ids=sample_ids,
+        label_ids=label_ids,
+    )
+
     brain_method.save_run_results(samples, brain_key, results)
 
     return results
 
 
-class Visualization(fob.BrainMethod):
-    def ensure_requirements(self):
-        pass
+def values(results, path_or_expr):
+    samples = results.view
+    patches_field = results.config.patches_field
+    if patches_field is not None:
+        ids = results.current_label_ids
+    else:
+        ids = results.current_sample_ids
 
+    return fbu.get_values(
+        samples, path_or_expr, ids, patches_field=patches_field
+    )
+
+
+def visualize(
+    results,
+    labels=None,
+    sizes=None,
+    classes=None,
+    backend="plotly",
+    **kwargs,
+):
+    points = results.current_points
+    samples = results.view
+    patches_field = results.config.patches_field
+    good_inds = results._curr_good_inds
+    if patches_field is not None:
+        ids = results.current_label_ids
+    else:
+        ids = results.current_sample_ids
+
+    if good_inds is not None:
+        if etau.is_container(labels) and not _is_expr(labels):
+            labels = fbu.filter_values(
+                labels, good_inds, patches_field=patches_field
+            )
+
+        if etau.is_container(sizes) and not _is_expr(sizes):
+            sizes = fbu.filter_values(
+                sizes, good_inds, patches_field=patches_field
+            )
+
+    if labels is not None and _is_expr(labels):
+        labels = fbu.get_values(
+            samples, labels, ids, patches_field=patches_field
+        )
+
+    if sizes is not None and _is_expr(sizes):
+        sizes = fbu.get_values(
+            samples, sizes, ids, patches_field=patches_field
+        )
+
+    return fop.scatterplot(
+        points,
+        samples=samples,
+        ids=ids,
+        link_field=patches_field,
+        labels=labels,
+        sizes=sizes,
+        classes=classes,
+        backend=backend,
+        **kwargs,
+    )
+
+
+def _is_expr(arg):
+    return isinstance(arg, (foe.ViewExpression, dict))
+
+
+class Visualization(fob.BrainMethod):
     def fit(self, embeddings):
         raise NotImplementedError("subclass must implement fit()")
 
@@ -125,9 +211,6 @@ class Visualization(fob.BrainMethod):
             fields.append(self.config.patches_field)
 
         return fields
-
-    def cleanup(self, samples, brain_key):
-        pass
 
 
 class UMAPVisualization(Visualization):

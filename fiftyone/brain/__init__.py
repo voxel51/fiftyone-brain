@@ -4,22 +4,28 @@ and visualization.
 
 See https://github.com/voxel51/fiftyone for more information.
 
-| Copyright 2017-2022, Voxel51, Inc.
+| Copyright 2017-2023, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+import fiftyone.brain.config as _foc
+
 from .similarity import (
+    Similarity,
     SimilarityConfig,
-    SimilarityResults,
+    SimilarityIndex,
 )
 from .visualization import (
     VisualizationConfig,
+    VisualizationResults,
     UMAPVisualizationConfig,
     TSNEVisualizationConfig,
     PCAVisualizationConfig,
     ManualVisualizationConfig,
-    VisualizationResults,
 )
+
+
+brain_config = _foc.load_brain_config()
 
 
 def compute_hardness(samples, label_field, hardness_field="hardness"):
@@ -56,29 +62,26 @@ def compute_hardness(samples, label_field, hardness_field="hardness"):
 def compute_mistakenness(
     samples,
     pred_field,
-    label_field="ground_truth",
+    label_field,
     mistakenness_field="mistakenness",
     missing_field="possible_missing",
     spurious_field="possible_spurious",
     use_logits=False,
     copy_missing=False,
 ):
-    """Computes the mistakenness of the labels in the specified
-    ``label_field``, scoring the chance that the labels are incorrect.
+    """Computes the mistakenness (likelihood of being incorrect) of the labels
+    in ``label_field`` based on the predcted labels in ``pred_field``.
 
-    Mistakenness is computed based on the predictions in the ``pred_field``,
-    through either their ``confidence`` or ``logits`` attributes. This measure
-    can be used to detect things like annotation errors and unusually hard
-    samples.
-
-    This method supports both classifications and detections/polylines.
+    Mistakenness is measured based on either the ``confidence`` or ``logits``
+    of the predictions in ``pred_field``. This measure can be used to detect
+    things like annotation errors and unusually hard samples.
 
     For classifications, a ``mistakenness_field`` field is populated on each
     sample that quantifies the likelihood that the label in the ``label_field``
     of that sample is incorrect.
 
-    For detections/polylines, the mistakenness of each object in
-    ``label_field`` is computed, using
+    For objects (detections, polylines, keypoints, etc), the mistakenness of
+    each object in ``label_field`` is computed, using
     :meth:`fiftyone.core.collections.SampleCollection.evaluate_detections` to
     locate corresponding objects in ``pred_field``. Three types of mistakes
     are identified:
@@ -86,9 +89,9 @@ def compute_mistakenness(
     -   **(Mistakes)** Objects in ``label_field`` with a match in
         ``pred_field`` are assigned a mistakenness value in their
         ``mistakenness_field`` that captures the likelihood that the class
-        label of the detection in ``label_field`` is a mistake. A
+        label of the object in ``label_field`` is a mistake. A
         ``mistakenness_field + "_loc"`` field is also populated that captures
-        the likelihood that the detection in ``label_field`` is a mistake due
+        the likelihood that the object in ``label_field`` is a mistake due
         to its localization (bounding box).
 
     -   **(Missing)** Objects in ``pred_field`` with no matches in
@@ -101,8 +104,7 @@ def compute_mistakenness(
         ``pred_field`` but which are likely to be incorrect will have their
         ``spurious_field`` attribute set to True.
 
-    In addition, for detections/polylines, the following sample-level fields
-    are populated:
+    In addition, for objects, the following sample-level fields are populated:
 
     -   **(Mistakes)** The ``mistakenness_field`` of each sample is populated
         with the maximum mistakenness of the objects in ``label_field``
@@ -125,23 +127,25 @@ def compute_mistakenness(
         pred_field: the name of the predicted label field to use from each
             sample. Can be of type
             :class:`fiftyone.core.labels.Classification`,
-            :class:`fiftyone.core.labels.Classifications`, or
-            :class:`fiftyone.core.labels.Detections`
-        label_field ("ground_truth"): the name of the "ground truth" label
-            field that you want to test for mistakes with respect to the
-            predictions in ``pred_field``. Must have the same type as
-            ``pred_field``
+            :class:`fiftyone.core.labels.Classifications`,
+            :class:`fiftyone.core.labels.Detections`,
+            :class:`fiftyone.core.labels.Polylines`,
+            :class:`fiftyone.core.labels.Keypoints`, or
+            :class:`fiftyone.core.labels.TemporalDetections`
+        label_field: the name of the "ground truth" label field that you want
+            to test for mistakes with respect to the predictions in
+            ``pred_field``. Must have the same type as ``pred_field``
         mistakenness_field ("mistakenness"): the field name to use to store the
             mistakenness value for each sample
         missing_field ("possible_missing): the field in which to store
-            per-sample counts of potential missing detections/polylines
+            per-sample counts of potential missing objects
         spurious_field ("possible_spurious): the field in which to store
-            per-sample counts of potential spurious detections/polylines
+            per-sample counts of potential spurious objects
         use_logits (False): whether to use logits (True) or confidence (False)
             to compute mistakenness. Logits typically yield better results,
             when they are available
-        copy_missing (False): whether to copy predicted detections/polylines
-            that were deemed to be missing into ``label_field``
+        copy_missing (False): whether to copy predicted objects that were
+            deemed to be missing into ``label_field``
     """
     import fiftyone.brain.internal.core.mistakenness as fbm
 
@@ -192,17 +196,22 @@ def compute_uniqueness(
             :class:`fiftyone.core.labels.Polyline`, or
             :class:`fiftyone.core.labels.Polylines` field defining a region of
             interest within each image to use to compute uniqueness
-        embeddings (None): pre-computed embeddings to use. Can be any of the
-            following:
+        embeddings (None): if no ``model`` is provided, this argument specifies
+            pre-computed embeddings to use, which can be any of the following:
 
             -   a ``num_samples x num_dims`` array of embeddings
             -   if ``roi_field`` is specified,  a dict mapping sample IDs to
                 ``num_patches x num_dims`` arrays of patch embeddings
             -   the name of a dataset field containing the embeddings to use
 
+            If a ``model`` is provided, this argument specifies the name of a
+            field in which to store the computed embeddings. In either case,
+            when working with patch embeddings, you can provide either the
+            fully-qualified path to the patch embeddings or just the name of
+            the label attribute in ``roi_field``
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
-            `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/models.html>`_
+            `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/models.html>`_
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
         force_square (False): whether to minimally manipulate the patch
@@ -259,12 +268,16 @@ def compute_visualization(
     patches that can be interactively visualized.
 
     The representation can be visualized by calling the
-    :meth:`sort_by_similarity() <fiftyone.brain.similarity.SimilarityResults.sort_by_similarity>`
+    :meth:`visualize() <fiftyone.brain.visualization.VisualizationResults.visualize>`
     method of the returned
     :class:`fiftyone.brain.visualization.VisualizationResults` object.
 
-    If no ``embeddings`` or ``model`` is provided, a default model is used to
-    generate embeddings.
+    If no ``embeddings`` or ``model`` is provided, the following default model
+    is used to generate embeddings::
+
+        import fiftyone.zoo as foz
+
+        model = foz.load_zoo_model("mobilenet-v2-imagenet-torch")
 
     You can use the ``method`` parameter to select the dimensionality-reduction
     method to use, and you can optionally customize the method by passing
@@ -287,19 +300,35 @@ def compute_visualization(
             :class:`fiftyone.core.labels.Detections`,
             :class:`fiftyone.core.labels.Polyline`, or
             :class:`fiftyone.core.labels.Polylines`
-        embeddings (None): pre-computed embeddings to use. Can be any of the
-            following:
+        embeddings (None): if no ``model`` is provided, this argument specifies
+            pre-computed embeddings to use, which can be any of the following:
 
+            -   a dict mapping sample IDs to embedding vectors
             -   a ``num_samples x num_embedding_dims`` array of embeddings
+                corresponding to the samples in ``samples``
+            -   if ``patches_field`` is specified, a dict mapping label IDs to
+                to embedding vectors
             -   if ``patches_field`` is specified,  a dict mapping sample IDs
                 to ``num_patches x num_embedding_dims`` arrays of patch
                 embeddings
             -   the name of a dataset field containing the embeddings to use
+            -   a :class:`fiftyone.brain.similarity.SimilarityIndex` from which
+                to retrieve embeddings for all samples/patches in ``samples``
+
+            If a ``model`` is provided, this argument specifies the name of a
+            field in which to store the computed embeddings. In either case,
+            when working with patch embeddings, you can provide either the
+            fully-qualified path to the patch embeddings or just the name of
+            the label attribute in ``patches_field``
         points (None): a pre-computed low-dimensional representation to use. If
-            provided, no embeddings will be computed. Can be any of the
+            provided, no embeddings will be used/computed. Can be any of the
             following:
 
-            -   a ``num_samples x num_dims`` array of points
+            -   a dict mapping sample IDs to points vectors
+            -   a ``num_samples x num_dims`` array of points corresponding to
+                the samples in ``samples``
+            -   if ``patches_field`` is specified, a dict mapping label IDs to
+                points vectors
             -   if ``patches_field`` is specified, a ``num_patches x num_dims``
                 array of points whose rows correspond to the flattened list of
                 patches whose IDs are shown below::
@@ -315,7 +344,7 @@ def compute_visualization(
             values are ``("umap", "tsne", "pca", "manual")``
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
-            `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/index.html>`_
+            `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
         force_square (False): whether to minimally manipulate the patch
@@ -367,36 +396,43 @@ def compute_similarity(
     patches_field=None,
     embeddings=None,
     brain_key=None,
-    metric="euclidean",
     model=None,
     force_square=False,
     alpha=None,
     batch_size=None,
     num_workers=None,
     skip_failures=True,
+    backend=None,
+    **kwargs,
 ):
     """Uses embeddings to index the samples or their patches so that you can
-    query/sort by visual similarity.
+    query/sort by similarity.
 
-    Calling this method (or loading existing results) only generates the index.
-    You can then call the methods exposed on the retuned
-    :class:`fiftyone.brain.similarity.SimilarityResults` object to perform the
-    following operations:
+    Calling this method only creates the index. You can then call the methods
+    exposed on the retuned :class:`fiftyone.brain.similarity.SimilarityIndex`
+    object to perform the following operations:
 
-    -   :meth:`sort_by_similarity() <fiftyone.brain.similarity.SimilarityResults.sort_by_similarity>`:
-        Sort the samples in the collection by visual similarity to a specific
-        example or example(s)
+    -   :meth:`sort_by_similarity() <fiftyone.brain.similarity.SimilarityIndex.sort_by_similarity>`:
+        Sort the samples in the collection by similarity to a specific example
+        or example(s)
 
-    -   :meth:`find_duplicates() <fiftyone.brain.similarity.SimilarityResults.find_duplicates>`:
+    In addition, if the backend supports it, you can call the following
+    duplicate detection methods:
+
+    -   :meth:`find_duplicates() <fiftyone.brain.similarity.DuplicatesMixin.find_duplicates>`:
         Query the index to find all examples with near-duplicates in the
         collection
 
-    -   :meth:`find_unique() <fiftyone.brain.similarity.SimilarityResults.find_unique>`:
+    -   :meth:`find_unique() <fiftyone.brain.similarity.DuplicatesMixin.find_unique>`:
         Query the index to select a subset of examples of a specified size that
         are maximally unique with respect to each other
 
-    If no ``embeddings`` or ``model`` is provided, a default model is used to
-    generate embeddings.
+    If no ``embeddings`` or ``model`` is provided, the following default model
+    is used to generate embeddings::
+
+        import fiftyone.zoo as foz
+
+        model = foz.load_zoo_model("mobilenet-v2-imagenet-torch")
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
@@ -406,21 +442,34 @@ def compute_similarity(
             :class:`fiftyone.core.labels.Detections`,
             :class:`fiftyone.core.labels.Polyline`, or
             :class:`fiftyone.core.labels.Polylines`
-        embeddings (None): pre-computed embeddings to use. Can be any of the
-            following:
+        embeddings (None): embeddings to feed the index. This argument's
+            behavior depends on whether a ``model`` is provided, as described
+            below.
+
+            If no ``model`` is provided, this argument specifies precomputed
+            embeddings to use:
 
             -   a ``num_samples x num_dims`` array of embeddings
             -   if ``patches_field`` is specified,  a dict mapping sample IDs
                 to ``num_patches x num_dims`` arrays of patch embeddings
-            -   the name of a dataset field containing the embeddings to use
+            -   the name of a dataset field from which to load embeddings
+            -   ``None``: use the default model to compute embeddings
+            -   ``False``: **do not** compute embeddings right now
 
+            If a ``model`` is provided, this argument specifies where to store
+            the model's embeddings:
+
+            -   the name of a field in which to store the computed embeddings
+            -   ``False``: **do not** compute or store embeddings right now
+
+            In either case, when working with patch embeddings, you can provide
+            either the fully-qualified path to the patch embeddings or just the
+            name of the label attribute in ``patches_field``
         brain_key (None): a brain key under which to store the results of this
             method
-        metric ("euclidean"): the embedding distance metric to use. See
-            ``sklearn.metrics.pairwise_distance`` for supported values
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
-            `FiftyOne Model Zoo <https://voxel51.com/docs/fiftyone/user_guide/model_zoo/index.html>`_
+            `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
         force_square (False): whether to minimally manipulate the patch
@@ -440,24 +489,32 @@ def compute_similarity(
             embeddings
         skip_failures (True): whether to gracefully continue without raising an
             error if embeddings cannot be generated for a sample
+        backend (None): the similarity backend to use. The supported values are
+            ``fiftyone.brain.brain_config.similarity_backends.keys()`` and the
+            default is
+            ``fiftyone.brain.brain_config.default_similarity_backend``
+        **kwargs: keyword arguments for the
+            :class:`fiftyone.brian.SimilarityConfig` subclass of the backend
+            being used
 
     Returns:
-        a :class:`fiftyone.brain.similarity.SimilarityResults`
+        a :class:`fiftyone.brain.similarity.SimilarityIndex`
     """
-    import fiftyone.brain.internal.core.similarity as fbs
+    import fiftyone.brain.similarity as fbs
 
     return fbs.compute_similarity(
         samples,
         patches_field,
         embeddings,
         brain_key,
-        metric,
         model,
         force_square,
         alpha,
         batch_size,
         num_workers,
         skip_failures,
+        backend,
+        **kwargs,
     )
 
 

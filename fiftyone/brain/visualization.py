@@ -1,7 +1,7 @@
 """
 Visualization interface.
 
-| Copyright 2017-2022, Voxel51, Inc.
+| Copyright 2017-2023, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -10,7 +10,6 @@ import numpy as np
 import eta.core.utils as etau
 
 import fiftyone.core.brain as fob
-import fiftyone.core.plots as fop
 import fiftyone.core.utils as fou
 
 fbu = fou.lazy_import("fiftyone.brain.internal.core.utils")
@@ -24,34 +23,44 @@ class VisualizationResults(fob.BrainResults):
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
         config: the :class:`VisualizationConfig` used
+        brain_key: the brain key
         points: a ``num_points x num_dims`` array of visualization points
+        sample_ids (None): a ``num_points`` array of sample IDs
+        label_ids (None): a ``num_points`` array of label IDs, if applicable
+        backend (None): a :class:`Visualization` backend
     """
 
-    def __init__(self, samples, config, points):
-        sample_ids, label_ids = fbu.get_ids(
-            samples, patches_field=config.patches_field
-        )
+    def __init__(
+        self,
+        samples,
+        config,
+        brain_key,
+        points,
+        sample_ids=None,
+        label_ids=None,
+        backend=None,
+    ):
+        super().__init__(samples, config, brain_key, backend=backend)
 
-        if len(sample_ids) != len(points):
-            ptype = "label" if config.patches_field is not None else "sample"
-            raise ValueError(
-                "Number of %s IDs (%d) does not match number of points (%d). "
-                "You may have missing data/labels that you need to omit from "
-                "your view" % (ptype, len(sample_ids), len(points))
+        if sample_ids is None:
+            sample_ids, label_ids = fbu.get_ids(
+                samples,
+                patches_field=config.patches_field,
+                data=points,
+                data_type="points",
             )
 
         self.points = points
+        self.sample_ids = sample_ids
+        self.label_ids = label_ids
 
-        self._samples = samples
-        self._config = config
-        self._sample_ids = sample_ids
-        self._label_ids = label_ids
         self._last_view = None
         self._curr_view = None
+        self._curr_points = None
         self._curr_sample_ids = None
         self._curr_label_ids = None
         self._curr_keep_inds = None
-        self._curr_points = None
+        self._curr_good_inds = None
 
         self.use_view(samples)
 
@@ -70,7 +79,7 @@ class VisualizationResults(fob.BrainResults):
 
     @property
     def index_size(self):
-        """The number of examples in the index.
+        """The number of active points in the index.
 
         If :meth:`use_view` has been called to restrict the index, this
         property will reflect the size of the active index.
@@ -78,18 +87,71 @@ class VisualizationResults(fob.BrainResults):
         return len(self._curr_sample_ids)
 
     @property
+    def total_index_size(self):
+        """The total number of data points in the index.
+
+        If :meth:`use_view` has been called to restrict the index, this value
+        may be larger than the current :meth:`index_size`.
+        """
+        return len(self.points)
+
+    @property
+    def missing_size(self):
+        """The total number of data points in :meth:`view` that are missing
+        from this index.
+
+        This property is only applicable when :meth:`use_view` has been called,
+        and it will be ``None`` if no data points are missing.
+        """
+        good = self._curr_good_inds
+
+        if good is None:
+            return None
+
+        return good.size - np.count_nonzero(good)
+
+    @property
+    def current_points(self):
+        """The currently active points in the index.
+
+        If :meth:`use_view` has been called, this may be a subset of the full
+        index.
+        """
+        return self._curr_points
+
+    @property
+    def current_sample_ids(self):
+        """The sample IDs of the currently active points in the index.
+
+        If :meth:`use_view` has been called, this may be a subset of the full
+        index.
+        """
+        return self._curr_sample_ids
+
+    @property
+    def current_label_ids(self):
+        """The label IDs of the currently active points in the index, or
+        ``None`` if not applicable.
+
+        If :meth:`use_view` has been called, this may be a subset of the full
+        index.
+        """
+        return self._curr_label_ids
+
+    @property
     def view(self):
         """The :class:`fiftyone.core.collections.SampleCollection` against
         which results are currently being generated.
 
-        If :meth:`use_view` has been called, this view may be a subset of the
-        collection on which the full index was generated.
+        If :meth:`use_view` has been called, this view may be different than
+        the collection on which the full index was generated.
         """
         return self._curr_view
 
-    def use_view(self, sample_collection):
-        """Restricts the index to the provided view, which must be a subset of
-        the full index's collection.
+    def use_view(
+        self, sample_collection, allow_missing=True, warn_missing=False
+    ):
+        """Restricts the index to the provided view.
 
         Subsequent calls to methods on this instance will only contain results
         from the specified view rather than the full index.
@@ -119,18 +181,24 @@ class VisualizationResults(fob.BrainResults):
 
         Args:
             sample_collection: a
-                :class:`fiftyone.core.collections.SampleCollection` defining a
-                subset of this index to use
+                :class:`fiftyone.core.collections.SampleCollection`
+            allow_missing (True): whether to allow the provided collection to
+                contain data points that this index does not contain (True) or
+                whether to raise an error in this case (False)
+            warn_missing (False): whether to log a warning if the provided
+                collection contains data points that this index does not
+                contain
 
         Returns:
             self
         """
-        view, sample_ids, label_ids, keep_inds = fbu.filter_ids(
+        sample_ids, label_ids, keep_inds, good_inds = fbu.filter_ids(
             sample_collection,
-            self._samples,
-            self._sample_ids,
-            self._label_ids,
+            self.sample_ids,
+            self.label_ids,
             patches_field=self._config.patches_field,
+            allow_missing=allow_missing,
+            warn_missing=warn_missing,
         )
 
         if keep_inds is not None:
@@ -138,11 +206,12 @@ class VisualizationResults(fob.BrainResults):
         else:
             points = self.points
 
-        self._curr_view = view
+        self._curr_view = sample_collection
+        self._curr_points = points
         self._curr_sample_ids = sample_ids
         self._curr_label_ids = label_ids
         self._curr_keep_inds = keep_inds
-        self._curr_points = points
+        self._curr_good_inds = good_inds
 
         return self
 
@@ -153,6 +222,28 @@ class VisualizationResults(fob.BrainResults):
         """
         self.use_view(self._samples)
 
+    def values(self, path_or_expr):
+        """Extracts a flat list of values from the given field or expression
+        corresponding to the current :meth:`view`.
+
+        This method always returns values in the same order as
+        :meth:`current_points`, :meth:`current_sample_ids`, and
+        :meth:`current_label_ids`.
+
+        Args:
+            path_or_expr: the values to extract, which can be:
+
+                -   the name of a sample field or ``embedded.field.name`` from
+                    which to extract numeric or string values
+                -   a :class:`fiftyone.core.expressions.ViewExpression`
+                    defining numeric or string values to compute via
+                    :meth:`fiftyone.core.collections.SampleCollection.values`
+
+        Returns:
+            a list of values
+        """
+        return fbv.values(self, path_or_expr)
+
     def visualize(
         self,
         labels=None,
@@ -161,7 +252,8 @@ class VisualizationResults(fob.BrainResults):
         backend="plotly",
         **kwargs,
     ):
-        """Generates an interactive scatterplot of the visualization results.
+        """Generates an interactive scatterplot of the visualization results
+        for the current :meth:`view`.
 
         This method supports 2D or 3D visualizations, but interactive point
         selection is only available in 2D.
@@ -214,10 +306,8 @@ class VisualizationResults(fob.BrainResults):
         Returns:
             an :class:`fiftyone.core.plots.base.InteractivePlot`
         """
-        return fop.scatterplot(
-            self._curr_points,
-            samples=self._curr_view,
-            link_field=self._config.patches_field,
+        return fbv.visualize(
+            self,
             labels=labels,
             sizes=sizes,
             classes=classes,
@@ -226,9 +316,25 @@ class VisualizationResults(fob.BrainResults):
         )
 
     @classmethod
-    def _from_dict(cls, d, samples, config):
+    def _from_dict(cls, d, samples, config, brain_key):
         points = np.array(d["points"])
-        return cls(samples, config, points)
+
+        sample_ids = d.get("sample_ids", None)
+        if sample_ids is not None:
+            sample_ids = np.array(sample_ids)
+
+        label_ids = d.get("label_ids", None)
+        if label_ids is not None:
+            label_ids = np.array(label_ids)
+
+        return cls(
+            samples,
+            config,
+            brain_key,
+            points,
+            sample_ids=sample_ids,
+            label_ids=label_ids,
+        )
 
 
 class VisualizationConfig(fob.BrainMethodConfig):
@@ -237,8 +343,8 @@ class VisualizationConfig(fob.BrainMethodConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
-        model (None): the :class:`fiftyone.core.models.Model` or class name of
-            the model that was used to compute embeddings, if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or name of the
+            zoo model that was used to compute embeddings, if known
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
@@ -253,7 +359,7 @@ class VisualizationConfig(fob.BrainMethodConfig):
         **kwargs,
     ):
         if model is not None and not etau.is_str(model):
-            model = etau.get_class_name(model)
+            model = None
 
         self.embeddings_field = embeddings_field
         self.model = model
@@ -277,8 +383,8 @@ class UMAPVisualizationConfig(VisualizationConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
-        model (None): the :class:`fiftyone.core.models.Model` or class name of
-            the model that was used to compute embeddings, if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or name of the
+            zoo model that was used to compute embeddings, if known
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
@@ -339,8 +445,8 @@ class TSNEVisualizationConfig(VisualizationConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
-        model (None): the :class:`fiftyone.core.models.Model` or class name of
-            the model that was used to compute embeddings, if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or name of the
+            zoo model that was used to compute embeddings, if known
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
@@ -418,8 +524,8 @@ class PCAVisualizationConfig(VisualizationConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
-        model (None): the :class:`fiftyone.core.models.Model` or class name of
-            the model that was used to compute embeddings, if one was provided
+        model (None): the :class:`fiftyone.core.models.Model` or name of the
+            zoo model that was used to compute embeddings, if known
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space

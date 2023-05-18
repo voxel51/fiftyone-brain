@@ -1,7 +1,11 @@
 """
 Visualization tests.
 
-| Copyright 2017-2022, Voxel51, Inc.
+All of these tests are designed to be run manually via::
+
+    pytest tests/intensive/test_visualization.py -s -k test_<name>
+
+| Copyright 2017-2023, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -13,9 +17,7 @@ import numpy as np
 import fiftyone as fo
 import fiftyone.brain as fob
 import fiftyone.zoo as foz
-
-
-_DATASET_NAME = "visualization-test"
+from fiftyone import ViewField as F
 
 
 def test_mnist():
@@ -30,7 +32,11 @@ def test_mnist():
     )
 
     results = fob.compute_visualization(
-        dataset, embeddings=embeddings, num_dims=2, verbose=True, seed=51
+        dataset,
+        embeddings=embeddings,
+        num_dims=2,
+        verbose=True,
+        seed=51,
     )
 
     plot = results.visualize(labels="ground_truth.label")
@@ -40,11 +46,12 @@ def test_mnist():
 
 
 def test_images():
-    dataset = _load_dataset()
+    dataset = _load_images_dataset()
 
-    results = fob.compute_visualization(
-        dataset, embeddings="embeddings", num_dims=2, verbose=True, seed=51
-    )
+    results = dataset.load_brain_results("img_viz")
+
+    assert results.total_index_size == len(dataset)
+    assert set(dataset.values("id")) == set(results.sample_ids)
 
     plot = results.visualize(labels="uniqueness")
     plot.show()
@@ -52,17 +59,63 @@ def test_images():
     input("Press enter to continue...")
 
 
-def test_objects():
-    dataset = _load_dataset()
+def test_images_subset():
+    dataset = _load_images_dataset()
 
+    results = dataset.load_brain_results("img_viz")
+
+    view = dataset.take(10)
+    results.use_view(view)
+
+    assert results.index_size == len(view)
+    assert set(view.values("id")) == set(results.current_sample_ids)
+
+    plot = results.visualize(labels="uniqueness")
+    plot.show()
+
+    input("Press enter to continue...")
+
+
+def test_images_missing():
+    dataset = _load_images_dataset().limit(4).clone()
+    dataset.add_samples(
+        [
+            fo.Sample(filepath="non-existent1.png"),
+            fo.Sample(filepath="non-existent2.png"),
+            fo.Sample(filepath="non-existent3.png"),
+            fo.Sample(filepath="non-existent4.png"),
+        ]
+    )
+
+    sample_ids = dataset[:4].values("id")
+
+    results = fob.compute_visualization(dataset, batch_size=1)
+
+    assert results.total_index_size == 4
+    assert set(sample_ids) == set(results.sample_ids)
+
+    model = foz.load_zoo_model("inception-v3-imagenet-torch")
     results = fob.compute_visualization(
         dataset,
-        patches_field="ground_truth",
-        embeddings="gt_embeddings",
-        num_dims=2,
-        verbose=True,
-        seed=51,
+        model=model,
+        embeddings="embeddings_missing",
+        batch_size=1,
     )
+
+    assert len(dataset.exists("embeddings_missing")) == 4
+    assert results.total_index_size == 4
+    assert set(sample_ids) == set(results.sample_ids)
+
+
+def test_patches():
+    dataset = _load_patches_dataset()
+
+    results = dataset.load_brain_results("gt_viz")
+
+    label_ids = dataset.values("ground_truth.detections.id", unwind=True)
+
+    assert results.total_index_size == len(label_ids)
+    assert set(label_ids) == set(results.label_ids)
 
     plot = results.visualize(labels="ground_truth.detections.label")
     plot.show()
@@ -70,50 +123,144 @@ def test_objects():
     input("Press enter to continue...")
 
 
-def test_objects_subset():
-    dataset = _load_dataset()
+def test_patches_subset():
+    dataset = _load_patches_dataset()
 
-    results = fob.compute_visualization(
-        dataset,
-        patches_field="ground_truth",
-        embeddings="gt_embeddings",
-        num_dims=2,
-        verbose=True,
-        seed=51,
-    )
-
-    counts = dataset.count_values("ground_truth.detections.label")
-    classes = sorted(counts, key=counts.get, reverse=True)[:5]
+    results = dataset.load_brain_results("gt_viz")
 
     plot = results.visualize(
-        labels="ground_truth.detections.label", classes=classes
+        labels="ground_truth.detections.label",
+        classes=["person"],
     )
     plot.show()
 
     input("Press enter to continue...")
 
+    view = dataset.filter_labels("ground_truth", F("label") == "person")
+    results.use_view(view)
 
-def _load_dataset():
-    if fo.dataset_exists(_DATASET_NAME):
-        return fo.load_dataset(_DATASET_NAME)
+    label_ids = view.values("ground_truth.detections.id", unwind=True)
 
-    dataset = foz.load_zoo_dataset("quickstart", dataset_name=_DATASET_NAME)
-    dataset.persistent = True
+    assert results.index_size == len(label_ids)
+    assert set(label_ids) == set(results.current_label_ids)
 
+    plot = results.visualize(labels="ground_truth.detections.label")
+    plot.show()
+
+    input("Press enter to continue...")
+
+
+def test_patches_missing():
+    dataset = _load_patches_dataset().limit(4).clone()
+    dataset.add_samples(
+        [
+            fo.Sample(filepath="non-existent1.png"),
+            fo.Sample(filepath="non-existent2.png"),
+            fo.Sample(filepath="non-existent3.png"),
+            fo.Sample(filepath="non-existent4.png"),
+        ]
+    )
+
+    for sample in dataset[4:]:
+        sample["ground_truth"] = fo.Detections(
+            detections=[fo.Detection(bounding_box=[0.1, 0.1, 0.8, 0.8])]
+        )
+        sample.save()
+
+    results = fob.compute_visualization(
+        dataset, patches_field="ground_truth", batch_size=1
+    )
+
+    num_patches = dataset[:4].count("ground_truth.detections")
+    label_ids = dataset[:4].values("ground_truth.detections.id", unwind=True)
+
+    assert results.total_index_size == num_patches
+    assert set(label_ids) == set(results.label_ids)
+
+    model = foz.load_zoo_model("inception-v3-imagenet-torch")
+    results = fob.compute_visualization(
+        dataset,
+        model=model,
+        patches_field="ground_truth",
+        embeddings="embeddings_missing",
+        batch_size=1,
+    )
+
+    view = dataset.filter_labels(
+        "ground_truth", F("embeddings_missing") != None
+    )
+
+    assert view.count("ground_truth.detections") == num_patches
+    assert results.total_index_size == num_patches
+    assert set(label_ids) == set(results.label_ids)
+
+
+def _load_images_dataset():
+    name = "test-visualization-images"
+
+    if fo.dataset_exists(name):
+        return fo.load_dataset(name)
+
+    return _make_images_dataset(name)
+
+
+def _load_patches_dataset():
+    name = "test-visualization-patches"
+
+    if fo.dataset_exists(name):
+        return fo.load_dataset(name)
+
+    return _make_patches_dataset(name)
+
+
+def _make_images_dataset(name):
+    dataset = foz.load_zoo_dataset(
+        "quickstart", max_samples=20, dataset_name=name
+    )
     model = foz.load_zoo_model("inception-v3-imagenet-torch")
 
     # Embed images
     dataset.compute_embeddings(
-        model, embeddings_field="embeddings", batch_size=16
+        model, embeddings_field="embeddings", batch_size=8
     )
+
+    # Image visualization
+    fob.compute_visualization(
+        dataset,
+        embeddings="embeddings",
+        num_dims=2,
+        verbose=True,
+        seed=51,
+        brain_key="img_viz",
+    )
+
+    return dataset
+
+
+def _make_patches_dataset(name):
+    dataset = foz.load_zoo_dataset(
+        "quickstart", max_samples=20, dataset_name=name
+    )
+    model = foz.load_zoo_model("inception-v3-imagenet-torch")
 
     # Embed ground truth patches
     dataset.compute_patch_embeddings(
         model,
         "ground_truth",
-        embeddings_field="gt_embeddings",
-        batch_size=16,
+        embeddings_field="embeddings",
+        batch_size=8,
         force_square=True,
+    )
+
+    # Patch visualization
+    fob.compute_visualization(
+        dataset,
+        patches_field="ground_truth",
+        embeddings="embeddings",
+        num_dims=2,
+        verbose=True,
+        seed=51,
+        brain_key="gt_viz",
     )
 
     return dataset
