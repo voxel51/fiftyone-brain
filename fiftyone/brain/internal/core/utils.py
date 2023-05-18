@@ -17,6 +17,8 @@ import eta.core.utils as etau
 import fiftyone.brain as fob
 import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
+import fiftyone.core.models as fom
+import fiftyone.core.media as fomm
 import fiftyone.core.patches as fop
 import fiftyone.zoo as foz
 from fiftyone import ViewField as F
@@ -41,6 +43,8 @@ def parse_data(
             allow_missing=True,
             warn_missing=True,
         )
+
+    _validate_args(samples, patches_field=patches_field)
 
     if patches_field is None:
         if isinstance(data, dict):
@@ -181,6 +185,8 @@ def get_ids(
     handle_missing="skip",
     ref_sample_ids=None,
 ):
+    _validate_args(samples, patches_field=patches_field)
+
     if patches_field is None:
         if ref_sample_ids is not None:
             sample_ids = ref_sample_ids
@@ -223,7 +229,7 @@ def filter_ids(
     allow_missing=True,
     warn_missing=False,
 ):
-    _validate_args(samples, None, patches_field)
+    _validate_args(samples, patches_field=patches_field)
 
     if patches_field is None:
         if samples._is_patches:
@@ -648,7 +654,9 @@ def filter_values(values, keep_inds, patches_field=None):
 
 
 def get_values(samples, path_or_expr, ids, patches_field=None):
-    _validate_args(samples, path_or_expr, patches_field)
+    _validate_args(
+        samples, patches_field=patches_field, path_or_expr=path_or_expr
+    )
     return samples._get_values_by_id(
         path_or_expr, ids, link_field=patches_field
     )
@@ -711,6 +719,8 @@ def get_embeddings(
     num_workers=None,
     skip_failures=True,
 ):
+    _validate_args(samples, patches_field=patches_field)
+
     if model is None and embeddings_field is None and embeddings is None:
         return _empty_embeddings(patches_field)
 
@@ -728,6 +738,11 @@ def get_embeddings(
         if etau.is_str(model):
             model = foz.load_zoo_model(model)
 
+        if not isinstance(model, fom.Model):
+            raise ValueError(
+                "Model must be a %s; found %s" % (fom.Model, type(model))
+            )
+
         if patches_field is not None:
             logger.info("Computing patch embeddings...")
             embeddings = samples.compute_patch_embeddings(
@@ -742,6 +757,16 @@ def get_embeddings(
                 skip_failures=skip_failures,
             )
         else:
+            if (
+                samples.media_type == fomm.VIDEO
+                and model.media_type == fomm.IMAGE
+            ):
+                raise ValueError(
+                    "This method cannot use image models to compute video "
+                    "embeddings. Try providing precomputed video embeddings "
+                    "or converting to a frames view via `to_frames()` first"
+                )
+
             logger.info("Computing embeddings...")
             embeddings = samples.compute_embeddings(
                 model,
@@ -852,14 +877,16 @@ def _load_embeddings(samples, embeddings_field, patches_field=None):
     return embeddings, samples
 
 
-def _validate_args(samples, path_or_expr, patches_field):
+def _validate_args(samples, patches_field=None, path_or_expr=None):
     if patches_field is not None:
-        _validate_patches_args(samples, path_or_expr, patches_field)
+        _validate_patches_args(
+            samples, patches_field, path_or_expr=path_or_expr
+        )
     else:
-        _validate_samples_args(samples, path_or_expr)
+        _validate_samples_args(samples, path_or_expr=path_or_expr)
 
 
-def _validate_samples_args(samples, path_or_expr):
+def _validate_samples_args(samples, path_or_expr=None):
     if not etau.is_str(path_or_expr):
         return
 
@@ -872,7 +899,14 @@ def _validate_samples_args(samples, path_or_expr):
         )
 
 
-def _validate_patches_args(samples, path_or_expr, patches_field):
+def _validate_patches_args(samples, patches_field, path_or_expr=None):
+    if samples.media_type == fomm.VIDEO:
+        raise ValueError(
+            "This method does not directly support frame patches for video "
+            "collections. Try converting to a frames view via `to_frames()` "
+            "first"
+        )
+
     if etau.is_str(path_or_expr) and not path_or_expr.startswith(
         patches_field + "."
     ):

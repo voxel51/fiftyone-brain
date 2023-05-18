@@ -13,6 +13,7 @@ from scipy.stats import entropy
 
 import fiftyone.core.brain as fob
 import fiftyone.core.labels as fol
+import fiftyone.core.media as fom
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 
@@ -34,6 +35,9 @@ def compute_hardness(samples, label_field, hardness_field):
 
     fov.validate_collection(samples)
     fov.validate_collection_label_fields(samples, label_field, _ALLOWED_TYPES)
+
+    if samples.media_type == fom.VIDEO:
+        hardness_field, _ = samples._handle_frame_field(hardness_field)
 
     config = HardnessConfig(label_field, hardness_field)
     brain_key = hardness_field
