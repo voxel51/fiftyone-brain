@@ -302,13 +302,8 @@ class MilvusSimilarityIndex(SimilarityIndex):
         self.get_collection().delete(expr)
 
     def _get_embeddings(self, ids):
-        from pymilvus import utility
         ids = ['"' + str(entry) + '"' for entry in ids]
         expr = f"""pk in [{','.join(ids)}]"""
-        # logger.error("get embedding:" + self.config.collection_name)
-        # with open("/Users/filiphaltmayer/Documents/packages_clean/voxel51/broken.txt", "w+" ) as f:
-            # f.write("get embedding:" + self.config.collection_name)
-            # f.write(" ".join(utility.list_collections(using=self.alias)))
         logger.error("get embedding:" + self.config.collection_name)
         data = self.get_collection().query(
             expr, output_fields=["pk", "sample_id", "vector"]
