@@ -376,7 +376,9 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
     def cleanup(self):
         if self._db is not None:
-            self._db.drop_table(self.config.table_name)
+            for tbl in [self.config.table_name, self.config.table_name + "_filter"]:
+                if tbl in self._db.table_names():
+                    self._db.drop_table(tbl)
             self._table = None
 
     def _kneighbors(
@@ -405,19 +407,22 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             query = [query]
 
         if self.config.patches_field is not None:
-            index_ids = self.current_label_ids
+            index_ids = list(self.current_label_ids)
         else:
-            index_ids = self.current_sample_ids
+            index_ids = list(self.current_sample_ids)
 
         ids = []
         dists = []
+        df = self._table.to_pandas().set_index("id")
+        df = df.loc[index_ids]
+        tbl_filtered = self._db.create_table(self.config.table_name + "_filter", df, mode="overwrite")
+
         for q in query:
-            #import pdb;pdb.set_trace()
-            results = self._table.search(q)
+            results = tbl_filtered.search(q)
             if self.config.metric is not None:
                 results = results.metric(_SUPPORTED_METRICS[self.config.metric])
 
-            results = results.limit(k).to_df().query("id in @index_ids")
+            results = results.limit(k).to_df()
             if reverse:
                 results = results.iloc[::-1]
 
