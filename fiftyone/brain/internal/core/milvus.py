@@ -48,9 +48,9 @@ class MilvusSimilarityConfig(SimilarityConfig):
             ``("dotproduct", "euclidean")``
         consistency_level ("Session"): the consistency level to use. Supported
             values are ``("Session", "Strong", "Bounded", "Eventually")``
-        uri ("http://localhost:19530"):  full address of Milvus server
-        user (""): username if using RBAC
-        password (""): password if using RBAC
+        uri (None): the full address of the Milvus server
+        user (None): a  username, if using RBAC
+        password (None): a password, if using RBAC
     """
 
     def __init__(
@@ -62,9 +62,9 @@ class MilvusSimilarityConfig(SimilarityConfig):
         collection_name=None,
         metric="dotproduct",
         consistency_level="Session",
-        uri="http://localhost:19530",
-        user="",
-        password="",
+        uri=None,
+        user=None,
+        password=None,
         **kwargs,
     ):
         if metric is not None and metric not in _SUPPORTED_METRICS:
@@ -184,13 +184,18 @@ class MilvusSimilarityIndex(SimilarityIndex):
     def _initialize(self):
         self._alias = uuid4().hex
 
+        kwargs = {}
+        if self.config.uri:
+            kwargs["uri"] = self.config.uri
+
+        if self.config.user:
+            kwargs["user"] = self.config.user
+
+        if self.config.password:
+            kwargs["password"] = self.config.password
+
         try:
-            pymilvus.connections.connect(
-                alias=self._alias,
-                uri=self.config.uri,
-                user=self.config.user,
-                password=self.config.password,
-            )
+            pymilvus.connections.connect(alias=self._alias, **kwargs)
 
             collection_names = pymilvus.utility.list_collections()
         except pymilvus.MilvusException as e:
