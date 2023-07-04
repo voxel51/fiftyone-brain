@@ -90,18 +90,6 @@ class MilvusSimilarityConfig(SimilarityConfig):
         self._user = user
         self._password = password
 
-        self.index_params = {
-            "metric_type": _SUPPORTED_METRICS[metric],
-            "index_type": "HNSW",
-            "params": {"M": 8, "efConstruction": 64},
-        }
-        self.search_params = {
-            "HNSW": {
-                "metric_type": _SUPPORTED_METRICS[metric],
-                "params": {"ef": 10},
-            },
-        }
-
     @property
     def method(self):
         return "milvus"
@@ -141,6 +129,23 @@ class MilvusSimilarityConfig(SimilarityConfig):
     @property
     def supported_aggregations(self):
         return ("mean",)
+
+    @property
+    def index_params(self):
+        return {
+            "metric_type": _SUPPORTED_METRICS[self.metric],
+            "index_type": "HNSW",
+            "params": {"M": 8, "efConstruction": 64},
+        }
+
+    @property
+    def search_params(self):
+        return {
+            "HNSW": {
+                "metric_type": _SUPPORTED_METRICS[self.metric],
+                "params": {"ef": 10},
+            },
+        }
 
     def load_credentials(self, uri=None, user=None, password=None):
         self._load_parameters(uri=uri, user=user, password=password)
