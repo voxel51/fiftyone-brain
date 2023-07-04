@@ -344,7 +344,6 @@ class MilvusSimilarityIndex(SimilarityIndex):
     def _get_embeddings(self, ids):
         ids = ['"' + str(entry) + '"' for entry in ids]
         expr = f"""pk in [{','.join(ids)}]"""
-        logger.error("get embedding:" + self.config.collection_name)
         data = self.get_collection().query(
             expr, output_fields=["pk", "sample_id", "vector"]
         )
