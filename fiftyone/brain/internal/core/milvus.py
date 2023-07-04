@@ -230,6 +230,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
         overwrite=True,
         allow_existing=True,
         warn_existing=False,
+        reload=True,
         batch_size=100,
     ):
         if not pymilvus.utility.has_collection(
@@ -294,6 +295,9 @@ class MilvusSimilarityIndex(SimilarityIndex):
             ]
             self.get_collection().insert(insert_data)
 
+        if reload:
+            self.reload()
+
     def _create_collection(self, dimension):
         schema = [
             pymilvus.FieldSchema(
@@ -352,6 +356,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
         label_ids=None,
         allow_missing=True,
         warn_missing=False,
+        reload=True,
     ):
         if label_ids is not None:
             ids = label_ids
@@ -377,6 +382,9 @@ class MilvusSimilarityIndex(SimilarityIndex):
                     )
 
         self._delete_ids(ids=ids)
+
+        if reload:
+            self.reload()
 
     def get_embeddings(
         self,
