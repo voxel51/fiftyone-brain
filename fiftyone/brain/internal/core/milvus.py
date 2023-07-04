@@ -85,9 +85,10 @@ class MilvusSimilarityConfig(SimilarityConfig):
         self.metric = metric
         self.consistency_level = consistency_level
 
+        # store privately so these aren't serialized
         self._uri = uri
-        self.user = user
-        self.password = password
+        self._user = user
+        self._password = password
 
         self.index_params = {
             "metric_type": _SUPPORTED_METRICS[metric],
@@ -110,8 +111,24 @@ class MilvusSimilarityConfig(SimilarityConfig):
         return self._uri
 
     @uri.setter
-    def uri(self, uri):
-        self._uri = uri
+    def uri(self, value):
+        self._uri = value
+
+    @property
+    def user(self):
+        return self._user
+
+    @user.setter
+    def user(self, value):
+        self._user = value
+
+    @property
+    def password(self):
+        return self._password
+
+    @password.setter
+    def password(self, value):
+        self._password = value
 
     @property
     def max_k(self):
@@ -125,8 +142,8 @@ class MilvusSimilarityConfig(SimilarityConfig):
     def supported_aggregations(self):
         return ("mean",)
 
-    def load_credentials(self, uri=None):
-        self._load_parameters(uri=uri)
+    def load_credentials(self, uri=None, user=None, password=None):
+        self._load_parameters(uri=uri, user=user, password=password)
 
 
 class MilvusSimilarity(Similarity):
@@ -163,31 +180,32 @@ class MilvusSimilarityIndex(SimilarityIndex):
         self._initialize()
 
     def _initialize(self):
-        self.alias = self._connect(
-            self.config.uri, self.config.user, self.config.password
-        )
-
+        self._alias = self._connect()
         self._init_collection()
 
-    def _connect(self, uri, user, password):
+    def _connect(self):
         alias = uuid4().hex
 
         try:
             pymilvus.connections.connect(
-                alias=alias, uri=uri, user=user, password=password
+                alias=alias,
+                uri=self.config.uri,
+                user=self.config.user,
+                password=self.config.password,
             )
-            logger.debug("Created new connection using: %s", alias)
+            logger.debug("Created new connection using %s", alias)
             return alias
-        except pymilvus.MilvusException as ex:
-            logger.error("Failed to create new connection using: %s", alias)
-            raise ex
+        except pymilvus.MilvusException as e:
+            raise RuntimeError(
+                "Failed to create new connection using %s" % alias
+            ) from e
 
     def _init_collection(self):
         if pymilvus.utility.has_collection(
-            self.config.collection_name, using=self.alias
+            self.config.collection_name, using=self._alias
         ):
             col = pymilvus.Collection(
-                self.config.collection_name, using=self.alias
+                self.config.collection_name, using=self._alias
             )
             col.load()
             for x in col.schema.fields:
@@ -215,7 +233,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
         batch_size=100,
     ):
         if not pymilvus.utility.has_collection(
-            self.config.collection_name, using=self.alias
+            self.config.collection_name, using=self._alias
         ):
             self._create_collection(embeddings.shape[1])
 
@@ -297,7 +315,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
             self.config.collection_name,
             col_schema,
             consistency_level=self.config.consistency_level,
-            using=self.alias,
+            using=self._alias,
         )
         col.create_index("vector", index_params=self.config.index_params)
         col.load()
@@ -305,7 +323,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
 
     def get_collection(self):
         return pymilvus.Collection(
-            self.config.collection_name, using=self.alias
+            self.config.collection_name, using=self._alias
         )
 
     def _get_existing_ids(self, ids):
