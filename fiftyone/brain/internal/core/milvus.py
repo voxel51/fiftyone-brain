@@ -163,8 +163,6 @@ class MilvusSimilarityIndex(SimilarityIndex):
         self._initialize()
 
     def _initialize(self):
-        from pymilvus import utility
-
         self.alias = self._connect(
             self.config.uri, self.config.user, self.config.password
         )
@@ -172,26 +170,25 @@ class MilvusSimilarityIndex(SimilarityIndex):
         self._init_collection()
 
     def _connect(self, uri, user, password):
-        from pymilvus import connections, MilvusException
-
         alias = uuid4().hex
+
         try:
-            connections.connect(
+            pymilvus.connections.connect(
                 alias=alias, uri=uri, user=user, password=password
             )
             logger.debug("Created new connection using: %s", alias)
             return alias
-        except MilvusException as ex:
+        except pymilvus.MilvusException as ex:
             logger.error("Failed to create new connection using: %s", alias)
             raise ex
 
     def _init_collection(self):
-        from pymilvus import utility, Collection
-
-        if utility.has_collection(
+        if pymilvus.utility.has_collection(
             self.config.collection_name, using=self.alias
         ):
-            col = Collection(self.config.collection_name, using=self.alias)
+            col = pymilvus.Collection(
+                self.config.collection_name, using=self.alias
+            )
             col.load()
             for x in col.schema.fields:
                 if x.params.get("dim", None) is not None:
@@ -217,9 +214,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
         warn_existing=False,
         batch_size=100,
     ):
-        from pymilvus import utility
-
-        if not utility.has_collection(
+        if not pymilvus.utility.has_collection(
             self.config.collection_name, using=self.alias
         ):
             self._create_collection(embeddings.shape[1])
@@ -282,26 +277,23 @@ class MilvusSimilarityIndex(SimilarityIndex):
             self.get_collection().insert(insert_data)
 
     def _create_collection(self, dimension):
-        from pymilvus import (
-            FieldSchema,
-            DataType,
-            CollectionSchema,
-            Collection,
-        )
-
         schema = [
-            FieldSchema(
+            pymilvus.FieldSchema(
                 "pk",
-                DataType.VARCHAR,
+                pymilvus.DataType.VARCHAR,
                 is_primary=True,
                 auto_id=False,
                 max_length=64000,
             ),
-            FieldSchema("vector", DataType.FLOAT_VECTOR, dim=dimension),
-            FieldSchema("sample_id", DataType.VARCHAR, max_length=64000),
+            pymilvus.FieldSchema(
+                "vector", pymilvus.DataType.FLOAT_VECTOR, dim=dimension
+            ),
+            pymilvus.FieldSchema(
+                "sample_id", pymilvus.DataType.VARCHAR, max_length=64000
+            ),
         ]
-        col_schema = CollectionSchema(schema)
-        col = Collection(
+        col_schema = pymilvus.CollectionSchema(schema)
+        col = pymilvus.Collection(
             self.config.collection_name,
             col_schema,
             consistency_level=self.config.consistency_level,
@@ -312,9 +304,9 @@ class MilvusSimilarityIndex(SimilarityIndex):
         return col
 
     def get_collection(self):
-        from pymilvus import Collection
-
-        return Collection(self.config.collection_name, using=self.alias)
+        return pymilvus.Collection(
+            self.config.collection_name, using=self.alias
+        )
 
     def _get_existing_ids(self, ids):
         ids = ['"' + str(entry) + '"' for entry in ids]
