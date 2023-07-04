@@ -243,7 +243,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
             ids = sample_ids
 
         if warn_existing or not allow_existing or not overwrite:
-            existing_ids = self.get_existing_ids(ids)
+            existing_ids = self._get_existing_ids(ids)
             num_existing = len(existing_ids)
 
             if num_existing > 0:
@@ -359,7 +359,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
             ids = sample_ids
 
         if not allow_missing or warn_missing:
-            existing_ids = self.get_existing_ids(ids)
+            existing_ids = self._get_existing_ids(ids)
             missing_ids = set(existing_ids) - set(ids)
             num_missing = len(missing_ids)
 
