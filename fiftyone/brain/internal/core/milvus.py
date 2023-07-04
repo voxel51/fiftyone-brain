@@ -48,9 +48,9 @@ class MilvusSimilarityConfig(SimilarityConfig):
             ``("dotproduct", "euclidean")``
         consistency_level ("Session"): the consistency level to use. Supported
             values are ``("Session", "Strong", "Bounded", "Eventually")``
-        uri (None): the full address of the Milvus server
-        user (None): a  username, if using RBAC
-        password (None): a password, if using RBAC
+        uri (None): a full Milvus server address to use
+        user (None): a username to use
+        password (None): a password to use
     """
 
     def __init__(
