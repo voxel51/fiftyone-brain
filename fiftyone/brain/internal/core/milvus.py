@@ -28,40 +28,43 @@ _SUPPORTED_METRICS = {
     "euclidean": "L2",
 }
 
+
 class MilvusSimilarityConfig(SimilarityConfig):
     """Configuration for the Milvus similarity backend.
 
     Args:
         embeddings_field (None): the sample field containing the embeddings,
-            if one was provided.
+            if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
-            zoo model that was used to compute embeddings, if known.
+            zoo model that was used to compute embeddings, if known
         patches_field (None): the sample field defining the patches being
-            analyzed, if any.
-        supports_prompts (None): whether this run supports prompt queries.
-        metric (str): the embedding distance metric to use when creating a
-            new index. Supported values are.
+            analyzed, if any
+        supports_prompts (None): whether this run supports prompt queries
+        collection_name ("ClientCollection"): the name of a Milvus collection
+            to use or create. If none is provided, a new collection will be
+            created
+        metric ("dotproduct"): the embedding distance metric to use when
+            creating a new index. Supported values are
             ``("dotproduct", "euclidean")``
-        collection_name (str): the name of a Milvus collection to use or
-            create. If none is provided, a new collection will be created.
-        uri (str):  full address of Milvus server.
-        user (str): username if using rbac.
-        password(str): password for supplied username.
-        consistency_level(str): which consistency level to use. Possible values are Strong, Session, Bounded, Eventually.
-        overwrite(str): whether to overwrite the collection if it already exists.
+        consistency_level ("Session"): the consistency level to use. Supported
+            values are ``("Session", "Strong", "Bounded", "Eventually")``
+        uri ("http://localhost:19530"):  full address of Milvus server
+        user (""): username if using RBAC
+        password (""): password if using RBAC
     """
+
     def __init__(
         self,
         embeddings_field=None,
         model=None,
         patches_field=None,
         supports_prompts=None,
+        collection_name="ClientCollection",
         metric="dotproduct",
-        collection_name: str = "ClientCollection",
-        uri: str = "http://localhost:19530",
-        user: str = "",
-        password: str = "",
-        consistency_level: str = "Session",
+        consistency_level="Session",
+        uri="http://localhost:19530",
+        user="",
+        password="",
         **kwargs,
     ):
         if metric is not None and metric not in _SUPPORTED_METRICS:
@@ -77,19 +80,25 @@ class MilvusSimilarityConfig(SimilarityConfig):
             supports_prompts=supports_prompts,
             **kwargs,
         )
-        self.metric = metric
+
         self.collection_name = collection_name
+        self.metric = metric
+        self.consistency_level = consistency_level
+
         self._uri = uri
         self.user = user
         self.password = password
-        self.consistency_level = consistency_level
+
         self.index_params = {
             "metric_type": _SUPPORTED_METRICS[metric],
             "index_type": "HNSW",
             "params": {"M": 8, "efConstruction": 64},
         }
         self.search_params = {
-            "HNSW": {"metric_type": _SUPPORTED_METRICS[metric], "params": {"ef": 10}},
+            "HNSW": {
+                "metric_type": _SUPPORTED_METRICS[metric],
+                "params": {"ef": 10},
+            },
         }
 
     @property
@@ -106,7 +115,7 @@ class MilvusSimilarityConfig(SimilarityConfig):
 
     @property
     def max_k(self):
-        return 16_384
+        return 16384
 
     @property
     def supports_least_similarity(self):
@@ -134,7 +143,9 @@ class MilvusSimilarity(Similarity):
         fou.ensure_package("pymilvus")
 
     def initialize(self, samples, brain_key):
-        return MilvusSimilarityIndex(samples, self.config, brain_key, backend=self)
+        return MilvusSimilarityIndex(
+            samples, self.config, brain_key, backend=self
+        )
 
 
 class MilvusSimilarityIndex(SimilarityIndex):
@@ -163,10 +174,11 @@ class MilvusSimilarityIndex(SimilarityIndex):
     def _connect(self, uri, user, password):
         from pymilvus import connections, MilvusException
 
-        """Create the connection to the Milvus server."""
         alias = uuid4().hex
         try:
-            connections.connect(alias=alias, uri=uri, user=user, password=password)
+            connections.connect(
+                alias=alias, uri=uri, user=user, password=password
+            )
             logger.debug("Created new connection using: %s", alias)
             return alias
         except MilvusException as ex:
@@ -176,7 +188,9 @@ class MilvusSimilarityIndex(SimilarityIndex):
     def _init_collection(self):
         from pymilvus import utility, Collection
 
-        if utility.has_collection(self.config.collection_name, using=self.alias):
+        if utility.has_collection(
+            self.config.collection_name, using=self.alias
+        ):
             col = Collection(self.config.collection_name, using=self.alias)
             col.load()
             for x in col.schema.fields:
@@ -205,7 +219,9 @@ class MilvusSimilarityIndex(SimilarityIndex):
     ):
         from pymilvus import utility
 
-        if not utility.has_collection(self.config.collection_name, using=self.alias):
+        if not utility.has_collection(
+            self.config.collection_name, using=self.alias
+        ):
             self._create_collection(embeddings.shape[1])
 
         if label_ids is not None:
@@ -227,7 +243,8 @@ class MilvusSimilarityIndex(SimilarityIndex):
                 if warn_existing:
                     if overwrite:
                         logger.warning(
-                            "Overwriting %d IDs that already exist in the " "index",
+                            "Overwriting %d IDs that already exist in the "
+                            "index",
                             num_existing,
                         )
                     else:
@@ -265,11 +282,20 @@ class MilvusSimilarityIndex(SimilarityIndex):
             self.get_collection().insert(insert_data)
 
     def _create_collection(self, dimension):
-        from pymilvus import FieldSchema, DataType, CollectionSchema, Collection
+        from pymilvus import (
+            FieldSchema,
+            DataType,
+            CollectionSchema,
+            Collection,
+        )
 
         schema = [
             FieldSchema(
-                "pk", DataType.VARCHAR, is_primary=True, auto_id=False, max_length=64000
+                "pk",
+                DataType.VARCHAR,
+                is_primary=True,
+                auto_id=False,
+                max_length=64000,
             ),
             FieldSchema("vector", DataType.FLOAT_VECTOR, dim=dimension),
             FieldSchema("sample_id", DataType.VARCHAR, max_length=64000),
@@ -354,7 +380,9 @@ class MilvusSimilarityIndex(SimilarityIndex):
                 raise ValueError("This index does not support label IDs")
 
             if sample_ids is not None:
-                logger.warning("Ignoring sample IDs when label IDs are provided")
+                logger.warning(
+                    "Ignoring sample IDs when label IDs are provided"
+                )
 
         if sample_ids is not None and self.config.patches_field is not None:
             (
@@ -444,7 +472,9 @@ class MilvusSimilarityIndex(SimilarityIndex):
 
         return found_embeddings, found_sample_ids, found_label_ids, missing_ids
 
-    def _get_patch_embeddings_from_sample_ids(self, sample_ids, batch_size=100):
+    def _get_patch_embeddings_from_sample_ids(
+        self, sample_ids, batch_size=100
+    ):
         found_embeddings = []
         found_sample_ids = []
         found_label_ids = []
@@ -485,7 +515,9 @@ class MilvusSimilarityIndex(SimilarityIndex):
             raise ValueError("Milvus does not support full index neighbors")
 
         if reverse is True:
-            raise ValueError("Milvus does not support least similarity queries")
+            raise ValueError(
+                "Milvus does not support least similarity queries"
+            )
 
         if k is None or k > self.config.max_k:
             raise ValueError("Milvus requires k<=%s" % self.config.max_k)
