@@ -214,6 +214,9 @@ class MilvusSimilarityIndex(SimilarityIndex):
             root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
             collection_name = fbu.get_unique_name(root, collection_names)
 
+            # Milvus only supports numbers, letters and underscores
+            collection_name = collection_name.replace("-", "_")
+
             self.config.collection_name = collection_name
             self.save_config()
 
