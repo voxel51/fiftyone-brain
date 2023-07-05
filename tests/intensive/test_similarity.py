@@ -19,6 +19,14 @@ Pinecone setup::
 
     pip install pinecone-client
 
+Milvus setup::
+
+    # Instructions from: https://milvus.io/docs/install_standalone-docker.md
+    wget https://github.com/milvus-io/milvus/releases/download/v2.2.11/milvus-standalone-docker-compose.yml -O docker-compose.yml
+    docker compose up -d
+
+    pip install pymilvus
+
 Brain config setup at `~/.fiftyone/brain_config.json`::
 
     {
@@ -29,7 +37,10 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
             },
             "qdrant": {
                 "url": "http://localhost:6333"
-            }
+            },
+            "milvus": {
+                "uri": "http://localhost:19530"
+            },
         }
     }
 
@@ -59,6 +70,9 @@ def test_brain_config():
     assert "pinecone" in similarity_backends
     assert "api_key" in similarity_backends["pinecone"]
     assert "environment" in similarity_backends["pinecone"]
+
+    assert "milvus" in similarity_backends
+    assert "uri" in similarity_backends["milvus"]
 
 
 def test_image_similarity_backends():
@@ -91,6 +105,15 @@ def test_image_similarity_backends():
         brain_key="clip_pinecone",
     )
 
+    index4 = fob.compute_similarity(
+        dataset,
+        model="clip-vit-base32-torch",
+        metric="euclidean",
+        embeddings=False,
+        backend="milvus",
+        brain_key="clip_milvus",
+    )
+
     embeddings, sample_ids, _ = index1.compute_embeddings(dataset)
 
     index1.add_to_index(embeddings, sample_ids)
@@ -110,6 +133,11 @@ def test_image_similarity_backends():
     assert index3.index_size == 200
     assert index3.missing_size is None
 
+    index4.add_to_index(embeddings, sample_ids)
+    assert index4.total_index_size == 200
+    assert index4.index_size == 200
+    assert index4.missing_size is None
+
     prompt = "kites high in the air"
 
     view1 = dataset.sort_by_similarity(prompt, k=10, brain_key="clip_sklearn")
@@ -121,22 +149,29 @@ def test_image_similarity_backends():
     view3 = dataset.sort_by_similarity(prompt, k=10, brain_key="clip_pinecone")
     assert len(view3) == 10
 
+    view4 = dataset.sort_by_similarity(prompt, k=10, brain_key="clip_milvus")
+    assert len(view4) == 10
+
     del index1
     del index2
     del index3
+    del index4
     dataset.clear_cache()
 
     print(dataset.get_brain_info("clip_sklearn"))
     print(dataset.get_brain_info("clip_qdrant"))
     print(dataset.get_brain_info("clip_pinecone"))
+    print(dataset.get_brain_info("clip_milvus"))
 
     index1 = dataset.load_brain_results("clip_sklearn")
     index2 = dataset.load_brain_results("clip_qdrant")
     index3 = dataset.load_brain_results("clip_pinecone")
+    index4 = dataset.load_brain_results("clip_milvus")
 
     assert index1.total_index_size == 200
     assert index2.total_index_size == 200
     assert index3.total_index_size == 200
+    assert index4.total_index_size == 200
 
     embeddings1, sample_ids1, _ = index1.get_embeddings()
     assert embeddings1.shape == (200, 512)
@@ -151,17 +186,25 @@ def test_image_similarity_backends():
     # assert embeddings3.shape == (200, 512)
     # assert sample_ids3.shape == (200,)
 
+    # Milvus requires IDs
+    # embeddings4, sample_ids4, _ = index4.get_embeddings()
+    # assert embeddings4.shape == (200, 512)
+    # assert sample_ids4.shape == (200,)
+
     ids = random.sample(list(index1.sample_ids), 100)
 
     embeddings1, sample_ids1, _ = index1.get_embeddings(sample_ids=ids)
     embeddings2, sample_ids2, _ = index2.get_embeddings(sample_ids=ids)
     embeddings3, sample_ids3, _ = index3.get_embeddings(sample_ids=ids)
+    embeddings4, sample_ids4, _ = index4.get_embeddings(sample_ids=ids)
 
     embeddings2_dict = dict(zip(sample_ids2, embeddings2))
     embeddings3_dict = dict(zip(sample_ids3, embeddings3))
+    embeddings4_dict = dict(zip(sample_ids4, embeddings4))
 
     _embeddings2 = np.array([embeddings2_dict[i] for i in sample_ids1])
     _embeddings3 = np.array([embeddings3_dict[i] for i in sample_ids1])
+    _embeddings4 = np.array([embeddings4_dict[i] for i in sample_ids1])
 
     assert embeddings1.shape == (100, 512)
     assert sample_ids1.shape == (100,)
@@ -172,27 +215,36 @@ def test_image_similarity_backends():
     assert embeddings3.shape == (100, 512)
     assert sample_ids3.shape == (100,)
 
+    assert embeddings4.shape == (100, 512)
+    assert sample_ids4.shape == (100,)
+
     assert set(sample_ids1) == set(sample_ids2)
     assert set(sample_ids1) == set(sample_ids3)
+    assert set(sample_ids1) == set(sample_ids4)
 
     assert np.allclose(embeddings1, _embeddings2)
     assert np.allclose(embeddings1, _embeddings3)
+    assert np.allclose(embeddings1, _embeddings4)
 
     index1.remove_from_index(sample_ids=ids)
     index2.remove_from_index(sample_ids=ids)
     index3.remove_from_index(sample_ids=ids)
+    index4.remove_from_index(sample_ids=ids)
 
     assert index1.total_index_size == 100
     assert index2.total_index_size == 100
     assert index3.total_index_size == 100
+    assert index4.total_index_size == 100
 
     index1.cleanup()
     index2.cleanup()
     index3.cleanup()
+    index4.cleanup()
 
     dataset.delete_brain_run("clip_sklearn")
     dataset.delete_brain_run("clip_qdrant")
     dataset.delete_brain_run("clip_pinecone")
+    dataset.delete_brain_run("clip_milvus")
     dataset.delete()
 
 
@@ -229,6 +281,16 @@ def test_patch_similarity_backends():
         brain_key="gt_clip_pinecone",
     )
 
+    index4 = fob.compute_similarity(
+        dataset,
+        patches_field="ground_truth",
+        model="clip-vit-base32-torch",
+        metric="euclidean",
+        embeddings=False,
+        backend="milvus",
+        brain_key="gt_clip_milvus",
+    )
+
     embeddings, sample_ids, label_ids = index1.compute_embeddings(dataset)
 
     index1.add_to_index(embeddings, sample_ids, label_ids=label_ids)
@@ -248,6 +310,11 @@ def test_patch_similarity_backends():
     assert index3.index_size == 1232
     assert index3.missing_size is None
 
+    index4.add_to_index(embeddings, sample_ids, label_ids=label_ids)
+    assert index4.total_index_size == 1232
+    assert index4.index_size == 1232
+    assert index4.missing_size is None
+
     view = dataset.to_patches("ground_truth")
 
     prompt = "cute puppies"
@@ -261,22 +328,29 @@ def test_patch_similarity_backends():
     view3 = view.sort_by_similarity(prompt, k=10, brain_key="gt_clip_pinecone")
     assert len(view3) == 10
 
+    view4 = view.sort_by_similarity(prompt, k=10, brain_key="gt_clip_milvus")
+    assert len(view4) == 10
+
     del index1
     del index2
     del index3
+    del index4
     dataset.clear_cache()
 
     print(dataset.get_brain_info("gt_clip_sklearn"))
     print(dataset.get_brain_info("gt_clip_qdrant"))
     print(dataset.get_brain_info("gt_clip_pinecone"))
+    print(dataset.get_brain_info("gt_clip_milvus"))
 
     index1 = dataset.load_brain_results("gt_clip_sklearn")
     index2 = dataset.load_brain_results("gt_clip_qdrant")
     index3 = dataset.load_brain_results("gt_clip_pinecone")
+    index4 = dataset.load_brain_results("gt_clip_milvus")
 
     assert index1.total_index_size == 1232
     assert index2.total_index_size == 1232
     assert index3.total_index_size == 1232
+    assert index4.total_index_size == 1232
 
     embeddings1, sample_ids1, label_ids1 = index1.get_embeddings()
     assert embeddings1.shape == (1232, 512)
@@ -294,17 +368,26 @@ def test_patch_similarity_backends():
     # assert sample_ids3.shape == (1232,)
     # assert label_ids3.shape == (1232,)
 
+    # Milvus requires IDs
+    # embeddings4, sample_ids4, label_ids4 = index4.get_embeddings()
+    # assert embeddings4.shape == (1232, 512)
+    # assert sample_ids4.shape == (1232,)
+    # assert label_ids4.shape == (1232,)
+
     ids = random.sample(list(index1.label_ids), 100)
 
     embeddings1, sample_ids1, label_ids1 = index1.get_embeddings(label_ids=ids)
     embeddings2, sample_ids2, label_ids2 = index2.get_embeddings(label_ids=ids)
     embeddings3, sample_ids3, label_ids3 = index3.get_embeddings(label_ids=ids)
+    embeddings4, sample_ids4, label_ids4 = index4.get_embeddings(label_ids=ids)
 
     embeddings2_dict = dict(zip(label_ids2, embeddings2))
     embeddings3_dict = dict(zip(label_ids3, embeddings3))
+    embeddings4_dict = dict(zip(label_ids4, embeddings4))
 
     _embeddings2 = np.array([embeddings2_dict[i] for i in label_ids1])
     _embeddings3 = np.array([embeddings3_dict[i] for i in label_ids1])
+    _embeddings4 = np.array([embeddings4_dict[i] for i in label_ids1])
 
     assert embeddings1.shape == (100, 512)
     assert sample_ids1.shape == (100,)
@@ -318,27 +401,38 @@ def test_patch_similarity_backends():
     assert sample_ids3.shape == (100,)
     assert label_ids3.shape == (100,)
 
+    assert embeddings4.shape == (100, 512)
+    assert sample_ids4.shape == (100,)
+    assert label_ids4.shape == (100,)
+
     assert set(label_ids1) == set(label_ids2)
     assert set(label_ids1) == set(label_ids3)
+    assert set(label_ids1) == set(label_ids4)
 
     assert np.allclose(embeddings1, _embeddings2)
     assert np.allclose(embeddings1, _embeddings3)
+    assert np.allclose(embeddings1, _embeddings4)
 
     index1.remove_from_index(label_ids=ids)
     index2.remove_from_index(label_ids=ids)
     index3.remove_from_index(label_ids=ids)
+    index4.remove_from_index(label_ids=ids)
 
     assert index1.total_index_size == 1132
     assert index2.total_index_size == 1132
     assert index3.total_index_size == 1132
+    assert index4.total_index_size == 1132
 
     index1.cleanup()
     index2.cleanup()
     index3.cleanup()
+    index4.cleanup()
 
     dataset.delete_brain_run("gt_clip_sklearn")
     dataset.delete_brain_run("gt_clip_qdrant")
     dataset.delete_brain_run("gt_clip_pinecone")
+    dataset.delete_brain_run("gt_clip_milvus")
+    dataset.delete()
 
 
 def test_images():
