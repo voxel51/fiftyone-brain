@@ -60,6 +60,8 @@ class QdrantSimilarityConfig(SimilarityConfig):
             use when creating a new index
         wal_config (None): an optional dict of WAL config parameters to use
             when creating a new index
+        url (None): a Qdrant server URL to use
+        api_key (None): a Qdrant API key to use
     """
 
     def __init__(
