@@ -187,7 +187,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
         self._initialize()
 
     def _initialize(self):
-        self._alias = uuid4().hex
+        alias = uuid4().hex
 
         kwargs = {}
         if self.config.uri:
@@ -200,15 +200,15 @@ class MilvusSimilarityIndex(SimilarityIndex):
             kwargs["password"] = self.config.password
 
         try:
-            pymilvus.connections.connect(alias=self._alias, **kwargs)
-
-            collection_names = pymilvus.utility.list_collections()
+            pymilvus.connections.connect(alias=alias, **kwargs)
         except pymilvus.MilvusException as e:
             raise ValueError(
                 "Failed to connect to Milvus backend at URI '%s'. Refer to "
                 "https://docs.voxel51.com/integrations/milvus.html for more "
                 "information" % self.config.uri
             ) from e
+
+        collection_names = pymilvus.utility.list_collections(using=alias)
 
         if self.config.collection_name is None:
             root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
@@ -219,12 +219,13 @@ class MilvusSimilarityIndex(SimilarityIndex):
 
         if self.config.collection_name in collection_names:
             collection = pymilvus.Collection(
-                self.config.collection_name, using=self._alias
+                self.config.collection_name, using=alias
             )
             collection.load()
         else:
             collection = None
 
+        self._alias = alias
         self._collection = collection
 
     def _create_collection(self, dimension):
@@ -454,7 +455,9 @@ class MilvusSimilarityIndex(SimilarityIndex):
         return embeddings, sample_ids, label_ids
 
     def cleanup(self):
-        pymilvus.utility.drop_collection(self.config.collection_name)
+        pymilvus.utility.drop_collection(
+            self.config.collection_name, using=self._alias
+        )
         self._collection = None
 
     def _get_sample_embeddings(self, sample_ids, batch_size=1000):
