@@ -4,7 +4,7 @@ Similarity tests.
 Usage::
 
     # Optional: specific backends to test
-    export SIMILARITY_BACKENDS=qdrant,pinecone,milvus
+    export SIMILARITY_BACKENDS=qdrant,pinecone,milvus,lancedb
 
     pytest tests/intensive/test_similarity.py -s -k test_XXX
 
@@ -102,6 +102,12 @@ def test_brain_config():
 
             # this isn't mandatory
             # assert "uri" in similarity_backends["milvus"]
+
+        if backend == "lancedb":
+            assert "lancedb" in similarity_backends
+
+            # this isn't mandatory
+            # assert "uri" in similarity_backends["lancedb"]
 
 
 def test_image_similarity_backends():
