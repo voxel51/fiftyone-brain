@@ -4,7 +4,7 @@ Similarity tests.
 Usage::
 
     # Optional: specific backends to test
-    export SIMILARITY_BACKENDS=qdrant,pinecone,milvus
+    export SIMILARITY_BACKENDS=qdrant,pinecone,milvus,lancedb
 
     pytest tests/intensive/test_similarity.py -s -k test_XXX
 
@@ -30,6 +30,10 @@ Milvus setup::
 
     pip install pymilvus
 
+LanceDB setup::
+
+    pip install lancedb
+
 Brain config setup at `~/.fiftyone/brain_config.json`::
 
     {
@@ -44,6 +48,9 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
             "milvus": {
                 "uri": "http://localhost:19530"
             },
+            "lancedb": {
+                "uri": "/tmp/lancedb"
+            }
         }
     }
 
@@ -63,7 +70,7 @@ import fiftyone.zoo as foz
 from fiftyone import ViewField as F
 
 
-CUSTOM_BACKENDS = ["qdrant", "pinecone", "milvus"]
+CUSTOM_BACKENDS = ["qdrant", "pinecone", "milvus", "lancedb"]
 
 
 def get_custom_backends():
@@ -95,6 +102,12 @@ def test_brain_config():
 
             # this isn't mandatory
             # assert "uri" in similarity_backends["milvus"]
+
+        if backend == "lancedb":
+            assert "lancedb" in similarity_backends
+
+            # this isn't mandatory
+            # assert "uri" in similarity_backends["lancedb"]
 
 
 def test_image_similarity_backends():

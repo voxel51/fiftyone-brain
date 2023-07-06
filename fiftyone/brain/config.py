@@ -23,8 +23,11 @@ class BrainConfig(EnvConfig):
         "qdrant": {
             "config_cls": "fiftyone.brain.internal.core.qdrant.QdrantSimilarityConfig",
         },
-         "milvus": {
+        "milvus": {
             "config_cls": "fiftyone.brain.internal.core.milvus.MilvusSimilarityConfig",
+        },
+        "lancedb": {
+            "config_cls": "fiftyone.brain.internal.core.lancedb.LanceDBSimilarityConfig",
         },
     }
 
