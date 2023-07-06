@@ -187,8 +187,6 @@ class MilvusSimilarityIndex(SimilarityIndex):
         self._initialize()
 
     def _initialize(self):
-        alias = uuid4().hex
-
         kwargs = {}
         if self.config.uri:
             kwargs["uri"] = self.config.uri
@@ -198,6 +196,8 @@ class MilvusSimilarityIndex(SimilarityIndex):
 
         if self.config.password:
             kwargs["password"] = self.config.password
+
+        alias = uuid4().hex if kwargs else "default"
 
         try:
             pymilvus.connections.connect(alias=alias, **kwargs)
