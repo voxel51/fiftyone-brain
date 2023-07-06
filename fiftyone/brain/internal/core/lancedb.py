@@ -79,7 +79,6 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         """A maximum k value for nearest neighbor queries, or None if there is
         no limit.
         """
-        return None # TODO: check this
 
     @property
     def supports_least_similarity(self):
@@ -150,7 +149,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         if self._table is not None:
             return self._table.to_arrow()
 
-        return pa.Table.from_arrays([[],[], []], names=["id", "sample_id", "vector"]) # TODO: make names variable
+        return pa.Table.from_arrays([[],[], []], names=["id", "sample_id", "vector"])
 
     def add_to_index(
         self,
@@ -225,7 +224,6 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         else:
             ids = list(sample_ids)
 
-        # TODO: simpler to do with pandas integration.        
         len = self.total_index_size
         dim = embeddings.shape[1]
         if self._table: # update the table
@@ -390,10 +388,10 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         return_dists=False,
     ):
         if query is None:
-            raise ValueError("LanceDB does not support full index neighbors") # TODO: check this
+            raise ValueError("LanceDB does not support full index neighbors")
 
         if aggregation not in (None, "mean"):
-            raise ValueError(f"LanceDB does not support {aggregation} aggregation") # TODO: check this
+            raise ValueError(f"LanceDB does not support {aggregation} aggregation")
 
         if k is None:
             k = len(self._table.to_arrow())
