@@ -501,7 +501,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
             )
 
         for batch_ids in fou.iter_batches(label_ids, batch_size):
-            response = self.get_embeddings(list(batch_ids))
+            response = self._get_embeddings(list(batch_ids))
 
             for r in response:
                 found_embeddings.append(r["vector"])
@@ -519,7 +519,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
         found_sample_ids = []
         found_label_ids = []
 
-        query_vector = [0.0] * self.get_dim()
+        query_vector = [0.0] * self._get_dimension()
         top_k = min(batch_size, self.config.max_k)
 
         for batch_ids in fou.iter_batches(sample_ids, batch_size):
@@ -627,6 +627,14 @@ class MilvusSimilarityIndex(SimilarityIndex):
             query = query[0, :]
 
         return query
+
+    def _get_dimension(self):
+        if self._collection is None:
+            return None
+
+        for field in self._collection.describe()["fields"]:
+            if field["name"] == "vector":
+                return field["params"]["dim"]
 
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):
