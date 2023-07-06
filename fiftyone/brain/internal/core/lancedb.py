@@ -46,7 +46,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
             provided, a new table will be created
         metric ("cosine"): the embedding distance metric to use when creating a
             new index. Supported values are ``("cosine", "euclidean")``
-        uri ("/tmp/lancedb"): the URI of the LanceDB database to use
+        uri ("/tmp/lancedb"): the database URI to use
         **kwargs: keyword arguments for :class:`SimilarityConfig`
     """
 
@@ -77,12 +77,22 @@ class LanceDBSimilarityConfig(SimilarityConfig):
 
         self.table_name = table_name
         self.metric = metric
-        self.uri = fou.normalize_path(uri)
+
+        # store privately so these aren't serialized
+        self._uri = fou.normalize_path(uri)
 
     @property
     def method(self):
         """The name of the similarity backend."""
         return "lancedb"
+
+    @property
+    def uri(self):
+        return self._uri
+
+    @uri.setter
+    def uri(self, value):
+        self._uri = value
 
     @property
     def max_k(self):
@@ -99,6 +109,9 @@ class LanceDBSimilarityConfig(SimilarityConfig):
     @property
     def supported_aggregations(self):
         return ("mean",)
+
+    def load_credentials(self, uri=None):
+        self._load_parameters(uri=uri)
 
 
 class LanceDBSimilarity(Similarity):
