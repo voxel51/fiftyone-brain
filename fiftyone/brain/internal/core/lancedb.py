@@ -22,6 +22,7 @@ _SUPPORTED_METRICS = {
 
 logger = logging.getLogger(__name__)
 
+
 class LanceDBSimilarityConfig(SimilarityConfig):
     """Configuration for a LanceDB similarity instance.
 
@@ -40,7 +41,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         uri ("/tmp/lancedb"): the URI of the lancedb database to use
         **kwargs: keyword arguments for :class:`SimilarityConfig`
     """
-    
+
     def __init__(
         self,
         embeddings_field=None,
@@ -48,7 +49,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         patches_field=None,
         supports_prompts=None,
         table_name=None,
-        metric='cosine',
+        metric="cosine",
         uri="/tmp/lancedb",
         **kwargs,
     ):
@@ -57,7 +58,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
                 "Unsupported metric '%s'. Supported values are %s"
                 % (metric, tuple(_SUPPORTED_METRICS.keys()))
             )
-        
+
         super().__init__(
             embeddings_field=embeddings_field,
             model=model,
@@ -89,6 +90,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
     def supported_aggregations(self):
         return ("mean",)
 
+
 class LanceDBSimilarity(Similarity):
     """LanceDB similarity factory.
 
@@ -106,6 +108,7 @@ class LanceDBSimilarity(Similarity):
         return LanceDBSimilarityIndex(
             samples, self.config, brain_key, backend=self
         )
+
 
 class LanceDBSimilarityIndex(SimilarityIndex):
     def __init__(self, samples, config, brain_key, backend=None):
@@ -132,7 +135,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         self._db = db
         self._table = table
         self._table_name = self.config.table_name
-    
+
     @property
     def table(self):
         """The ``lancedb.LanceTable`` instance for this table."""
@@ -144,12 +147,14 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             return None
 
         return len(self._table)
-    
+
     def _get_pa_table(self):
         if self._table is not None:
             return self._table.to_arrow()
 
-        return pa.Table.from_arrays([[],[], []], names=["id", "sample_id", "vector"])
+        return pa.Table.from_arrays(
+            [[], [], []], names=["id", "sample_id", "vector"]
+        )
 
     def add_to_index(
         self,
@@ -184,7 +189,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             ids = label_ids
         else:
             ids = sample_ids
-        
+
         if warn_existing or not allow_existing or not overwrite:
             existing_ids = set(pa_table["id"].to_pylist()) & set(ids)
             num_existing = len(existing_ids)
@@ -218,16 +223,17 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             sample_ids = np.delete(sample_ids, del_inds)
             if label_ids is not None:
                 label_ids = np.delete(label_ids, del_inds)
-        
+
         if label_ids is not None:
             ids = list(label_ids)
         else:
             ids = list(sample_ids)
 
-        len = self.total_index_size
         dim = embeddings.shape[1]
-        if self._table: # update the table
-            prev_embeddings = np.concatenate(pa_table["vector"].to_numpy()).reshape(-1, dim)
+        if self._table:  # update the table
+            prev_embeddings = np.concatenate(
+                pa_table["vector"].to_numpy()
+            ).reshape(-1, dim)
             embeddings = np.concatenate([prev_embeddings, embeddings])
             ids = pa_table["id"].to_pylist() + ids
             sample_ids = pa_table["sample_id"].to_pylist() + sample_ids
@@ -235,8 +241,12 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         embeddings = pa.array(embeddings.reshape(-1), type=pa.float32())
         embeddings = pa.FixedSizeListArray.from_arrays(embeddings, dim)
         sample_ids = list(sample_ids)
-        pa_table = pa.Table.from_arrays([ids,sample_ids, embeddings], names=["id", "sample_id", "vector"])
-        self._table = self._db.create_table(self.config.table_name, pa_table, mode="overwrite")
+        pa_table = pa.Table.from_arrays(
+            [ids, sample_ids, embeddings], names=["id", "sample_id", "vector"]
+        )
+        self._table = self._db.create_table(
+            self.config.table_name, pa_table, mode="overwrite"
+        )
 
         if reload:
             self.reload()
@@ -274,7 +284,9 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         df = self._table.to_pandas()
         df = df[~df["id"].isin(ids)]
-        self._table = self._db.create_table(self.config.table_name, df, mode="overwrite")
+        self._table = self._db.create_table(
+            self.config.table_name, df, mode="overwrite"
+        )
 
         if reload:
             self.reload()
@@ -319,9 +331,16 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 )
 
         pd_table = self._table.to_pandas()
-        found_embeddings, found_sample_ids, found_label_ids, missing_ids = [], [], [], []
+        found_embeddings, found_sample_ids, found_label_ids, missing_ids = (
+            [],
+            [],
+            [],
+            [],
+        )
         if sample_ids is not None and self.config.patches_field is not None:
-            sample_ids = sample_ids if isinstance(sample_ids, list) else [sample_ids]
+            sample_ids = (
+                sample_ids if isinstance(sample_ids, list) else [sample_ids]
+            )
             df = pd_table.set_index("sample_id")
             for sample_id in sample_ids:
                 if sample_id in df.index:
@@ -333,7 +352,9 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         elif self.config.patches_field is not None:
             df = pd_table.set_index("id")
-            label_ids = label_ids if isinstance(label_ids, list) else [label_ids]
+            label_ids = (
+                label_ids if isinstance(label_ids, list) else [label_ids]
+            )
             for label_id in label_ids:
                 if label_id in df.index:
                     found_embeddings.append(df.loc[label_id]["vector"])
@@ -343,7 +364,9 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                     missing_ids.append(label_id)
         else:
             df = pd_table.set_index("sample_id")
-            sample_id = sample_ids if isinstance(sample_ids, list) else [sample_ids]
+            sample_id = (
+                sample_ids if isinstance(sample_ids, list) else [sample_ids]
+            )
             for sample_id in sample_ids:
                 if sample_id in df.index:
                     found_embeddings.append(df.loc[sample_id]["vector"])
@@ -364,7 +387,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                     "Skipping %d IDs that do not exist in the index",
                     num_missing_ids,
                 )
-        
+
         embeddings = np.array(found_embeddings)
         sample_ids = np.array(found_sample_ids)
         if label_ids is not None:
@@ -374,7 +397,10 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
     def cleanup(self):
         if self._db is not None:
-            for tbl in [self.config.table_name, self.config.table_name + "_filter"]:
+            for tbl in [
+                self.config.table_name,
+                self.config.table_name + "_filter",
+            ]:
                 if tbl in self._db.table_names():
                     self._db.drop_table(tbl)
             self._table = None
@@ -391,7 +417,9 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             raise ValueError("LanceDB does not support full index neighbors")
 
         if aggregation not in (None, "mean"):
-            raise ValueError(f"LanceDB does not support {aggregation} aggregation")
+            raise ValueError(
+                f"LanceDB does not support {aggregation} aggregation"
+            )
 
         if k is None:
             k = len(self._table.to_arrow())
@@ -413,12 +441,16 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         dists = []
         df = self._table.to_pandas().set_index("id")
         df = df.loc[index_ids]
-        tbl_filtered = self._db.create_table(self.config.table_name + "_filter", df, mode="overwrite")
+        tbl_filtered = self._db.create_table(
+            self.config.table_name + "_filter", df, mode="overwrite"
+        )
 
         for q in query:
             results = tbl_filtered.search(q)
             if self.config.metric is not None:
-                results = results.metric(_SUPPORTED_METRICS[self.config.metric])
+                results = results.metric(
+                    _SUPPORTED_METRICS[self.config.metric]
+                )
 
             results = results.limit(k).to_df()
             if reverse:
@@ -453,7 +485,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         # Query by ID(s)
         table = self._db.open_table(self._table_name)
-        
+
         embeddings = table.to_pandas().set_index("id").loc[query_ids]["vector"]
         query = np.array([emb for emb in embeddings])
 
@@ -461,7 +493,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             query = query[0, :]
 
         return query
-    
+
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):
         return cls(samples, config, brain_key)
