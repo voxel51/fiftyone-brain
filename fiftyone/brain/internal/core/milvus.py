@@ -17,6 +17,7 @@ from fiftyone.brain.similarity import (
     Similarity,
     SimilarityIndex,
 )
+import fiftyone.brain.internal.core.utils as fbu
 
 pymilvus = fou.lazy_import("pymilvus")
 
@@ -28,40 +29,42 @@ _SUPPORTED_METRICS = {
     "euclidean": "L2",
 }
 
+
 class MilvusSimilarityConfig(SimilarityConfig):
     """Configuration for the Milvus similarity backend.
 
     Args:
         embeddings_field (None): the sample field containing the embeddings,
-            if one was provided.
+            if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
-            zoo model that was used to compute embeddings, if known.
+            zoo model that was used to compute embeddings, if known
         patches_field (None): the sample field defining the patches being
-            analyzed, if any.
-        supports_prompts (None): whether this run supports prompt queries.
-        metric (str): the embedding distance metric to use when creating a
-            new index. Supported values are.
+            analyzed, if any
+        supports_prompts (None): whether this run supports prompt queries
+        collection_name (None): the name of a Milvus collection to use or
+            create. If none is provided, a new collection will be created
+        metric ("dotproduct"): the embedding distance metric to use when
+            creating a new index. Supported values are
             ``("dotproduct", "euclidean")``
-        collection_name (str): the name of a Milvus collection to use or
-            create. If none is provided, a new collection will be created.
-        uri (str):  full address of Milvus server.
-        user (str): username if using rbac.
-        password(str): password for supplied username.
-        consistency_level(str): which consistency level to use. Possible values are Strong, Session, Bounded, Eventually.
-        overwrite(str): whether to overwrite the collection if it already exists.
+        consistency_level ("Session"): the consistency level to use. Supported
+            values are ``("Session", "Strong", "Bounded", "Eventually")``
+        uri (None): a full Milvus server address to use
+        user (None): a username to use
+        password (None): a password to use
     """
+
     def __init__(
         self,
         embeddings_field=None,
         model=None,
         patches_field=None,
         supports_prompts=None,
+        collection_name=None,
         metric="dotproduct",
-        collection_name: str = "ClientCollection",
-        uri: str = "http://localhost:19530",
-        user: str = "",
-        password: str = "",
-        consistency_level: str = "Session",
+        consistency_level="Session",
+        uri=None,
+        user=None,
+        password=None,
         **kwargs,
     ):
         if metric is not None and metric not in _SUPPORTED_METRICS:
@@ -77,20 +80,15 @@ class MilvusSimilarityConfig(SimilarityConfig):
             supports_prompts=supports_prompts,
             **kwargs,
         )
-        self.metric = metric
+
         self.collection_name = collection_name
-        self._uri = uri
-        self.user = user
-        self.password = password
+        self.metric = metric
         self.consistency_level = consistency_level
-        self.index_params = {
-            "metric_type": _SUPPORTED_METRICS[metric],
-            "index_type": "HNSW",
-            "params": {"M": 8, "efConstruction": 64},
-        }
-        self.search_params = {
-            "HNSW": {"metric_type": _SUPPORTED_METRICS[metric], "params": {"ef": 10}},
-        }
+
+        # store privately so these aren't serialized
+        self._uri = uri
+        self._user = user
+        self._password = password
 
     @property
     def method(self):
@@ -101,12 +99,28 @@ class MilvusSimilarityConfig(SimilarityConfig):
         return self._uri
 
     @uri.setter
-    def uri(self, uri):
-        self._uri = uri
+    def uri(self, value):
+        self._uri = value
+
+    @property
+    def user(self):
+        return self._user
+
+    @user.setter
+    def user(self, value):
+        self._user = value
+
+    @property
+    def password(self):
+        return self._password
+
+    @password.setter
+    def password(self, value):
+        self._password = value
 
     @property
     def max_k(self):
-        return 16_384
+        return 16384
 
     @property
     def supports_least_similarity(self):
@@ -116,8 +130,25 @@ class MilvusSimilarityConfig(SimilarityConfig):
     def supported_aggregations(self):
         return ("mean",)
 
-    def load_credentials(self, uri=None):
-        self._load_parameters(uri=uri)
+    @property
+    def index_params(self):
+        return {
+            "metric_type": _SUPPORTED_METRICS[self.metric],
+            "index_type": "HNSW",
+            "params": {"M": 8, "efConstruction": 64},
+        }
+
+    @property
+    def search_params(self):
+        return {
+            "HNSW": {
+                "metric_type": _SUPPORTED_METRICS[self.metric],
+                "params": {"ef": 10},
+            },
+        }
+
+    def load_credentials(self, uri=None, user=None, password=None):
+        self._load_parameters(uri=uri, user=user, password=password)
 
 
 class MilvusSimilarity(Similarity):
@@ -134,7 +165,9 @@ class MilvusSimilarity(Similarity):
         fou.ensure_package("pymilvus")
 
     def initialize(self, samples, brain_key):
-        return MilvusSimilarityIndex(samples, self.config, brain_key, backend=self)
+        return MilvusSimilarityIndex(
+            samples, self.config, brain_key, backend=self
+        )
 
 
 class MilvusSimilarityIndex(SimilarityIndex):
@@ -149,49 +182,98 @@ class MilvusSimilarityIndex(SimilarityIndex):
 
     def __init__(self, samples, config, brain_key, backend=None):
         super().__init__(samples, config, brain_key, backend=backend)
+        self._alias = None
+        self._collection = None
         self._initialize()
 
     def _initialize(self):
-        from pymilvus import utility
+        kwargs = {}
+        if self.config.uri:
+            kwargs["uri"] = self.config.uri
 
-        self.alias = self._connect(
-            self.config.uri, self.config.user, self.config.password
+        if self.config.user:
+            kwargs["user"] = self.config.user
+
+        if self.config.password:
+            kwargs["password"] = self.config.password
+
+        alias = uuid4().hex if kwargs else "default"
+
+        try:
+            pymilvus.connections.connect(alias=alias, **kwargs)
+        except pymilvus.MilvusException as e:
+            raise ValueError(
+                "Failed to connect to Milvus backend at URI '%s'. Refer to "
+                "https://docs.voxel51.com/integrations/milvus.html for more "
+                "information" % self.config.uri
+            ) from e
+
+        collection_names = pymilvus.utility.list_collections(using=alias)
+
+        if self.config.collection_name is None:
+            # Milvus only supports numbers, letters and underscores
+            root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
+            root = root.replace("-", "_")
+            collection_name = fbu.get_unique_name(root, collection_names)
+            collection_name = collection_name.replace("-", "_")
+
+            self.config.collection_name = collection_name
+            self.save_config()
+
+        if self.config.collection_name in collection_names:
+            collection = pymilvus.Collection(
+                self.config.collection_name, using=alias
+            )
+            collection.load()
+        else:
+            collection = None
+
+        self._alias = alias
+        self._collection = collection
+
+    def _create_collection(self, dimension):
+        schema = pymilvus.CollectionSchema(
+            [
+                pymilvus.FieldSchema(
+                    "pk",
+                    pymilvus.DataType.VARCHAR,
+                    is_primary=True,
+                    auto_id=False,
+                    max_length=64000,
+                ),
+                pymilvus.FieldSchema(
+                    "vector", pymilvus.DataType.FLOAT_VECTOR, dim=dimension
+                ),
+                pymilvus.FieldSchema(
+                    "sample_id", pymilvus.DataType.VARCHAR, max_length=64000
+                ),
+            ]
         )
 
-        self._init_collection()
+        collection = pymilvus.Collection(
+            self.config.collection_name,
+            schema,
+            consistency_level=self.config.consistency_level,
+            using=self._alias,
+        )
+        collection.create_index(
+            "vector", index_params=self.config.index_params
+        )
+        collection.load()
 
-    def _connect(self, uri, user, password):
-        from pymilvus import connections, MilvusException
+        self._collection = collection
 
-        """Create the connection to the Milvus server."""
-        alias = uuid4().hex
-        try:
-            connections.connect(alias=alias, uri=uri, user=user, password=password)
-            logger.debug("Created new connection using: %s", alias)
-            return alias
-        except MilvusException as ex:
-            logger.error("Failed to create new connection using: %s", alias)
-            raise ex
-
-    def _init_collection(self):
-        from pymilvus import utility, Collection
-
-        if utility.has_collection(self.config.collection_name, using=self.alias):
-            col = Collection(self.config.collection_name, using=self.alias)
-            col.load()
-            for x in col.schema.fields:
-                if x.params.get("dim", None) is not None:
-                    dim = x.params["dim"]
-                    break
-            return (col, dim)
-
-        return None, None
+    @property
+    def collection(self):
+        """The ``pymilvus.Collection`` instance for this index."""
+        return self._collection
 
     @property
     def total_index_size(self):
-        col = self.get_collection()
-        col.flush()
-        return col.num_entities
+        if self._collection is None:
+            return None
+
+        return self._collection.num_entities
 
     def add_to_index(
         self,
@@ -201,11 +283,10 @@ class MilvusSimilarityIndex(SimilarityIndex):
         overwrite=True,
         allow_existing=True,
         warn_existing=False,
+        reload=True,
         batch_size=100,
     ):
-        from pymilvus import utility
-
-        if not utility.has_collection(self.config.collection_name, using=self.alias):
+        if self._collection is None:
             self._create_collection(embeddings.shape[1])
 
         if label_ids is not None:
@@ -214,7 +295,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
             ids = sample_ids
 
         if warn_existing or not allow_existing or not overwrite:
-            existing_ids = self.get_existing_ids(ids)
+            existing_ids = self._get_existing_ids(ids)
             num_existing = len(existing_ids)
 
             if num_existing > 0:
@@ -227,7 +308,8 @@ class MilvusSimilarityIndex(SimilarityIndex):
                 if warn_existing:
                     if overwrite:
                         logger.warning(
-                            "Overwriting %d IDs that already exist in the " "index",
+                            "Overwriting %d IDs that already exist in the "
+                            "index",
                             num_existing,
                         )
                     else:
@@ -262,53 +344,30 @@ class MilvusSimilarityIndex(SimilarityIndex):
                 list(_embeddings),
                 list(_sample_ids),
             ]
-            self.get_collection().insert(insert_data)
+            self._collection.insert(insert_data)
 
-    def _create_collection(self, dimension):
-        from pymilvus import FieldSchema, DataType, CollectionSchema, Collection
+        self._collection.flush()
 
-        schema = [
-            FieldSchema(
-                "pk", DataType.VARCHAR, is_primary=True, auto_id=False, max_length=64000
-            ),
-            FieldSchema("vector", DataType.FLOAT_VECTOR, dim=dimension),
-            FieldSchema("sample_id", DataType.VARCHAR, max_length=64000),
-        ]
-        col_schema = CollectionSchema(schema)
-        col = Collection(
-            self.config.collection_name,
-            col_schema,
-            consistency_level=self.config.consistency_level,
-            using=self.alias,
-        )
-        col.create_index("vector", index_params=self.config.index_params)
-        col.load()
-        return col
-
-    def get_collection(self):
-        from pymilvus import Collection
-
-        return Collection(self.config.collection_name, using=self.alias)
+        if reload:
+            self.reload()
 
     def _get_existing_ids(self, ids):
         ids = ['"' + str(entry) + '"' for entry in ids]
         expr = f"""pk in [{','.join(ids)}]"""
-        ids = self.get_collection().query(expr)
-        return ids
+        return self._collection.query(expr)
 
     def _delete_ids(self, ids):
         ids = ['"' + str(entry) + '"' for entry in ids]
         expr = f"""pk in [{','.join(ids)}]"""
-        self.get_collection().delete(expr)
+        self._collection.delete(expr)
+        self._collection.flush()
 
     def _get_embeddings(self, ids):
         ids = ['"' + str(entry) + '"' for entry in ids]
         expr = f"""pk in [{','.join(ids)}]"""
-        logger.error("get embedding:" + self.config.collection_name)
-        data = self.get_collection().query(
+        return self._collection.query(
             expr, output_fields=["pk", "sample_id", "vector"]
         )
-        return data
 
     def remove_from_index(
         self,
@@ -316,6 +375,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
         label_ids=None,
         allow_missing=True,
         warn_missing=False,
+        reload=True,
     ):
         if label_ids is not None:
             ids = label_ids
@@ -323,7 +383,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
             ids = sample_ids
 
         if not allow_missing or warn_missing:
-            existing_ids = self.get_existing_ids(ids)
+            existing_ids = self._get_existing_ids(ids)
             missing_ids = set(existing_ids) - set(ids)
             num_missing = len(missing_ids)
 
@@ -342,6 +402,9 @@ class MilvusSimilarityIndex(SimilarityIndex):
 
         self._delete_ids(ids=ids)
 
+        if reload:
+            self.reload()
+
     def get_embeddings(
         self,
         sample_ids=None,
@@ -354,7 +417,9 @@ class MilvusSimilarityIndex(SimilarityIndex):
                 raise ValueError("This index does not support label IDs")
 
             if sample_ids is not None:
-                logger.warning("Ignoring sample IDs when label IDs are provided")
+                logger.warning(
+                    "Ignoring sample IDs when label IDs are provided"
+                )
 
         if sample_ids is not None and self.config.patches_field is not None:
             (
@@ -400,7 +465,10 @@ class MilvusSimilarityIndex(SimilarityIndex):
         return embeddings, sample_ids, label_ids
 
     def cleanup(self):
-        self.get_collection().drop()
+        pymilvus.utility.drop_collection(
+            self.config.collection_name, using=self._alias
+        )
+        self._collection = None
 
     def _get_sample_embeddings(self, sample_ids, batch_size=1000):
         found_embeddings = []
@@ -433,7 +501,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
             )
 
         for batch_ids in fou.iter_batches(label_ids, batch_size):
-            response = self.get_embeddings(list(batch_ids))
+            response = self._get_embeddings(list(batch_ids))
 
             for r in response:
                 found_embeddings.append(r["vector"])
@@ -444,18 +512,20 @@ class MilvusSimilarityIndex(SimilarityIndex):
 
         return found_embeddings, found_sample_ids, found_label_ids, missing_ids
 
-    def _get_patch_embeddings_from_sample_ids(self, sample_ids, batch_size=100):
+    def _get_patch_embeddings_from_sample_ids(
+        self, sample_ids, batch_size=100
+    ):
         found_embeddings = []
         found_sample_ids = []
         found_label_ids = []
 
-        query_vector = [0.0] * self.get_dim()
+        query_vector = [0.0] * self._get_dimension()
         top_k = min(batch_size, self.config.max_k)
 
         for batch_ids in fou.iter_batches(sample_ids, batch_size):
             ids = ['"' + str(entry) + '"' for entry in batch_ids]
             expr = f"""pk in [{','.join(ids)}]"""
-            response = self.get_collection().search(
+            response = self._collection.search(
                 data=[query_vector],
                 anns_field="vector",
                 param=self.config.search_params,
@@ -485,7 +555,9 @@ class MilvusSimilarityIndex(SimilarityIndex):
             raise ValueError("Milvus does not support full index neighbors")
 
         if reverse is True:
-            raise ValueError("Milvus does not support least similarity queries")
+            raise ValueError(
+                "Milvus does not support least similarity queries"
+            )
 
         if k is None or k > self.config.max_k:
             raise ValueError("Milvus requires k<=%s" % self.config.max_k)
@@ -512,7 +584,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
         ids = []
         dists = []
         for q in query:
-            response = self.get_collection().search(
+            response = self._collection.search(
                 data=[q.tolist()],
                 anns_field="vector",
                 limit=k,
@@ -555,6 +627,14 @@ class MilvusSimilarityIndex(SimilarityIndex):
             query = query[0, :]
 
         return query
+
+    def _get_dimension(self):
+        if self._collection is None:
+            return None
+
+        for field in self._collection.describe()["fields"]:
+            if field["name"] == "vector":
+                return field["params"]["dim"]
 
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):

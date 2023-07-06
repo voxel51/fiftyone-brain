@@ -483,7 +483,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
         found_sample_ids = []
         found_label_ids = []
 
-        query_vector = [0.0] * self._index.describe_index_stats().dimension
+        query_vector = [0.0] * self._get_dimension()
         top_k = min(batch_size, self.config.max_k)
 
         for batch_ids in fou.iter_batches(sample_ids, batch_size):
@@ -583,6 +583,12 @@ class PineconeSimilarityIndex(SimilarityIndex):
             query = query[0, :]
 
         return query
+
+    def _get_dimension(self):
+        if self._index is None:
+            return None
+
+        return self._index.describe_index_stats().dimension
 
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):
