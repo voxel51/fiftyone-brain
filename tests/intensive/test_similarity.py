@@ -30,6 +30,10 @@ Milvus setup::
 
     pip install pymilvus
 
+LanceDB setup::
+
+    pip install lancedb
+
 Brain config setup at `~/.fiftyone/brain_config.json`::
 
     {
@@ -44,6 +48,9 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
             "milvus": {
                 "uri": "http://localhost:19530"
             },
+            "lancedb": {
+                "uri": "/tmp/lancedb"
+            }
         }
     }
 
@@ -63,7 +70,7 @@ import fiftyone.zoo as foz
 from fiftyone import ViewField as F
 
 
-CUSTOM_BACKENDS = ["qdrant", "pinecone", "milvus"]
+CUSTOM_BACKENDS = ["qdrant", "pinecone", "milvus", "lancedb"]
 
 
 def get_custom_backends():
