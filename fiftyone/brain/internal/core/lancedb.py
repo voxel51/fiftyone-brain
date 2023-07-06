@@ -383,9 +383,15 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                     missing_ids.append(label_id)
         else:
             df = pd_table.set_index("sample_id")
-            sample_ids = (
-                sample_ids if isinstance(sample_ids, list) else [sample_ids]
-            )
+
+            if sample_ids is None:
+                sample_ids = list(df.index)
+            else:
+                sample_ids = (
+                    sample_ids
+                    if isinstance(sample_ids, list)
+                    else [sample_ids]
+                )
             for sample_id in sample_ids:
                 if sample_id in df.index:
                     found_embeddings.append(df.loc[sample_id]["vector"])
