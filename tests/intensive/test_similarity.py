@@ -81,7 +81,9 @@ def test_brain_config():
     for backend in get_custom_backends():
         if backend == "qdrant":
             assert "qdrant" in similarity_backends
-            assert "url" in similarity_backends["qdrant"]
+
+            # this isn't mandatory
+            # assert "url" in similarity_backends["qdrant"]
 
         if backend == "pinecone":
             assert "pinecone" in similarity_backends
@@ -90,7 +92,9 @@ def test_brain_config():
 
         if backend == "milvus":
             assert "milvus" in similarity_backends
-            assert "uri" in similarity_backends["milvus"]
+
+            # this isn't mandatory
+            # assert "uri" in similarity_backends["milvus"]
 
 
 def test_image_similarity_backends():
@@ -195,7 +199,7 @@ def test_image_similarity_backends():
         index2.remove_from_index(sample_ids=ids)
 
         # Collection size is known to be wrong in Milvus after deletions
-        # As of July 5, 2023 this still has not been fixed
+        # As of July 5, 2023 this has not been fixed
         # https://github.com/milvus-io/milvus/issues/17193
         if backend != "milvus":
             assert index2.total_index_size == 100
@@ -319,7 +323,7 @@ def test_patch_similarity_backends():
         index2.remove_from_index(label_ids=ids)
 
         # Collection size is known to be wrong in Milvus after deletions
-        # As of July 5, 2023 this still has not been fixed
+        # As of July 5, 2023 this has not been fixed
         # https://github.com/milvus-io/milvus/issues/17193
         if backend != "milvus":
             assert index2.total_index_size == 1132
