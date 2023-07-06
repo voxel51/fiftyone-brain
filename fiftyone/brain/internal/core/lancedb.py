@@ -383,7 +383,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                     missing_ids.append(label_id)
         else:
             df = pd_table.set_index("sample_id")
-            sample_id = (
+            sample_ids = (
                 sample_ids if isinstance(sample_ids, list) else [sample_ids]
             )
             for sample_id in sample_ids:
