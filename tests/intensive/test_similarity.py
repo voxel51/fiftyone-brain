@@ -3,12 +3,15 @@ Similarity tests.
 
 Usage::
 
+    # Optional: specific backends to test
+    export SIMILARITY_BACKENDS=qdrant,pinecone,milvus
+
     pytest tests/intensive/test_similarity.py -s -k test_XXX
 
 Qdrant setup::
 
     docker pull qdrant/qdrant
-    docker run -p 6333:6333
+    docker run -p 6333:6333 qdrant/qdrant
 
     pip install qdrant-client
 
@@ -18,6 +21,14 @@ Pinecone setup::
     # Download API key and environment
 
     pip install pinecone-client
+
+Milvus setup::
+
+    # Instructions from: https://milvus.io/docs/install_standalone-docker.md
+    wget https://github.com/milvus-io/milvus/releases/download/v2.2.11/milvus-standalone-docker-compose.yml -O docker-compose.yml
+    docker compose up -d
+
+    pip install pymilvus
 
 Brain config setup at `~/.fiftyone/brain_config.json`::
 
@@ -29,7 +40,10 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
             },
             "qdrant": {
                 "url": "http://localhost:6333"
-            }
+            },
+            "milvus": {
+                "uri": "http://localhost:19530"
+            },
         }
     }
 
@@ -38,6 +52,7 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
 |
 """
 import random
+import os
 import unittest
 
 import numpy as np
@@ -48,21 +63,45 @@ import fiftyone.zoo as foz
 from fiftyone import ViewField as F
 
 
+CUSTOM_BACKENDS = ["qdrant", "pinecone", "milvus"]
+
+
+def get_custom_backends():
+    if "SIMILARITY_BACKENDS" in os.environ:
+        return os.environ["SIMILARITY_BACKENDS"].split(",")
+
+    return CUSTOM_BACKENDS
+
+
 def test_brain_config():
     similarity_backends = fob.brain_config.similarity_backends
 
     assert "sklearn" in similarity_backends
 
-    assert "qdrant" in similarity_backends
-    assert "url" in similarity_backends["qdrant"]
+    for backend in get_custom_backends():
+        if backend == "qdrant":
+            assert "qdrant" in similarity_backends
 
-    assert "pinecone" in similarity_backends
-    assert "api_key" in similarity_backends["pinecone"]
-    assert "environment" in similarity_backends["pinecone"]
+            # this isn't mandatory
+            # assert "url" in similarity_backends["qdrant"]
+
+        if backend == "pinecone":
+            assert "pinecone" in similarity_backends
+            assert "api_key" in similarity_backends["pinecone"]
+            assert "environment" in similarity_backends["pinecone"]
+
+        if backend == "milvus":
+            assert "milvus" in similarity_backends
+
+            # this isn't mandatory
+            # assert "uri" in similarity_backends["milvus"]
 
 
 def test_image_similarity_backends():
     dataset = foz.load_zoo_dataset("quickstart")
+
+    # sklearn backend
+    ###########################################################################
 
     index1 = fob.compute_similarity(
         dataset,
@@ -71,24 +110,6 @@ def test_image_similarity_backends():
         embeddings=False,
         backend="sklearn",
         brain_key="clip_sklearn",
-    )
-
-    index2 = fob.compute_similarity(
-        dataset,
-        model="clip-vit-base32-torch",
-        metric="euclidean",
-        embeddings=False,
-        backend="qdrant",
-        brain_key="clip_qdrant",
-    )
-
-    index3 = fob.compute_similarity(
-        dataset,
-        model="clip-vit-base32-torch",
-        metric="euclidean",
-        embeddings=False,
-        backend="pinecone",
-        brain_key="clip_pinecone",
     )
 
     embeddings, sample_ids, _ = index1.compute_embeddings(dataset)
@@ -100,104 +121,100 @@ def test_image_similarity_backends():
     assert index1.index_size == 200
     assert index1.missing_size is None
 
-    index2.add_to_index(embeddings, sample_ids)
-    assert index2.total_index_size == 200
-    assert index2.index_size == 200
-    assert index2.missing_size is None
-
-    index3.add_to_index(embeddings, sample_ids)
-    assert index3.total_index_size == 200
-    assert index3.index_size == 200
-    assert index3.missing_size is None
-
     prompt = "kites high in the air"
 
     view1 = dataset.sort_by_similarity(prompt, k=10, brain_key="clip_sklearn")
     assert len(view1) == 10
 
-    view2 = dataset.sort_by_similarity(prompt, k=10, brain_key="clip_qdrant")
-    assert len(view2) == 10
-
-    view3 = dataset.sort_by_similarity(prompt, k=10, brain_key="clip_pinecone")
-    assert len(view3) == 10
-
     del index1
-    del index2
-    del index3
     dataset.clear_cache()
 
     print(dataset.get_brain_info("clip_sklearn"))
-    print(dataset.get_brain_info("clip_qdrant"))
-    print(dataset.get_brain_info("clip_pinecone"))
 
     index1 = dataset.load_brain_results("clip_sklearn")
-    index2 = dataset.load_brain_results("clip_qdrant")
-    index3 = dataset.load_brain_results("clip_pinecone")
-
     assert index1.total_index_size == 200
-    assert index2.total_index_size == 200
-    assert index3.total_index_size == 200
 
     embeddings1, sample_ids1, _ = index1.get_embeddings()
     assert embeddings1.shape == (200, 512)
     assert sample_ids1.shape == (200,)
 
-    embeddings2, sample_ids2, _ = index2.get_embeddings()
-    assert embeddings2.shape == (200, 512)
-    assert sample_ids2.shape == (200,)
-
-    # Pinecone requires IDs
-    # embeddings3, sample_ids3, _ = index3.get_embeddings()
-    # assert embeddings3.shape == (200, 512)
-    # assert sample_ids3.shape == (200,)
-
     ids = random.sample(list(index1.sample_ids), 100)
 
     embeddings1, sample_ids1, _ = index1.get_embeddings(sample_ids=ids)
-    embeddings2, sample_ids2, _ = index2.get_embeddings(sample_ids=ids)
-    embeddings3, sample_ids3, _ = index3.get_embeddings(sample_ids=ids)
-
-    embeddings2_dict = dict(zip(sample_ids2, embeddings2))
-    embeddings3_dict = dict(zip(sample_ids3, embeddings3))
-
-    _embeddings2 = np.array([embeddings2_dict[i] for i in sample_ids1])
-    _embeddings3 = np.array([embeddings3_dict[i] for i in sample_ids1])
-
     assert embeddings1.shape == (100, 512)
     assert sample_ids1.shape == (100,)
 
-    assert embeddings2.shape == (100, 512)
-    assert sample_ids2.shape == (100,)
-
-    assert embeddings3.shape == (100, 512)
-    assert sample_ids3.shape == (100,)
-
-    assert set(sample_ids1) == set(sample_ids2)
-    assert set(sample_ids1) == set(sample_ids3)
-
-    assert np.allclose(embeddings1, _embeddings2)
-    assert np.allclose(embeddings1, _embeddings3)
-
     index1.remove_from_index(sample_ids=ids)
-    index2.remove_from_index(sample_ids=ids)
-    index3.remove_from_index(sample_ids=ids)
-
     assert index1.total_index_size == 100
-    assert index2.total_index_size == 100
-    assert index3.total_index_size == 100
 
     index1.cleanup()
-    index2.cleanup()
-    index3.cleanup()
-
     dataset.delete_brain_run("clip_sklearn")
-    dataset.delete_brain_run("clip_qdrant")
-    dataset.delete_brain_run("clip_pinecone")
+
+    # custom backends
+    ###########################################################################
+
+    for backend in get_custom_backends():
+        brain_key = "clip_" + backend
+
+        index2 = fob.compute_similarity(
+            dataset,
+            model="clip-vit-base32-torch",
+            metric="euclidean",
+            embeddings=False,
+            backend=backend,
+            brain_key=brain_key,
+        )
+
+        index2.add_to_index(embeddings, sample_ids)
+        assert index2.total_index_size == 200
+        assert index2.index_size == 200
+        assert index2.missing_size is None
+
+        view2 = dataset.sort_by_similarity(prompt, k=10, brain_key=brain_key)
+        assert len(view2) == 10
+
+        del index2
+        dataset.clear_cache()
+
+        print(dataset.get_brain_info(brain_key))
+
+        index2 = dataset.load_brain_results(brain_key)
+        assert index2.total_index_size == 200
+
+        # Pinecone and Milvus require IDs, so this method is not supported
+        if backend not in ("pinecone", "milvus"):
+            embeddings2, sample_ids2, _ = index2.get_embeddings()
+            assert embeddings2.shape == (200, 512)
+            assert sample_ids2.shape == (200,)
+
+        embeddings2, sample_ids2, _ = index2.get_embeddings(sample_ids=ids)
+        assert embeddings2.shape == (100, 512)
+        assert sample_ids2.shape == (100,)
+        assert set(sample_ids1) == set(sample_ids2)
+
+        embeddings2_dict = dict(zip(sample_ids2, embeddings2))
+        _embeddings2 = np.array([embeddings2_dict[i] for i in sample_ids1])
+        assert np.allclose(embeddings1, _embeddings2)
+
+        index2.remove_from_index(sample_ids=ids)
+
+        # Collection size is known to be wrong in Milvus after deletions
+        # As of July 5, 2023 this has not been fixed
+        # https://github.com/milvus-io/milvus/issues/17193
+        if backend != "milvus":
+            assert index2.total_index_size == 100
+
+        index2.cleanup()
+        dataset.delete_brain_run(brain_key)
+
     dataset.delete()
 
 
 def test_patch_similarity_backends():
     dataset = foz.load_zoo_dataset("quickstart")
+
+    # sklearn backend
+    ###########################################################################
 
     index1 = fob.compute_similarity(
         dataset,
@@ -209,26 +226,6 @@ def test_patch_similarity_backends():
         brain_key="gt_clip_sklearn",
     )
 
-    index2 = fob.compute_similarity(
-        dataset,
-        patches_field="ground_truth",
-        model="clip-vit-base32-torch",
-        metric="euclidean",
-        embeddings=False,
-        backend="qdrant",
-        brain_key="gt_clip_qdrant",
-    )
-
-    index3 = fob.compute_similarity(
-        dataset,
-        patches_field="ground_truth",
-        model="clip-vit-base32-torch",
-        metric="euclidean",
-        embeddings=False,
-        backend="pinecone",
-        brain_key="gt_clip_pinecone",
-    )
-
     embeddings, sample_ids, label_ids = index1.compute_embeddings(dataset)
 
     index1.add_to_index(embeddings, sample_ids, label_ids=label_ids)
@@ -238,16 +235,6 @@ def test_patch_similarity_backends():
     assert index1.index_size == 1232
     assert index1.missing_size is None
 
-    index2.add_to_index(embeddings, sample_ids, label_ids=label_ids)
-    assert index2.total_index_size == 1232
-    assert index2.index_size == 1232
-    assert index2.missing_size is None
-
-    index3.add_to_index(embeddings, sample_ids, label_ids=label_ids)
-    assert index3.total_index_size == 1232
-    assert index3.index_size == 1232
-    assert index3.missing_size is None
-
     view = dataset.to_patches("ground_truth")
 
     prompt = "cute puppies"
@@ -255,90 +242,96 @@ def test_patch_similarity_backends():
     view1 = view.sort_by_similarity(prompt, k=10, brain_key="gt_clip_sklearn")
     assert len(view1) == 10
 
-    view2 = view.sort_by_similarity(prompt, k=10, brain_key="gt_clip_qdrant")
-    assert len(view2) == 10
-
-    view3 = view.sort_by_similarity(prompt, k=10, brain_key="gt_clip_pinecone")
-    assert len(view3) == 10
-
     del index1
-    del index2
-    del index3
     dataset.clear_cache()
 
     print(dataset.get_brain_info("gt_clip_sklearn"))
-    print(dataset.get_brain_info("gt_clip_qdrant"))
-    print(dataset.get_brain_info("gt_clip_pinecone"))
 
     index1 = dataset.load_brain_results("gt_clip_sklearn")
-    index2 = dataset.load_brain_results("gt_clip_qdrant")
-    index3 = dataset.load_brain_results("gt_clip_pinecone")
-
     assert index1.total_index_size == 1232
-    assert index2.total_index_size == 1232
-    assert index3.total_index_size == 1232
 
     embeddings1, sample_ids1, label_ids1 = index1.get_embeddings()
     assert embeddings1.shape == (1232, 512)
     assert sample_ids1.shape == (1232,)
     assert label_ids1.shape == (1232,)
 
-    embeddings2, sample_ids2, label_ids2 = index2.get_embeddings()
-    assert embeddings2.shape == (1232, 512)
-    assert sample_ids2.shape == (1232,)
-    assert label_ids2.shape == (1232,)
-
-    # Pinecone requires IDs
-    # embeddings3, sample_ids3, label_ids3 = index3.get_embeddings()
-    # assert embeddings3.shape == (1232, 512)
-    # assert sample_ids3.shape == (1232,)
-    # assert label_ids3.shape == (1232,)
-
     ids = random.sample(list(index1.label_ids), 100)
 
     embeddings1, sample_ids1, label_ids1 = index1.get_embeddings(label_ids=ids)
-    embeddings2, sample_ids2, label_ids2 = index2.get_embeddings(label_ids=ids)
-    embeddings3, sample_ids3, label_ids3 = index3.get_embeddings(label_ids=ids)
-
-    embeddings2_dict = dict(zip(label_ids2, embeddings2))
-    embeddings3_dict = dict(zip(label_ids3, embeddings3))
-
-    _embeddings2 = np.array([embeddings2_dict[i] for i in label_ids1])
-    _embeddings3 = np.array([embeddings3_dict[i] for i in label_ids1])
-
     assert embeddings1.shape == (100, 512)
     assert sample_ids1.shape == (100,)
     assert label_ids1.shape == (100,)
 
-    assert embeddings2.shape == (100, 512)
-    assert sample_ids2.shape == (100,)
-    assert label_ids2.shape == (100,)
-
-    assert embeddings3.shape == (100, 512)
-    assert sample_ids3.shape == (100,)
-    assert label_ids3.shape == (100,)
-
-    assert set(label_ids1) == set(label_ids2)
-    assert set(label_ids1) == set(label_ids3)
-
-    assert np.allclose(embeddings1, _embeddings2)
-    assert np.allclose(embeddings1, _embeddings3)
-
     index1.remove_from_index(label_ids=ids)
-    index2.remove_from_index(label_ids=ids)
-    index3.remove_from_index(label_ids=ids)
-
     assert index1.total_index_size == 1132
-    assert index2.total_index_size == 1132
-    assert index3.total_index_size == 1132
 
     index1.cleanup()
-    index2.cleanup()
-    index3.cleanup()
 
     dataset.delete_brain_run("gt_clip_sklearn")
-    dataset.delete_brain_run("gt_clip_qdrant")
-    dataset.delete_brain_run("gt_clip_pinecone")
+
+    # custom backends
+    ###########################################################################
+
+    for backend in get_custom_backends():
+        brain_key = "gt_clip_" + backend
+
+        index2 = fob.compute_similarity(
+            dataset,
+            patches_field="ground_truth",
+            model="clip-vit-base32-torch",
+            metric="euclidean",
+            embeddings=False,
+            backend=backend,
+            brain_key=brain_key,
+        )
+
+        index2.add_to_index(embeddings, sample_ids, label_ids=label_ids)
+        assert index2.total_index_size == 1232
+        assert index2.index_size == 1232
+        assert index2.missing_size is None
+
+        view2 = view.sort_by_similarity(prompt, k=10, brain_key=brain_key)
+        assert len(view2) == 10
+
+        del index2
+        dataset.clear_cache()
+
+        print(dataset.get_brain_info(brain_key))
+
+        index2 = dataset.load_brain_results(brain_key)
+        assert index2.total_index_size == 1232
+
+        # Pinecone and Milvus require IDs, so this method is not supported
+        if backend not in ("pinecone", "milvus"):
+            embeddings2, sample_ids2, label_ids2 = index2.get_embeddings()
+            assert embeddings2.shape == (1232, 512)
+            assert sample_ids2.shape == (1232,)
+            assert label_ids2.shape == (1232,)
+
+        embeddings2, sample_ids2, label_ids2 = index2.get_embeddings(
+            label_ids=ids
+        )
+        assert embeddings2.shape == (100, 512)
+        assert sample_ids2.shape == (100,)
+        assert label_ids2.shape == (100,)
+        assert set(label_ids1) == set(label_ids2)
+
+        embeddings2_dict = dict(zip(label_ids2, embeddings2))
+        _embeddings2 = np.array([embeddings2_dict[i] for i in label_ids1])
+        assert np.allclose(embeddings1, _embeddings2)
+
+        index2.remove_from_index(label_ids=ids)
+
+        # Collection size is known to be wrong in Milvus after deletions
+        # As of July 5, 2023 this has not been fixed
+        # https://github.com/milvus-io/milvus/issues/17193
+        if backend != "milvus":
+            assert index2.total_index_size == 1132
+
+        index2.cleanup()
+        dataset.delete_brain_run(brain_key)
+
+    dataset.delete()
 
 
 def test_images():

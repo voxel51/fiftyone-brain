@@ -1,5 +1,5 @@
 """
-Piencone similarity backend.
+Milvus similarity backend.
 
 | Copyright 2017-2023, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -8,7 +8,7 @@ Piencone similarity backend.
 import logging
 
 import numpy as np
-
+from uuid import uuid4
 import eta.core.utils as etau
 
 import fiftyone.core.utils as fou
@@ -19,16 +19,19 @@ from fiftyone.brain.similarity import (
 )
 import fiftyone.brain.internal.core.utils as fbu
 
-pinecone = fou.lazy_import("pinecone")
+pymilvus = fou.lazy_import("pymilvus")
 
 
 logger = logging.getLogger(__name__)
 
-_SUPPORTED_METRICS = ("cosine", "dotproduct", "euclidean")
+_SUPPORTED_METRICS = {
+    "dotproduct": "IP",
+    "euclidean": "L2",
+}
 
 
-class PineconeSimilarityConfig(SimilarityConfig):
-    """Configuration for the Pinecone similarity backend.
+class MilvusSimilarityConfig(SimilarityConfig):
+    """Configuration for the Milvus similarity backend.
 
     Args:
         embeddings_field (None): the sample field containing the embeddings,
@@ -38,22 +41,16 @@ class PineconeSimilarityConfig(SimilarityConfig):
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         supports_prompts (None): whether this run supports prompt queries
-        index_name (None): the name of a Pinecone index to use or create. If
-            none is provided, a new index will be created
-        index_type (None): the index type to use when creating a new index
-        namespace (None): a namespace under which to store vectors added to the
-            index
-        metric (None): the embedding distance metric to use when creating a
-            new index. Supported values are
-            ``("cosine", "dotproduct", "euclidean")``
-        replicas (None): an optional number of replicas when creating a new
-            index
-        shards (None): an optional number of shards when creating a new index
-        pods (None): an optional number of pods when creating a new index
-        pod_type (None): an optional pod type when creating a new index
-        api_key (None): a Pinecone API key to use
-        environment (None): a Pinecone environment to use
-        project_name (None): a Pinecone project to use
+        collection_name (None): the name of a Milvus collection to use or
+            create. If none is provided, a new collection will be created
+        metric ("dotproduct"): the embedding distance metric to use when
+            creating a new index. Supported values are
+            ``("dotproduct", "euclidean")``
+        consistency_level ("Session"): the consistency level to use. Supported
+            values are ``("Session", "Strong", "Bounded", "Eventually")``
+        uri (None): a full Milvus server address to use
+        user (None): a username to use
+        password (None): a password to use
     """
 
     def __init__(
@@ -62,23 +59,18 @@ class PineconeSimilarityConfig(SimilarityConfig):
         model=None,
         patches_field=None,
         supports_prompts=None,
-        index_name=None,
-        index_type=None,
-        namespace=None,
-        metric=None,
-        replicas=None,
-        shards=None,
-        pods=None,
-        pod_type=None,
-        api_key=None,
-        environment=None,
-        project_name=None,
+        collection_name=None,
+        metric="dotproduct",
+        consistency_level="Session",
+        uri=None,
+        user=None,
+        password=None,
         **kwargs,
     ):
         if metric is not None and metric not in _SUPPORTED_METRICS:
             raise ValueError(
                 "Unsupported metric '%s'. Supported values are %s"
-                % (metric, _SUPPORTED_METRICS)
+                % (metric, tuple(_SUPPORTED_METRICS.keys()))
             )
 
         super().__init__(
@@ -89,51 +81,46 @@ class PineconeSimilarityConfig(SimilarityConfig):
             **kwargs,
         )
 
-        self.index_name = index_name
-        self.index_type = index_type
-        self.namespace = namespace
+        self.collection_name = collection_name
         self.metric = metric
-        self.replicas = replicas
-        self.shards = shards
-        self.pods = pods
-        self.pod_type = pod_type
+        self.consistency_level = consistency_level
 
         # store privately so these aren't serialized
-        self._api_key = api_key
-        self._environment = environment
-        self._project_name = project_name
+        self._uri = uri
+        self._user = user
+        self._password = password
 
     @property
     def method(self):
-        return "pinecone"
+        return "milvus"
 
     @property
-    def api_key(self):
-        return self._api_key
+    def uri(self):
+        return self._uri
 
-    @api_key.setter
-    def api_key(self, value):
-        self._api_key = value
-
-    @property
-    def environment(self):
-        return self._environment
-
-    @environment.setter
-    def environment(self, value):
-        self._environment = value
+    @uri.setter
+    def uri(self, value):
+        self._uri = value
 
     @property
-    def project_name(self):
-        return self._project_name
+    def user(self):
+        return self._user
 
-    @project_name.setter
-    def project_name(self, value):
-        self._project_name = value
+    @user.setter
+    def user(self, value):
+        self._user = value
+
+    @property
+    def password(self):
+        return self._password
+
+    @password.setter
+    def password(self, value):
+        self._password = value
 
     @property
     def max_k(self):
-        return 10000  # Pinecone limit
+        return 16384
 
     @property
     def supports_least_similarity(self):
@@ -143,108 +130,150 @@ class PineconeSimilarityConfig(SimilarityConfig):
     def supported_aggregations(self):
         return ("mean",)
 
-    def load_credentials(
-        self, api_key=None, environment=None, project_name=None
-    ):
-        self._load_parameters(
-            api_key=api_key, environment=environment, project_name=project_name
-        )
+    @property
+    def index_params(self):
+        return {
+            "metric_type": _SUPPORTED_METRICS[self.metric],
+            "index_type": "HNSW",
+            "params": {"M": 8, "efConstruction": 64},
+        }
+
+    @property
+    def search_params(self):
+        return {
+            "HNSW": {
+                "metric_type": _SUPPORTED_METRICS[self.metric],
+                "params": {"ef": 10},
+            },
+        }
+
+    def load_credentials(self, uri=None, user=None, password=None):
+        self._load_parameters(uri=uri, user=user, password=password)
 
 
-class PineconeSimilarity(Similarity):
-    """Pinecone similarity factory.
+class MilvusSimilarity(Similarity):
+    """Milvus similarity factory.
 
     Args:
-        config: a :class:`PineconeSimilarityConfig`
+        config: a :class:`MilvusSimilarityConfig`
     """
 
     def ensure_requirements(self):
-        fou.ensure_package("pinecone-client")
+        fou.ensure_package("pymilvus")
 
     def ensure_usage_requirements(self):
-        fou.ensure_package("pinecone-client")
+        fou.ensure_package("pymilvus")
 
     def initialize(self, samples, brain_key):
-        return PineconeSimilarityIndex(
+        return MilvusSimilarityIndex(
             samples, self.config, brain_key, backend=self
         )
 
 
-class PineconeSimilarityIndex(SimilarityIndex):
-    """Class for interacting with Pinecone similarity indexes.
+class MilvusSimilarityIndex(SimilarityIndex):
+    """Class for interacting with Milvus similarity indexes.
 
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
-        config: the :class:`PineconeSimilarityConfig` used
+        config: the :class:`MilvusSimilarityConfig` used
         brain_key: the brain key
-        backend (None): a :class:`PineconeSimilarity` instance
+        backend (None): a :class:`MilvusSimilarity` instance
     """
 
     def __init__(self, samples, config, brain_key, backend=None):
         super().__init__(samples, config, brain_key, backend=backend)
-        self._index = None
+        self._alias = None
+        self._collection = None
         self._initialize()
 
     def _initialize(self):
-        pinecone.init(
-            api_key=self.config.api_key,
-            environment=self.config.environment,
-            project_name=self.config.project_name,
-        )
+        kwargs = {}
+        if self.config.uri:
+            kwargs["uri"] = self.config.uri
+
+        if self.config.user:
+            kwargs["user"] = self.config.user
+
+        if self.config.password:
+            kwargs["password"] = self.config.password
+
+        alias = uuid4().hex if kwargs else "default"
 
         try:
-            index_names = pinecone.list_indexes()
-        except Exception as e:
+            pymilvus.connections.connect(alias=alias, **kwargs)
+        except pymilvus.MilvusException as e:
             raise ValueError(
-                "Failed to connect to Pinecone backend at environment '%s'. "
-                "Refer to https://docs.voxel51.com/integrations/pinecone.html "
-                "for more information" % self.config.environment
+                "Failed to connect to Milvus backend at URI '%s'. Refer to "
+                "https://docs.voxel51.com/integrations/milvus.html for more "
+                "information" % self.config.uri
             ) from e
 
-        if self.config.index_name is None:
-            root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
-            index_name = fbu.get_unique_name(root, index_names)
+        collection_names = pymilvus.utility.list_collections(using=alias)
 
-            self.config.index_name = index_name
+        if self.config.collection_name is None:
+            # Milvus only supports numbers, letters and underscores
+            root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
+            root = root.replace("-", "_")
+            collection_name = fbu.get_unique_name(root, collection_names)
+            collection_name = collection_name.replace("-", "_")
+
+            self.config.collection_name = collection_name
             self.save_config()
 
-        if self.config.index_name in index_names:
-            index = pinecone.Index(self.config.index_name)
+        if self.config.collection_name in collection_names:
+            collection = pymilvus.Collection(
+                self.config.collection_name, using=alias
+            )
+            collection.load()
         else:
-            index = None
+            collection = None
 
-        self._index = index
+        self._alias = alias
+        self._collection = collection
 
-    def _create_index(self, dimension):
-        kwargs = dict(
-            index_type=self.config.index_type,
-            metric=self.config.metric,
-            replicas=self.config.replicas,
-            shards=self.config.shards,
-            pods=self.config.pods,
-            pod_type=self.config.pod_type,
+    def _create_collection(self, dimension):
+        schema = pymilvus.CollectionSchema(
+            [
+                pymilvus.FieldSchema(
+                    "pk",
+                    pymilvus.DataType.VARCHAR,
+                    is_primary=True,
+                    auto_id=False,
+                    max_length=64000,
+                ),
+                pymilvus.FieldSchema(
+                    "vector", pymilvus.DataType.FLOAT_VECTOR, dim=dimension
+                ),
+                pymilvus.FieldSchema(
+                    "sample_id", pymilvus.DataType.VARCHAR, max_length=64000
+                ),
+            ]
         )
-        kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
-        pinecone.create_index(
-            self.config.index_name,
-            dimension=dimension,
-            **kwargs,
+        collection = pymilvus.Collection(
+            self.config.collection_name,
+            schema,
+            consistency_level=self.config.consistency_level,
+            using=self._alias,
         )
+        collection.create_index(
+            "vector", index_params=self.config.index_params
+        )
+        collection.load()
 
-        self._index = pinecone.Index(self.config.index_name)
+        self._collection = collection
 
     @property
-    def index(self):
-        """The ``pinecone.Index`` instance for this index."""
-        return self._index
+    def collection(self):
+        """The ``pymilvus.Collection`` instance for this index."""
+        return self._collection
 
     @property
     def total_index_size(self):
-        if self._index is None:
+        if self._collection is None:
             return None
 
-        return self._index.describe_index_stats()["total_vector_count"]
+        return self._collection.num_entities
 
     def add_to_index(
         self,
@@ -256,13 +285,9 @@ class PineconeSimilarityIndex(SimilarityIndex):
         warn_existing=False,
         reload=True,
         batch_size=100,
-        namespace=None,
     ):
-        if namespace is None:
-            namespace = self.config.namespace
-
-        if self._index is None:
-            self._create_index(embeddings.shape[1])
+        if self._collection is None:
+            self._create_collection(embeddings.shape[1])
 
         if label_ids is not None:
             ids = label_ids
@@ -297,35 +322,52 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
         if existing_ids and not overwrite:
             del_inds = [i for i, _id in enumerate(ids) if _id in existing_ids]
-
             embeddings = np.delete(embeddings, del_inds)
             sample_ids = np.delete(sample_ids, del_inds)
             if label_ids is not None:
                 label_ids = np.delete(label_ids, del_inds)
 
+        elif existing_ids and overwrite:
+            self._delete_ids(existing_ids)
+
         embeddings = [e.tolist() for e in embeddings]
         sample_ids = list(sample_ids)
-        if label_ids is not None:
-            ids = list(label_ids)
-        else:
-            ids = list(sample_ids)
+        ids = list(ids)
 
         for _embeddings, _ids, _sample_ids in zip(
             fou.iter_batches(embeddings, batch_size),
             fou.iter_batches(ids, batch_size),
             fou.iter_batches(sample_ids, batch_size),
         ):
-            _id_dicts = [
-                {"id": _id, "sample_id": _sid}
-                for _id, _sid in zip(_ids, _sample_ids)
+            insert_data = [
+                list(_ids),
+                list(_embeddings),
+                list(_sample_ids),
             ]
-            self._index.upsert(
-                list(zip(_ids, _embeddings, _id_dicts)),
-                namespace=namespace,
-            )
+            self._collection.insert(insert_data)
+
+        self._collection.flush()
 
         if reload:
             self.reload()
+
+    def _get_existing_ids(self, ids):
+        ids = ['"' + str(entry) + '"' for entry in ids]
+        expr = f"""pk in [{','.join(ids)}]"""
+        return self._collection.query(expr)
+
+    def _delete_ids(self, ids):
+        ids = ['"' + str(entry) + '"' for entry in ids]
+        expr = f"""pk in [{','.join(ids)}]"""
+        self._collection.delete(expr)
+        self._collection.flush()
+
+    def _get_embeddings(self, ids):
+        ids = ['"' + str(entry) + '"' for entry in ids]
+        expr = f"""pk in [{','.join(ids)}]"""
+        return self._collection.query(
+            expr, output_fields=["pk", "sample_id", "vector"]
+        )
 
     def remove_from_index(
         self,
@@ -341,7 +383,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
             ids = sample_ids
 
         if not allow_missing or warn_missing:
-            existing_ids = self._index.fetch(ids).vectors.keys()
+            existing_ids = self._get_existing_ids(ids)
             missing_ids = set(existing_ids) - set(ids)
             num_missing = len(missing_ids)
 
@@ -358,7 +400,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
                         num_missing,
                     )
 
-        self._index.delete(ids=ids)
+        self._delete_ids(ids=ids)
 
         if reload:
             self.reload()
@@ -423,16 +465,10 @@ class PineconeSimilarityIndex(SimilarityIndex):
         return embeddings, sample_ids, label_ids
 
     def cleanup(self):
-        pinecone.delete_index(self.config.index_name)
-        self._index = None
-
-    def _get_existing_ids(self, ids, batch_size=1000):
-        existing_ids = set()
-        for batch_ids in fou.iter_batches(ids, batch_size):
-            response = self._index.fetch(ids=list(batch_ids))["vectors"]
-            existing_ids.update(response.keys())
-
-        return existing_ids
+        pymilvus.utility.drop_collection(
+            self.config.collection_name, using=self._alias
+        )
+        self._collection = None
 
     def _get_sample_embeddings(self, sample_ids, batch_size=1000):
         found_embeddings = []
@@ -440,15 +476,15 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
         if sample_ids is None:
             raise ValueError(
-                "Pinecone does not support retrieving all vectors in an index"
+                "Milvus does not support retrieving all vectors in an index"
             )
 
         for batch_ids in fou.iter_batches(sample_ids, batch_size):
-            response = self._index.fetch(ids=list(batch_ids))["vectors"]
+            response = self._get_embeddings(list(batch_ids))
 
-            for r in response.values():
-                found_embeddings.append(r["values"])
-                found_sample_ids.append(r["id"])
+            for r in response:
+                found_embeddings.append(r["vector"])
+                found_sample_ids.append(r["sample_id"])
 
         missing_ids = list(set(sample_ids) - set(found_sample_ids))
 
@@ -461,16 +497,16 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
         if label_ids is None:
             raise ValueError(
-                "Pinecone does not support retrieving all vectors in an index"
+                "Milvus does not support retrieving all vectors in an index"
             )
 
         for batch_ids in fou.iter_batches(label_ids, batch_size):
-            response = self._index.fetch(ids=list(batch_ids))["vectors"]
+            response = self._get_embeddings(list(batch_ids))
 
-            for r in response.values():
-                found_embeddings.append(r["values"])
-                found_sample_ids.append(r["metadata"]["sample_id"])
-                found_label_ids.append(r["id"])
+            for r in response:
+                found_embeddings.append(r["vector"])
+                found_sample_ids.append(r["sample_id"])
+                found_label_ids.append(r["pk"])
 
         missing_ids = list(set(label_ids) - set(found_label_ids))
 
@@ -487,18 +523,21 @@ class PineconeSimilarityIndex(SimilarityIndex):
         top_k = min(batch_size, self.config.max_k)
 
         for batch_ids in fou.iter_batches(sample_ids, batch_size):
-            response = self._index.query(
-                vector=query_vector,
-                filter={"sample_id": {"$in": list(batch_ids)}},
-                top_k=top_k,
-                include_values=True,
-                include_metadata=True,
+            ids = ['"' + str(entry) + '"' for entry in batch_ids]
+            expr = f"""pk in [{','.join(ids)}]"""
+            response = self._collection.search(
+                data=[query_vector],
+                anns_field="vector",
+                param=self.config.search_params,
+                expr=expr,
+                limit=top_k,
             )
-
-            for r in response["matches"]:
-                found_embeddings.append(r["values"])
-                found_sample_ids.append(r["metadata"]["sample_id"])
-                found_label_ids.append(r["id"])
+            ids = [x.id for x in response[0]]
+            response = self._get_embeddings(ids)
+            for r in response:
+                found_embeddings.append(r["vector"])
+                found_sample_ids.append(r["sample_id"])
+                found_label_ids.append(r["pk"])
 
         missing_ids = list(set(sample_ids) - set(found_sample_ids))
 
@@ -513,15 +552,15 @@ class PineconeSimilarityIndex(SimilarityIndex):
         return_dists=False,
     ):
         if query is None:
-            raise ValueError("Pinecone does not support full index neighbors")
+            raise ValueError("Milvus does not support full index neighbors")
 
         if reverse is True:
             raise ValueError(
-                "Pinecone does not support least similarity queries"
+                "Milvus does not support least similarity queries"
             )
 
         if k is None or k > self.config.max_k:
-            raise ValueError("Pincone requires k<=%s" % self.config.max_k)
+            raise ValueError("Milvus requires k<=%s" % self.config.max_k)
 
         if aggregation not in (None, "mean"):
             raise ValueError("Unsupported aggregation '%s'" % aggregation)
@@ -539,17 +578,22 @@ class PineconeSimilarityIndex(SimilarityIndex):
         else:
             index_ids = self.current_sample_ids
 
-        _filter = {"id": {"$in": list(index_ids)}}
+        expr = ['"' + str(entry) + '"' for entry in index_ids]
+        expr = f"""pk in [{','.join(expr)}]"""
 
         ids = []
         dists = []
         for q in query:
-            response = self._index.query(
-                vector=q.tolist(), top_k=k, filter=_filter
+            response = self._collection.search(
+                data=[q.tolist()],
+                anns_field="vector",
+                limit=k,
+                expr=expr,
+                param=self.config.search_params,
             )
-            ids.append([r["id"] for r in response["matches"]])
+            ids.append([r.id for r in response[0]])
             if return_dists:
-                dists.append([r["score"] for r in response["matches"]])
+                dists.append([r.score for r in response[0]])
 
         if single_query:
             ids = ids[0]
@@ -576,8 +620,8 @@ class PineconeSimilarityIndex(SimilarityIndex):
             single_query = False
 
         # Query by ID(s)
-        response = self._index.fetch(query_ids)["vectors"]
-        query = np.array([response[_id]["values"] for _id in query_ids])
+        response = self._get_embeddings(query_ids)
+        query = np.array([x["vector"] for x in response])
 
         if single_query:
             query = query[0, :]
@@ -585,10 +629,12 @@ class PineconeSimilarityIndex(SimilarityIndex):
         return query
 
     def _get_dimension(self):
-        if self._index is None:
+        if self._collection is None:
             return None
 
-        return self._index.describe_index_stats().dimension
+        for field in self._collection.describe()["fields"]:
+            if field["name"] == "vector":
+                return field["params"]["dim"]
 
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):
