@@ -371,6 +371,8 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         elif self.config.patches_field is not None:
             df = pd_table.set_index("id")
+            if label_ids is None:
+                label_ids = list(df.index)
             label_ids = (
                 label_ids if isinstance(label_ids, list) else [label_ids]
             )
