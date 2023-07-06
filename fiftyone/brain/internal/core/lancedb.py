@@ -5,7 +5,6 @@ LanceDB similarity backend.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
-import os
 import logging
 
 import numpy as np
@@ -20,10 +19,9 @@ from fiftyone.brain.similarity import (
     SimilarityIndex,
 )
 
-
 lancedb = fou.lazy_import("lancedb")
 pa = fou.lazy_import("pyarrow")
-pd = fou.lazy_import("pandas")
+
 
 _SUPPORTED_METRICS = {
     "cosine": "cosine",
@@ -44,11 +42,11 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         supports_prompts (None): whether this run supports prompt queries
-        table_name (None): the name of the lancedb table to use
-        metric (None): the embedding distance metric to use when creating a
-            new index. Supported values are
-            ``("cosine", "euclidean")`` (default is ``"cosine"``)
-        uri ("/tmp/lancedb"): the URI of the lancedb database to use
+        table_name (None): the name of the LanceDB table to use. If none is
+            provided, a new table will be created
+        metric ("cosine"): the embedding distance metric to use when creating a
+            new index. Supported values are ``("cosine", "euclidean")``
+        uri ("/tmp/lancedb"): the URI of the LanceDB database to use
         **kwargs: keyword arguments for :class:`SimilarityConfig`
     """
 
@@ -76,9 +74,10 @@ class LanceDBSimilarityConfig(SimilarityConfig):
             supports_prompts=supports_prompts,
             **kwargs,
         )
+
         self.table_name = table_name
-        self.uri = os.path.abspath(uri)
         self.metric = metric
+        self.uri = fou.normalize_path(uri)
 
     @property
     def method(self):
@@ -90,6 +89,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         """A maximum k value for nearest neighbor queries, or None if there is
         no limit.
         """
+        return None
 
     @property
     def supports_least_similarity(self):
@@ -137,27 +137,35 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         self._initialize()
 
     def _initialize(self):
-        db = lancedb.connect(self.config.uri)
-        tables = db.table_names()
+        try:
+            db = lancedb.connect(self.config.uri)
+        except Exception as e:
+            raise ValueError(
+                "Failed to connect to LanceDB backend at URI '%s'. Refer to "
+                "https://docs.voxel51.com/integrations/lancedb.html for more "
+                "information" % self.config.uri
+            ) from e
+
+        table_names = db.table_names()
 
         if self.config.table_name is None:
             root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
-            table_name = fbu.get_unique_name(root, tables)
+            table_name = fbu.get_unique_name(root, table_names)
 
             self.config.table_name = table_name
             self.save_config()
 
-        if self.config.table_name in tables:
+        if self.config.table_name in table_names:
             table = db.open_table(self.config.table_name)
         else:
             table = None
+
         self._db = db
         self._table = table
-        self._table_name = self.config.table_name
 
     @property
     def table(self):
-        """The ``lancedb.LanceTable`` instance for this table."""
+        """The ``lancedb.LanceTable`` instance for this index."""
         return self._table
 
     @property
@@ -166,14 +174,6 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             return None
 
         return len(self._table)
-
-    def _get_pa_table(self):
-        if self._table is not None:
-            return self._table.to_arrow()
-
-        return pa.Table.from_arrays(
-            [[], [], []], names=["id", "sample_id", "vector"]
-        )
 
     def add_to_index(
         self,
@@ -202,7 +202,12 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             reload (True): whether to call :meth:`reload` to refresh the
                 current view after the update
         """
-        pa_table = self._get_pa_table()
+        if self._table is None:
+            pa_table = pa.Table.from_arrays(
+                [[], [], []], names=["id", "sample_id", "vector"]
+            )
+        else:
+            pa_table = self._table.to_arrow()
 
         if label_ids is not None:
             ids = label_ids
@@ -350,12 +355,12 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 )
 
         pd_table = self._table.to_pandas()
-        found_embeddings, found_sample_ids, found_label_ids, missing_ids = (
-            [],
-            [],
-            [],
-            [],
-        )
+
+        found_embeddings = []
+        found_sample_ids = []
+        found_label_ids = []
+        missing_ids = []
+
         if sample_ids is not None and self.config.patches_field is not None:
             sample_ids = (
                 sample_ids if isinstance(sample_ids, list) else [sample_ids]
@@ -491,6 +496,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             ids = ids[0]
             if return_dists:
                 dists = dists[0]
+
         if return_dists:
             return ids, dists
 
@@ -511,9 +517,9 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             single_query = False
 
         # Query by ID(s)
-        table = self._db.open_table(self._table_name)
-
-        embeddings = table.to_pandas().set_index("id").loc[query_ids]["vector"]
+        embeddings = (
+            self._table.to_pandas().set_index("id").loc[query_ids]["vector"]
+        )
         query = np.array([emb for emb in embeddings])
 
         if single_query:

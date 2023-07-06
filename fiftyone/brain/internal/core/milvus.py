@@ -9,6 +9,7 @@ import logging
 
 import numpy as np
 from uuid import uuid4
+
 import eta.core.utils as etau
 
 import fiftyone.core.utils as fou
