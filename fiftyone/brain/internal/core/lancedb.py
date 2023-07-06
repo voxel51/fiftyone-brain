@@ -1,15 +1,17 @@
 import os
 import logging
 import numpy as np
+
+import eta.core.utils as etau
+
 import fiftyone.core.utils as fou
+import fiftyone.brain.internal.core.utils as fbu
 from fiftyone.brain.similarity import (
     SimilarityConfig,
     Similarity,
     SimilarityIndex,
 )
-import eta.core.utils as etau
 
-import fiftyone.brain.internal.core.utils as fbu
 
 lancedb = fou.lazy_import("lancedb")
 pa = fou.lazy_import("pyarrow")
