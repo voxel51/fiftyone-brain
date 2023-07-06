@@ -211,10 +211,10 @@ class MilvusSimilarityIndex(SimilarityIndex):
         collection_names = pymilvus.utility.list_collections(using=alias)
 
         if self.config.collection_name is None:
-            root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
-            collection_name = fbu.get_unique_name(root, collection_names)
-
             # Milvus only supports numbers, letters and underscores
+            root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
+            root = root.replace("-", "_")
+            collection_name = fbu.get_unique_name(root, collection_names)
             collection_name = collection_name.replace("-", "_")
 
             self.config.collection_name = collection_name
@@ -264,11 +264,15 @@ class MilvusSimilarityIndex(SimilarityIndex):
         self._collection = collection
 
     @property
+    def collection(self):
+        """The ``pymilvus.Collection`` instance for this index."""
+        return self._collection
+
+    @property
     def total_index_size(self):
         if self._collection is None:
             return None
 
-        self._collection.flush()
         return self._collection.num_entities
 
     def add_to_index(
@@ -342,6 +346,8 @@ class MilvusSimilarityIndex(SimilarityIndex):
             ]
             self._collection.insert(insert_data)
 
+        self._collection.flush()
+
         if reload:
             self.reload()
 
@@ -354,6 +360,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
         ids = ['"' + str(entry) + '"' for entry in ids]
         expr = f"""pk in [{','.join(ids)}]"""
         self._collection.delete(expr)
+        self._collection.flush()
 
     def _get_embeddings(self, ids):
         ids = ['"' + str(entry) + '"' for entry in ids]
