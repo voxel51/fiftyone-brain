@@ -121,6 +121,15 @@ class LanceDBSimilarity(Similarity):
 
 
 class LanceDBSimilarityIndex(SimilarityIndex):
+    """Class for interacting with LanceDB similarity indexes.
+
+    Args:
+        samples: the :class:`fiftyone.core.collections.SampleCollection` used
+        config: the :class:`LanceDBSimilarityConfig` used
+        brain_key: the brain key
+        backend (None): a :class:`LanceDBSimilarity` instance
+    """
+
     def __init__(self, samples, config, brain_key, backend=None):
         super().__init__(samples, config, brain_key, backend=backend)
         self._table = None
