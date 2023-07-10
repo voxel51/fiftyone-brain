@@ -68,7 +68,7 @@ def compute_visualization(
         model = None
         embeddings = None
         embeddings_field = None
-        num_dims = points.shape[1]
+        num_dims = _get_dimension(points)
     elif model is None and embeddings is None:
         model = _DEFAULT_MODEL
         if batch_size is None:
@@ -303,3 +303,16 @@ def _parse_config(
         num_dims=num_dims,
         **kwargs,
     )
+
+
+def _get_dimension(points):
+    if isinstance(points, dict):
+        points = next(iter(points.values()), None)
+
+    if isinstance(points, list):
+        points = next(iter(points), None)
+
+    if points is None:
+        return 2
+
+    return points.shape[-1]
