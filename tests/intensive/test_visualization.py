@@ -195,6 +195,53 @@ def test_patches_missing():
     assert set(label_ids) == set(results.label_ids)
 
 
+def test_points():
+    dataset = foz.load_zoo_dataset("quickstart")
+
+    n = len(dataset)
+    p = dataset.count("ground_truth.detections")
+    d = 512
+
+    points1 = np.random.rand(n, d)
+    results1 = fob.compute_visualization(
+        dataset,
+        points=points1,
+        brain_key="test1",
+    )
+    assert results1.points.shape == (n, d)
+
+    points2 = {_id: np.random.rand(d) for _id in dataset.values("id")}
+    results2 = fob.compute_visualization(
+        dataset,
+        points=points2,
+        brain_key="test2",
+    )
+    assert results2.points.shape == (n, d)
+
+    points3 = np.random.rand(p, d)
+    results3 = fob.compute_visualization(
+        dataset,
+        patches_field="ground_truth",
+        points=points3,
+        brain_key="test3",
+    )
+    assert results3.points.shape == (p, d)
+
+    points4 = {
+        _id: np.random.rand(d)
+        for _id in dataset.values("ground_truth.detections.id", unwind=True)
+    }
+    results4 = fob.compute_visualization(
+        dataset,
+        patches_field="ground_truth",
+        points=points4,
+        brain_key="test4",
+    )
+    assert results4.points.shape == (p, d)
+
+    dataset.delete()
+
+
 def _load_images_dataset():
     name = "test-visualization-images"
 

@@ -23,6 +23,12 @@ class BrainConfig(EnvConfig):
         "qdrant": {
             "config_cls": "fiftyone.brain.internal.core.qdrant.QdrantSimilarityConfig",
         },
+        "milvus": {
+            "config_cls": "fiftyone.brain.internal.core.milvus.MilvusSimilarityConfig",
+        },
+        "lancedb": {
+            "config_cls": "fiftyone.brain.internal.core.lancedb.LanceDBSimilarityConfig",
+        },
     }
 
     def __init__(self, d=None):
