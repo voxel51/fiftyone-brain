@@ -27,9 +27,9 @@ logger = logging.getLogger(__name__)
 
 _AGGREGATIONS = {
     "mean": np.mean,
-    "post-mean": np.mean,
-    "post-min": np.min,
-    "post-max": np.max,
+    "post-mean": np.nanmean,
+    "post-min": np.nanmin,
+    "post-max": np.nanmax,
 }
 
 _MAX_PRECOMPUTE_DISTS = 15000  # ~1.7GB to store distance matrix in-memory
@@ -377,14 +377,14 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
             # Use pre-computed distances
             if query_inds is not None:
                 _dists = dists[query_inds, :]
-                _rows = range(len(query_inds))
             else:
                 _dists = dists
-                _rows = range(dists.shape[0])
 
-            inds = np.argmin(_dists, axis=1)
+            # note: this must gracefully ignore nans
+            inds = _nanargmin(_dists, k=k)
+
             if return_dists:
-                dists = _dists[_rows, inds]
+                dists = [d[i] for i, d in zip(inds, _dists)]
             else:
                 dists = None
         else:
@@ -426,7 +426,9 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
             else:
                 _dists = dists
 
+            # note: this must gracefully ignore nans
             inds = [np.nonzero(d <= thresh)[0] for d in _dists]
+
             if return_dists:
                 dists = [d[i] for i, d in zip(inds, _dists)]
             else:
@@ -488,6 +490,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
 
         # Post-aggregation
         if aggregation is not None:
+            # note: this must gracefully ignore nans
             agg_fcn = _AGGREGATIONS[aggregation]
             dists = agg_fcn(dists, axis=0)
         else:
@@ -776,6 +779,7 @@ class NeighborsHelper(object):
         embeddings -= embeddings.mean(axis=0, keepdims=True)
 
         dists = skm.pairwise_distances(embeddings, metric=self.metric)
+        np.fill_diagonal(dists, np.nan)
 
         logger.info("Index complete")
 
@@ -845,3 +849,14 @@ def _get_inds(ids, index_ids, ftype, allow_missing, warn_missing):
             )
 
     return np.array(inds)
+
+
+def _nanargmin(array, k=1):
+    if k == 1:
+        inds = np.nanargmin(array, axis=1)
+        inds = [np.array([i]) for i in inds]
+    else:
+        inds = np.argsort(array, axis=1)
+        inds = list(inds[:, :k])
+
+    return inds
