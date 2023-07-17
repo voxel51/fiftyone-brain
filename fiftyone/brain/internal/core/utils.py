@@ -520,7 +520,7 @@ def add_embeddings(
         )
 
         values = dict(zip(label_ids, embeddings))
-        dataset.set_label_values(embeddings_path, values)
+        dataset.set_label_values(embeddings_path, values, dynamic=True)
     else:
         values = dict(zip(sample_ids, embeddings))
         dataset.set_values(embeddings_field, values, key_field="id")
@@ -734,7 +734,11 @@ def get_embeddings(
             warn_missing=True,
         )
 
-    if embeddings is None and model is not None:
+    if (
+        embeddings is None
+        and model is not None
+        and not _has_embeddings_field(samples, embeddings_field, patches_field)
+    ):
         if etau.is_str(model):
             model = foz.load_zoo_model(model)
 
@@ -748,7 +752,6 @@ def get_embeddings(
             embeddings = samples.compute_patch_embeddings(
                 model,
                 patches_field,
-                embeddings_field=embeddings_field,
                 force_square=force_square,
                 alpha=alpha,
                 handle_missing=handle_missing,
@@ -770,7 +773,6 @@ def get_embeddings(
             logger.info("Computing embeddings...")
             embeddings = samples.compute_embeddings(
                 model,
-                embeddings_field=embeddings_field,
                 batch_size=batch_size,
                 num_workers=num_workers,
                 skip_failures=skip_failures,
@@ -847,15 +849,31 @@ def _empty_embeddings(patches_field):
     return embeddings, sample_ids, label_ids
 
 
+def _has_embeddings_field(samples, embeddings_field, patches_field=None):
+    if embeddings_field is None:
+        return False
+
+    if patches_field is not None:
+        _, embeddings_path = samples._get_label_field_path(
+            patches_field, embeddings_field
+        )
+    else:
+        embeddings_path = embeddings_field
+
+    return samples.has_field(embeddings_path)
+
+
 def _load_embeddings(samples, embeddings_field, patches_field=None):
     if patches_field is not None:
         label_type, embeddings_path = samples._get_label_field_path(
             patches_field, embeddings_field
         )
         is_list_field = issubclass(label_type, fol._LABEL_LIST_FIELDS)
-    else:
+    elif samples.has_field(embeddings_field):
         embeddings_path = embeddings_field
         is_list_field = False
+    else:
+        return [], samples.limit(0)
 
     if is_list_field:
         samples = samples.filter_labels(
