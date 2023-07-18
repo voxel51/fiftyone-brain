@@ -399,6 +399,64 @@ def test_images_missing():
     assert set(sample_ids) == set(index.sample_ids)
 
 
+def test_images_embeddings():
+    dataset = foz.load_zoo_dataset("quickstart", max_samples=10)
+    model = foz.load_zoo_model("clip-vit-base32-torch")
+    n = len(dataset)
+
+    # Embeddings are computed on-the-fly and stored on dataset
+    index1 = fob.compute_similarity(
+        dataset,
+        embeddings="embeddings",
+        model="clip-vit-base32-torch",
+        brain_key="img_sim1",
+        backend="sklearn",
+    )
+    assert index1.total_index_size == n
+    assert index1.config.supports_prompts is True
+    assert "embeddings" not in index1.serialize()
+
+    # Embeddings already exist on dataset
+    dataset.compute_embeddings(model, embeddings_field="embeddings2")
+    index2 = fob.compute_similarity(
+        dataset,
+        embeddings="embeddings2",
+        model="clip-vit-base32-torch",
+        brain_key="img_sim2",
+        backend="sklearn",
+    )
+    assert index2.total_index_size == n
+    assert index2.config.supports_prompts is True
+    assert "embeddings" not in index2.serialize()
+
+    # Embeddings stored in index itself
+    index3 = fob.compute_similarity(
+        dataset,
+        model="clip-vit-base32-torch",
+        brain_key="img_sim3",
+        backend="sklearn",
+    )
+    assert index3.total_index_size == n
+    assert index3.config.supports_prompts is True
+    assert "embeddings" in index3.serialize()
+
+    # Embeddings stored on dataset (but field doesn't initially exist)
+    index4 = fob.compute_similarity(
+        dataset,
+        embeddings="embeddings4",
+        brain_key="img_sim4",
+        backend="sklearn",
+    )
+    embeddings = np.random.randn(n, 512)
+    sample_ids = dataset.values("id")
+    index4.add_to_index(embeddings, sample_ids)
+    assert index4.total_index_size == n
+    assert index4.config.supports_prompts is not True
+    assert "embeddings" not in index4.serialize()
+
+    dataset.delete()
+
+
 def test_patches():
     dataset = _load_patches_dataset()
 
@@ -472,6 +530,71 @@ def test_patches_missing():
     assert view.count("ground_truth.detections") == num_patches
     assert index.total_index_size == num_patches
     assert set(label_ids) == set(index.label_ids)
+
+
+def test_patches_embeddings():
+    dataset = foz.load_zoo_dataset("quickstart", max_samples=10)
+    model = foz.load_zoo_model("clip-vit-base32-torch")
+    n = dataset.count("ground_truth.detections")
+
+    # Embeddings are computed on-the-fly and stored on dataset
+    index1 = fob.compute_similarity(
+        dataset,
+        patches_field="ground_truth",
+        embeddings="embeddings",
+        model="clip-vit-base32-torch",
+        brain_key="gt_sim1",
+        backend="sklearn",
+    )
+    assert index1.total_index_size == n
+    assert index1.config.supports_prompts is True
+    assert "embeddings" not in index1.serialize()
+
+    # Embeddings already exist on dataset
+    dataset.compute_patch_embeddings(
+        model, "ground_truth", embeddings_field="embeddings2"
+    )
+    index2 = fob.compute_similarity(
+        dataset,
+        patches_field="ground_truth",
+        embeddings="embeddings2",
+        model="clip-vit-base32-torch",
+        brain_key="gt_sim2",
+        backend="sklearn",
+    )
+    assert index2.total_index_size == n
+    assert index2.config.supports_prompts is True
+    assert "embeddings" not in index2.serialize()
+
+    # Embeddings stored in index itself
+    index3 = fob.compute_similarity(
+        dataset,
+        patches_field="ground_truth",
+        model="clip-vit-base32-torch",
+        brain_key="gt_sim3",
+        backend="sklearn",
+    )
+    assert index3.total_index_size == n
+    assert index3.config.supports_prompts is True
+    assert "embeddings" in index3.serialize()
+
+    # Embeddings stored on dataset (but field doesn't initially exist)
+    index4 = fob.compute_similarity(
+        dataset,
+        patches_field="ground_truth",
+        embeddings="embeddings4",
+        brain_key="gt_sim4",
+        backend="sklearn",
+    )
+    embeddings = np.random.randn(n, 512)
+    view = dataset.to_patches("ground_truth")
+    sample_ids, label_ids = view.values(["sample_id", "id"])
+    index4.add_to_index(embeddings, sample_ids, label_ids=label_ids)
+    assert index4.total_index_size == n
+    assert index4.config.supports_prompts is not True
+    assert "embeddings" not in index4.serialize()
+
+    dataset.delete()
 
 
 def _load_images_dataset():
