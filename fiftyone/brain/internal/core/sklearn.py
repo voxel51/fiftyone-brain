@@ -392,10 +392,13 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
                 dists, inds = neighbors.kneighbors(
                     X=query, n_neighbors=k, return_distance=True
                 )
+                inds = list(inds)
+                dists = list(dists)
             else:
                 inds = neighbors.kneighbors(
                     X=query, n_neighbors=k, return_distance=False
                 )
+                inds = list(inds)
                 dists = None
 
         return self._format_output(
@@ -508,10 +511,13 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         else:
             ids = self.current_sample_ids
 
-        if return_dists:
-            return ids[inds], dists[inds]
+        ids = list(ids[inds])
 
-        return ids[inds]
+        if return_dists:
+            dists = list(dists[inds])
+            return ids, dists
+
+        return ids
 
     def _parse_neighbors_query(self, query):
         # Full index
