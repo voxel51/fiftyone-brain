@@ -1196,7 +1196,7 @@ class DuplicatesMixin(object):
         thresh = self.thresh
 
         _, dists = self._kneighbors(k=1, return_dists=True)
-        dists = np.array([d[0] for d in dists.values()])
+        dists = np.array([d[0] for d in dists])
 
         if backend == "matplotlib":
             return _plot_distances_mpl(
