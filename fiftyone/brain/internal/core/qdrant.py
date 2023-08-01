@@ -63,7 +63,7 @@ class QdrantSimilarityConfig(SimilarityConfig):
         url (None): a Qdrant server URL to use
         api_key (None): a Qdrant API key to use
         grpc_port (None): Port of Qdrant gRPC interface
-        prefer_grpc (None): If `true`, use gRPC interface hwen possible
+        prefer_grpc (None): If `true`, use gRPC interface when possible
     """
 
     def __init__(
@@ -115,7 +115,6 @@ class QdrantSimilarityConfig(SimilarityConfig):
         self._grpc_port = grpc_port
         self._prefer_grpc = prefer_grpc
 
-
     @property
     def method(self):
         return "qdrant"
@@ -164,8 +163,15 @@ class QdrantSimilarityConfig(SimilarityConfig):
     def supported_aggregations(self):
         return ("mean",)
 
-    def load_credentials(self, url=None, api_key=None):
-        self._load_parameters(url=url, api_key=api_key)
+    def load_credentials(
+        self, url=None, api_key=None, grpc_port=None, prefer_grpc=None
+    ):
+        self._load_parameters(
+            url=url,
+            api_key=api_key,
+            grpc_port=grpc_port,
+            prefer_grpc=prefer_grpc,
+        )
 
 
 class QdrantSimilarity(Similarity):
@@ -207,14 +213,22 @@ class QdrantSimilarityIndex(SimilarityIndex):
         # QdrantClient does not appear to play will with passing None as "use defaults"
         # Place these defaults here (closer to QdrantClient callsite) rather than upstream
         # in QdrantSimilarityConfig in case API/defaults change
-        grpc_port = self.config.grpc_port if self.config.grpc_port is not None else 6334
-        prefer_grpc = self.config.prefer_grpc if self.config.prefer_grpc is not None else False
-        
+        grpc_port = (
+            self.config.grpc_port
+            if self.config.grpc_port is not None
+            else 6334
+        )
+        prefer_grpc = (
+            self.config.prefer_grpc
+            if self.config.prefer_grpc is not None
+            else False
+        )
+
         self._client = qdrant.QdrantClient(
-            url=self.config.url, 
-            api_key=self.config.api_key, 
-            grpc_port=grpc_port, 
-            prefer_grpc=prefer_grpc
+            url=self.config.url,
+            api_key=self.config.api_key,
+            grpc_port=grpc_port,
+            prefer_grpc=prefer_grpc,
         )
 
         try:
