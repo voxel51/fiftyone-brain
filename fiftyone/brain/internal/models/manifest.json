@@ -21,7 +21,7 @@
                     "image_mean": [0.4914, 0.4822, 0.4465],
                     "image_std": [0.2023, 0.1994, 0.201],
                     "embeddings_layer": "flatten",
-                    "use_half_precision": true,
+                    "use_half_precision": false,
                     "cudnn_benchmark": true
                 }
             },
