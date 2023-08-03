@@ -62,6 +62,8 @@ class QdrantSimilarityConfig(SimilarityConfig):
             when creating a new index
         url (None): a Qdrant server URL to use
         api_key (None): a Qdrant API key to use
+        grpc_port (None): Port of Qdrant gRPC interface
+        prefer_grpc (None): If `true`, use gRPC interface when possible
     """
 
     def __init__(
@@ -80,6 +82,8 @@ class QdrantSimilarityConfig(SimilarityConfig):
         wal_config=None,
         url=None,
         api_key=None,
+        grpc_port=None,
+        prefer_grpc=None,
         **kwargs,
     ):
         if metric is not None and metric not in _SUPPORTED_METRICS:
@@ -108,6 +112,8 @@ class QdrantSimilarityConfig(SimilarityConfig):
         # store privately so these aren't serialized
         self._url = url
         self._api_key = api_key
+        self._grpc_port = grpc_port
+        self._prefer_grpc = prefer_grpc
 
     @property
     def method(self):
@@ -130,6 +136,22 @@ class QdrantSimilarityConfig(SimilarityConfig):
         self._api_key = value
 
     @property
+    def grpc_port(self):
+        return self._grpc_port
+
+    @grpc_port.setter
+    def grpc_port(self, value):
+        self._grpc_port = value
+
+    @property
+    def prefer_grpc(self):
+        return self._prefer_grpc
+
+    @prefer_grpc.setter
+    def prefer_grpc(self, value):
+        self._prefer_grpc = value
+
+    @property
     def max_k(self):
         return None
 
@@ -141,8 +163,15 @@ class QdrantSimilarityConfig(SimilarityConfig):
     def supported_aggregations(self):
         return ("mean",)
 
-    def load_credentials(self, url=None, api_key=None):
-        self._load_parameters(url=url, api_key=api_key)
+    def load_credentials(
+        self, url=None, api_key=None, grpc_port=None, prefer_grpc=None
+    ):
+        self._load_parameters(
+            url=url,
+            api_key=api_key,
+            grpc_port=grpc_port,
+            prefer_grpc=prefer_grpc,
+        )
 
 
 class QdrantSimilarity(Similarity):
@@ -180,8 +209,26 @@ class QdrantSimilarityIndex(SimilarityIndex):
         self._initialize()
 
     def _initialize(self):
+
+        # QdrantClient does not appear to play will with passing None as "use defaults"
+        # Place these defaults here (closer to QdrantClient callsite) rather than upstream
+        # in QdrantSimilarityConfig in case API/defaults change
+        grpc_port = (
+            self.config.grpc_port
+            if self.config.grpc_port is not None
+            else 6334
+        )
+        prefer_grpc = (
+            self.config.prefer_grpc
+            if self.config.prefer_grpc is not None
+            else False
+        )
+
         self._client = qdrant.QdrantClient(
-            url=self.config.url, api_key=self.config.api_key
+            url=self.config.url,
+            api_key=self.config.api_key,
+            grpc_port=grpc_port,
+            prefer_grpc=prefer_grpc,
         )
 
         try:
