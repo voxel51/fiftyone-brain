@@ -111,7 +111,9 @@ def test_brain_config():
 
 
 def test_image_similarity_backends():
-    dataset = foz.load_zoo_dataset("quickstart")
+    dataset = foz.load_zoo_dataset(
+        "quickstart", dataset_name="quickstart-test-similarity-image"
+    )
 
     # sklearn backend
     ###########################################################################
@@ -224,7 +226,9 @@ def test_image_similarity_backends():
 
 
 def test_patch_similarity_backends():
-    dataset = foz.load_zoo_dataset("quickstart")
+    dataset = foz.load_zoo_dataset(
+        "quickstart", dataset_name="quickstart-test-similarity-patch"
+    )
 
     # sklearn backend
     ###########################################################################
@@ -343,6 +347,49 @@ def test_patch_similarity_backends():
 
         index2.cleanup()
         dataset.delete_brain_run(brain_key)
+
+    dataset.delete()
+
+
+def test_qdrant_backend_config():
+    """
+    - *_similarity_backends tests run with custom backends as "externally" configured
+    - To test varying connection details (eg with qdrant), re-configure externally and re-run tests
+    - This test white-box tests that gRPC-related config settings are applied to QdrantClient
+    """
+
+    backend = "qdrant"
+    if backend not in get_custom_backends():
+        return
+
+    dataset = foz.load_zoo_dataset("quickstart", max_samples=5)
+    brain_key = "clip_" + backend
+    index = fob.compute_similarity(
+        dataset,
+        model="clip-vit-base32-torch",
+        metric="euclidean",
+        embeddings=False,
+        backend=backend,
+        brain_key=brain_key,
+    )
+
+    qclient = index.client
+    qremote = qclient._client
+    qdrant_config = fob.brain_config.similarity_backends["qdrant"]
+
+    if "prefer_grpc" in qdrant_config:
+        prefer_grpc = qdrant_config["prefer_grpc"]
+        assert qremote._prefer_grpc == prefer_grpc
+        print(f"Applied qdrant config prefer_grpc={prefer_grpc}")
+    else:
+        print("Qdrant config prefer_grpc unset")
+
+    if "grpc_port" in qdrant_config:
+        grpc_port = qdrant_config["grpc_port"]
+        assert qremote._grpc_port == grpc_port
+        print(f"Applied qdrant config grpc_port={grpc_port}")
+    else:
+        print("Qdrant config grpc_port unset")
 
     dataset.delete()
 
