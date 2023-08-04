@@ -111,7 +111,9 @@ def test_brain_config():
 
 
 def test_image_similarity_backends():
-    dataset = foz.load_zoo_dataset("quickstart")
+    dataset = foz.load_zoo_dataset(
+        "quickstart", dataset_name="quickstart-test-similarity-image"
+    )
 
     # sklearn backend
     ###########################################################################
@@ -224,7 +226,9 @@ def test_image_similarity_backends():
 
 
 def test_patch_similarity_backends():
-    dataset = foz.load_zoo_dataset("quickstart")
+    dataset = foz.load_zoo_dataset(
+        "quickstart", dataset_name="quickstart-test-similarity-patch"
+    )
 
     # sklearn backend
     ###########################################################################
