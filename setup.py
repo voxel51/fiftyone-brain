@@ -17,7 +17,7 @@ with open("LICENSE", "r") as fh:
     long_description += "\n## License\n\n" + fh.read()
 
 
-VERSION = "0.13.0"
+VERSION = "0.13.1"
 
 
 def get_version():
