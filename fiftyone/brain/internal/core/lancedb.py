@@ -11,6 +11,7 @@ import numpy as np
 
 import eta.core.utils as etau
 
+import fiftyone.core.storage as fos
 import fiftyone.core.utils as fou
 import fiftyone.brain.internal.core.utils as fbu
 from fiftyone.brain.similarity import (
@@ -79,7 +80,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         self.metric = metric
 
         # store privately so these aren't serialized
-        self._uri = fou.normalize_path(uri)
+        self._uri = fos.normalize_path(uri)
 
     @property
     def method(self):
