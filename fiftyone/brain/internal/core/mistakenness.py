@@ -178,7 +178,7 @@ class MistakennessMethodConfig(fob.BrainMethodConfig):
         self.mistakenness_field = mistakenness_field
 
     @property
-    def method(self):
+    def type(self):
         return "mistakenness"
 
 
@@ -218,6 +218,10 @@ class ClassificationMistakennessConfig(MistakennessMethodConfig):
     ):
         super().__init__(pred_field, label_field, mistakenness_field, **kwargs)
         self.use_logits = use_logits
+
+    @property
+    def method(self):
+        return "classification"
 
 
 class ClassificationMistakenness(MistakennessMethod):
@@ -300,6 +304,10 @@ class DetectionMistakennessConfig(MistakennessMethodConfig):
         self.use_logits = use_logits
         self.copy_missing = copy_missing
         self.eval_key = eval_key
+
+    @property
+    def method(self):
+        return "detection"
 
 
 class DetectionMistakenness(MistakennessMethod):

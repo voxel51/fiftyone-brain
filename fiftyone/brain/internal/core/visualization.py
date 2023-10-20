@@ -285,7 +285,10 @@ class ManualVisualization(Visualization):
 def _parse_config(
     embeddings_field, model, patches_field, method, num_dims, **kwargs
 ):
-    if method is None or method == "umap":
+    if method is None:
+        method = "umap"
+
+    if method == "umap":
         config_cls = UMAPVisualizationConfig
     elif method == "tsne":
         config_cls = TSNEVisualizationConfig
