@@ -27,7 +27,7 @@ class MongoDBSimilarityConfig(SimilarityConfig):
     """Configuration for a MongoDB similarity instance.
 
     Args:
-        embeddings_field (None): the name of the embeddings field to use
+        embeddings_field (None): the sample field containing the embeddings
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
         patches_field (None): the sample field defining the patches being
