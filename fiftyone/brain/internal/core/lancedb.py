@@ -180,7 +180,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
     @property
     def total_index_size(self):
         if self._table is None:
-            return None
+            return 0
 
         return len(self._table)
 

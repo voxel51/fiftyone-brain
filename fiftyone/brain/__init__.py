@@ -416,6 +416,13 @@ def compute_similarity(
         Sort the samples in the collection by similarity to a specific example
         or example(s)
 
+    All indexes support querying by image similarity by passing sample IDs to
+    :meth:`sort_by_similarity() <fiftyone.brain.similarity.SimilarityIndex.sort_by_similarity>`.
+    In addition, if you pass the name of a model from the
+    `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
+    like ``model="clip-vit-base32-torch"`` that can embed prompts to this
+    method, then you can query the index by text similarity as well.
+
     In addition, if the backend supports it, you can call the following
     duplicate detection methods:
 
@@ -446,7 +453,7 @@ def compute_similarity(
             behavior depends on whether a ``model`` is provided, as described
             below.
 
-            If no ``model`` is provided, this argument specifies precomputed
+            If no ``model`` is provided, this argument specifies pre-computed
             embeddings to use:
 
             -   a ``num_samples x num_dims`` array of embeddings
@@ -460,7 +467,7 @@ def compute_similarity(
             the model's embeddings:
 
             -   the name of a field in which to store the computed embeddings
-            -   ``False``: **do not** compute or store embeddings right now
+            -   ``False``: **do not** compute embeddings right now
 
             In either case, when working with patch embeddings, you can provide
             either the fully-qualified path to the patch embeddings or just the
@@ -470,8 +477,8 @@ def compute_similarity(
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
-            to use to generate embeddings. The model must expose embeddings
-            (``model.has_embeddings = True``)
+            to use, or that was already used, to generate embeddings. The model
+            must expose embeddings (``model.has_embeddings = True``)
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``patches_field`` are specified

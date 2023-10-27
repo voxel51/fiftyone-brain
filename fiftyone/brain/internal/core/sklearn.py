@@ -144,6 +144,10 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         DuplicatesMixin.__init__(self)
 
     @property
+    def is_external(self):
+        return self.config.embeddings_field is None
+
+    @property
     def embeddings(self):
         return self._embeddings
 

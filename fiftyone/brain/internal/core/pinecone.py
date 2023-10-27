@@ -242,7 +242,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
     @property
     def total_index_size(self):
         if self._index is None:
-            return None
+            return 0
 
         return self._index.describe_index_stats()["total_vector_count"]
 

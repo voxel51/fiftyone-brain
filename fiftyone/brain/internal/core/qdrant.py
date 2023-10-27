@@ -304,7 +304,10 @@ class QdrantSimilarityIndex(SimilarityIndex):
 
     @property
     def total_index_size(self):
-        return self._client.count(self.config.collection_name).count
+        try:
+            return self._client.count(self.config.collection_name).count
+        except:
+            return 0
 
     @property
     def client(self):
