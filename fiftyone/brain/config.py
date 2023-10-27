@@ -32,6 +32,9 @@ class BrainConfig(EnvConfig):
         "redis": {
             "config_cls": "fiftyone.brain.internal.core.redis.RedisSimilarityConfig",
         },
+        "mongodb": {
+            "config_cls": "fiftyone.brain.internal.core.mongodb.MongoDBSimilarityConfig",
+        },
     }
 
     def __init__(self, d=None):
