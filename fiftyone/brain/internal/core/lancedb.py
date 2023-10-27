@@ -37,7 +37,6 @@ class LanceDBSimilarityConfig(SimilarityConfig):
 
     Args:
         embeddings_field (None): the name of the embeddings field to use
-        model (None): the name of the model to use
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
         patches_field (None): the sample field defining the patches being
@@ -84,7 +83,6 @@ class LanceDBSimilarityConfig(SimilarityConfig):
 
     @property
     def method(self):
-        """The name of the similarity backend."""
         return "lancedb"
 
     @property
@@ -97,14 +95,10 @@ class LanceDBSimilarityConfig(SimilarityConfig):
 
     @property
     def max_k(self):
-        """A maximum k value for nearest neighbor queries, or None if there is
-        no limit.
-        """
         return None
 
     @property
     def supports_least_similarity(self):
-        """Whether this backend supports least similarity queries."""
         return False
 
     @property
@@ -199,23 +193,6 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         warn_existing=False,
         reload=True,
     ):
-        """Adds the given embeddings to the index.
-
-        Args:
-            embeddings: a ``num_embeddings x num_dims`` array of embeddings
-            sample_ids: a ``num_embeddings`` array of sample IDs
-            label_ids (None): a ``num_embeddings`` array of label IDs, if
-                applicable
-            overwrite (True): whether to replace (True) or ignore (False)
-                existing embeddings with the same sample/label IDs
-            allow_existing (True): whether to ignore (True) or raise an error
-                (False) when ``overwrite`` is False and a provided ID already
-                exists in the
-            warn_missing (False): whether to log a warning if an embedding is
-                not added to the index because its ID already exists
-            reload (True): whether to call :meth:`reload` to refresh the
-                current view after the update
-        """
         if self._table is None:
             pa_table = pa.Table.from_arrays(
                 [[], [], []], names=["id", "sample_id", "vector"]
@@ -336,29 +313,6 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         allow_missing=True,
         warn_missing=False,
     ):
-        """Retrieves the embeddings for the given IDs from the index.
-
-        If no IDs are provided, the entire index is returned.
-
-        Args:
-            sample_ids (None): a sample ID or list of sample IDs for which to
-                retrieve embeddings
-            label_ids (None): a label ID or list of label IDs for which to
-                retrieve embeddings
-            allow_missing (True): whether to allow the index to not contain IDs
-                that you provide (True) or whether to raise an error in this
-                case (False)
-            warn_missing (False): whether to log a warning if the index does
-                not contain IDs that you provide
-
-        Returns:
-            a tuple of:
-
-            -   a ``num_embeddings x num_dims`` array of embeddings
-            -   a ``num_embeddings`` array of sample IDs
-            -   a ``num_embeddings`` array of label IDs, if applicable, or else
-                ``None``
-        """
         if label_ids is not None:
             if self.config.patches_field is None:
                 raise ValueError("This index does not support label IDs")
@@ -468,7 +422,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             )
 
         if k is None:
-            k = len(self._table.to_arrow())
+            k = self.index_size
 
         query = self._parse_neighbors_query(query)
         if aggregation == "mean" and query.ndim == 2:

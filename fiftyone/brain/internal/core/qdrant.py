@@ -209,10 +209,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
         self._initialize()
 
     def _initialize(self):
-
-        # QdrantClient does not appear to play will with passing None as "use defaults"
-        # Place these defaults here (closer to QdrantClient callsite) rather than upstream
-        # in QdrantSimilarityConfig in case API/defaults change
+        # QdrantClient does not appear to like passing None as defaults
         grpc_port = (
             self.config.grpc_port
             if self.config.grpc_port is not None
