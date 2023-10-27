@@ -47,17 +47,18 @@ class MongoDBSimilarityConfig(SimilarityConfig):
         **kwargs,
     ):
         if embeddings_field is None:
+            # compute_similarity() calls this parameter `embeddings`
             raise ValueError(
                 "You must provide the name of the field that contains the "
-                "embeddings for this index by passing the `embeddings_field` "
-                "parameter here"
+                "embeddings for this index by passing the `embeddings` "
+                "parameter"
             )
 
         if index_name is None:
             raise ValueError(
                 "Programmatically creating vector search indexes is not yet "
                 "supported by MongoDB Atlas. You must first create the index "
-                "in Atlas and then provide the `index_name` parameter here"
+                "in Atlas and then provide the `index_name` parameter"
             )
 
         super().__init__(
@@ -125,6 +126,10 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         self._label_ids = label_ids
 
         super().__init__(samples, config, brain_key, backend=backend)
+
+    @property
+    def is_external(self):
+        return False
 
     @property
     def sample_ids(self):
