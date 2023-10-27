@@ -416,6 +416,11 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         if query is None:
             raise ValueError("LanceDB does not support full index neighbors")
 
+        if reverse is True:
+            raise ValueError(
+                "LanceDB does not support least similarity queries"
+            )
+
         if aggregation not in (None, "mean"):
             raise ValueError(
                 f"LanceDB does not support {aggregation} aggregation"
