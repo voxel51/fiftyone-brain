@@ -342,7 +342,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
                 "path": self.config.embeddings_field,
                 "limit": k,
                 "numCandidates": num_candidates,
-                "queryVector": q,
+                "queryVector": q.tolist(),
             }
 
             if index_ids is not None:
