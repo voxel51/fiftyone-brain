@@ -72,7 +72,7 @@ class RedisSimilarityConfig(SimilarityConfig):
         password=None,
         **kwargs,
     ):
-        if metric is not None and metric not in _SUPPORTED_METRICS:
+        if metric not in _SUPPORTED_METRICS:
             raise ValueError(
                 "Unsupported metric '%s'. Supported values are %s"
                 % (metric, tuple(_SUPPORTED_METRICS.keys()))
