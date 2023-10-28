@@ -331,7 +331,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         if single_query:
             query = [query]
 
-        if self.view != self._samples:
+        if self.has_view:
             if self.config.patches_field is not None:
                 index_ids = list(self.current_label_ids)
             else:
