@@ -62,7 +62,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         uri="/tmp/lancedb",
         **kwargs,
     ):
-        if metric is not None and metric not in _SUPPORTED_METRICS:
+        if metric not in _SUPPORTED_METRICS:
             raise ValueError(
                 "Unsupported metric '%s'. Supported values are %s"
                 % (metric, tuple(_SUPPORTED_METRICS.keys()))
@@ -246,7 +246,8 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             ids = list(sample_ids)
 
         dim = embeddings.shape[1]
-        if self._table:  # update the table
+
+        if self._table:
             prev_embeddings = np.concatenate(
                 pa_table["vector"].to_numpy()
             ).reshape(-1, dim)
@@ -323,7 +324,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                     "Ignoring sample IDs when label IDs are provided"
                 )
 
-        pd_table = self._table.to_pandas()
+        df = self._table.to_pandas()
 
         found_embeddings = []
         found_sample_ids = []
@@ -331,10 +332,11 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         missing_ids = []
 
         if sample_ids is not None and self.config.patches_field is not None:
-            sample_ids = (
-                sample_ids if isinstance(sample_ids, list) else [sample_ids]
-            )
-            df = pd_table.set_index("sample_id")
+            df.set_index("sample_id", drop=False, inplace=True)
+
+            if not etau.is_container(sample_ids):
+                sample_ids = [sample_ids]
+
             for sample_id in sample_ids:
                 if sample_id in df.index:
                     found_embeddings.append(df.loc[sample_id]["vector"])
@@ -342,14 +344,14 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                     found_label_ids.append(df.loc[sample_id]["id"])
                 else:
                     missing_ids.append(sample_id)
-
         elif self.config.patches_field is not None:
-            df = pd_table.set_index("id")
+            df.set_index("id", drop=False, inplace=True)
+
             if label_ids is None:
                 label_ids = list(df.index)
-            label_ids = (
-                label_ids if isinstance(label_ids, list) else [label_ids]
-            )
+            elif not etau.is_container(label_ids):
+                label_ids = [label_ids]
+
             for label_id in label_ids:
                 if label_id in df.index:
                     found_embeddings.append(df.loc[label_id]["vector"])
@@ -358,16 +360,13 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 else:
                     missing_ids.append(label_id)
         else:
-            df = pd_table.set_index("sample_id")
+            df.set_index("id", drop=False, inplace=True)
 
             if sample_ids is None:
                 sample_ids = list(df.index)
-            else:
-                sample_ids = (
-                    sample_ids
-                    if isinstance(sample_ids, list)
-                    else [sample_ids]
-                )
+            elif not etau.is_container(sample_ids):
+                sample_ids = [sample_ids]
+
             for sample_id in sample_ids:
                 if sample_id in df.index:
                     found_embeddings.append(df.loc[sample_id]["vector"])
@@ -397,14 +396,17 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         return embeddings, sample_ids, label_ids
 
     def cleanup(self):
-        if self._db is not None:
-            for tbl in [
-                self.config.table_name,
-                self.config.table_name + "_filter",
-            ]:
-                if tbl in self._db.table_names():
-                    self._db.drop_table(tbl)
-            self._table = None
+        if self._db is None:
+            return
+
+        for tbl in (
+            self.config.table_name,
+            self.config.table_name + "_filter",
+        ):
+            if tbl in self._db.table_names():
+                self._db.drop_table(tbl)
+
+        self._table = None
 
     def _kneighbors(
         self,
@@ -438,33 +440,30 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         if single_query:
             query = [query]
 
-        if self.config.patches_field is not None:
-            index_ids = list(self.current_label_ids)
-        else:
-            index_ids = list(self.current_sample_ids)
+        table = self._table
+
+        if self.has_view:
+            if self.config.patches_field is not None:
+                index_ids = list(self.current_label_ids)
+            else:
+                index_ids = list(self.current_sample_ids)
+
+            df = table.to_pandas()
+            df.set_index("id", drop=False, inplace=True)
+            df = df.loc[index_ids]
+            table = self._db.create_table(
+                self.config.table_name + "_filter", df, mode="overwrite"
+            )
+
+        metric = _SUPPORTED_METRICS[self.config.metric]
 
         ids = []
         dists = []
-        df = self._table.to_pandas().set_index("id")
-        df = df.loc[index_ids]
-        tbl_filtered = self._db.create_table(
-            self.config.table_name + "_filter", df, mode="overwrite"
-        )
-
         for q in query:
-            results = tbl_filtered.search(q)
-            if self.config.metric is not None:
-                results = results.metric(
-                    _SUPPORTED_METRICS[self.config.metric]
-                )
-
-            results = results.limit(k).to_df()
-            if reverse:
-                results = results.iloc[::-1]
-
+            results = table.search(q).metric(metric).limit(k).to_df()
             ids.append(results.id.tolist())
             if return_dists:
-                dists.append(results.score.tolist())
+                dists.append(results._distance.tolist())
 
         if single_query:
             ids = ids[0]
@@ -491,11 +490,10 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             single_query = False
 
         # Query by ID(s)
-        embeddings = (
-            self._table.to_pandas().set_index("id").loc[query_ids]["vector"]
-        )
-        query = np.array([emb for emb in embeddings])
-
+        df = self._table.to_pandas()
+        df.set_index("id", drop=False, inplace=True)
+        df = df.loc[query_ids]
+        query = np.array([v for v in df["vector"]])
         if single_query:
             query = query[0, :]
 

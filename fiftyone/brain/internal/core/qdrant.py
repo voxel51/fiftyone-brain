@@ -592,16 +592,21 @@ class QdrantSimilarityIndex(SimilarityIndex):
         if single_query:
             query = [query]
 
-        if self.config.patches_field is not None:
-            index_ids = self.current_label_ids
-        else:
-            index_ids = self.current_sample_ids
+        if self.has_view:
+            if self.config.patches_field is not None:
+                index_ids = self.current_label_ids
+            else:
+                index_ids = self.current_sample_ids
 
-        _filter = qmodels.Filter(
-            must=[
-                qmodels.HasIdCondition(has_id=self._to_qdrant_ids(index_ids))
-            ]
-        )
+            _filter = qmodels.Filter(
+                must=[
+                    qmodels.HasIdCondition(
+                        has_id=self._to_qdrant_ids(index_ids)
+                    )
+                ]
+            )
+        else:
+            _filter = None
 
         ids = []
         dists = []

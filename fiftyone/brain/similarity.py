@@ -332,6 +332,15 @@ class SimilarityIndex(fob.BrainResults):
         raise NotImplementedError("subclass must implement total_index_size")
 
     @property
+    def has_view(self):
+        """Whether the index is currently restricted to a view.
+
+        Use :meth:`use_view` to restrict the index to a view, and use
+        :meth:`clear_view` to reset to the full index.
+        """
+        return self._curr_view.view() != self._samples.view()
+
+    @property
     def view(self):
         """The :class:`fiftyone.core.collections.SampleCollection` against
         which results are currently being generated.

@@ -68,7 +68,7 @@ class MilvusSimilarityConfig(SimilarityConfig):
         password=None,
         **kwargs,
     ):
-        if metric is not None and metric not in _SUPPORTED_METRICS:
+        if metric not in _SUPPORTED_METRICS:
             raise ValueError(
                 "Unsupported metric '%s'. Supported values are %s"
                 % (metric, tuple(_SUPPORTED_METRICS.keys()))
@@ -574,13 +574,16 @@ class MilvusSimilarityIndex(SimilarityIndex):
         if single_query:
             query = [query]
 
-        if self.config.patches_field is not None:
-            index_ids = self.current_label_ids
-        else:
-            index_ids = self.current_sample_ids
+        if self.has_view:
+            if self.config.patches_field is not None:
+                index_ids = self.current_label_ids
+            else:
+                index_ids = self.current_sample_ids
 
-        expr = ['"' + str(entry) + '"' for entry in index_ids]
-        expr = f"""pk in [{','.join(expr)}]"""
+            expr = ['"' + str(entry) + '"' for entry in index_ids]
+            expr = f"""pk in [{','.join(expr)}]"""
+        else:
+            expr = None
 
         ids = []
         dists = []
