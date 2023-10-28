@@ -272,7 +272,7 @@ class MilvusSimilarityIndex(SimilarityIndex):
     @property
     def total_index_size(self):
         if self._collection is None:
-            return None
+            return 0
 
         return self._collection.num_entities
 
