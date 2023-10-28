@@ -395,7 +395,7 @@ def skip_ids(samples, ids, patches_field=None, warn_existing=False):
     sample_ids, label_ids = get_ids(samples, patches_field=patches_field)
 
     if patches_field is not None:
-        exclude_ids = list(set(label_ids) - set(ids))
+        exclude_ids = list(set(label_ids) & set(ids))
         num_existing = len(exclude_ids)
 
         if num_existing > 0:
@@ -406,14 +406,14 @@ def skip_ids(samples, ids, patches_field=None, warn_existing=False):
                 ids=exclude_ids, fields=patches_field
             )
     else:
-        exclude_ids = list(set(sample_ids) - set(ids))
+        exclude_ids = list(set(sample_ids) & set(ids))
         num_existing = len(exclude_ids)
 
         if num_existing > 0:
             if warn_existing:
                 logger.warning("Skipping %d existing sample IDs", num_existing)
 
-        samples = samples.exclude(exclude_ids)
+            samples = samples.exclude(exclude_ids)
 
     return samples
 

@@ -902,7 +902,6 @@ class SimilarityIndex(fob.BrainResults):
             samples,
             model=model,
             patches_field=self.config.patches_field,
-            embeddings_field=self.config.embeddings_field,
             force_square=force_square,
             alpha=alpha,
             batch_size=batch_size,
