@@ -29,6 +29,9 @@ class BrainConfig(EnvConfig):
         "lancedb": {
             "config_cls": "fiftyone.brain.internal.core.lancedb.LanceDBSimilarityConfig",
         },
+        "redis": {
+            "config_cls": "fiftyone.brain.internal.core.redis.RedisSimilarityConfig",
+        },
     }
 
     def __init__(self, d=None):

@@ -819,13 +819,32 @@ def get_embeddings(
     return embeddings, sample_ids, label_ids
 
 
-def get_unique_name(name, ref_names):
+def get_unique_name(name, ref_names_or_fcn):
+    if etau.is_container(ref_names_or_fcn):
+        return _get_unique_name_from_list(name, ref_names_or_fcn)
+
+    return _get_unique_name_from_function(name, ref_names_or_fcn)
+
+
+def _get_unique_name_from_list(name, ref_names):
     ref_names = set(ref_names)
 
-    if name in ref_names:
-        name += "-" + _get_random_characters(6)
+    if name not in ref_names:
+        return name
 
+    name += "-" + _get_random_characters(6)
     while name in ref_names:
+        name += _get_random_characters(1)
+
+    return name
+
+
+def _get_unique_name_from_function(name, exists_fcn):
+    if not exists_fcn(name):
+        return name
+
+    name += "-" + _get_random_characters(6)
+    while exists_fcn(name):
         name += _get_random_characters(1)
 
     return name
