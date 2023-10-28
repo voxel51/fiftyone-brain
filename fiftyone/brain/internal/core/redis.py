@@ -543,15 +543,12 @@ class RedisSimilarityIndex(SimilarityIndex):
         if single_query:
             query = [query]
 
-        if self.view != self._samples:
+        if self.has_view:
             if self.config.patches_field is not None:
                 index_ids = list(self.current_label_ids)
             else:
                 index_ids = list(self.current_sample_ids)
-        else:
-            index_ids = None
 
-        if index_ids:
             filter = "@foid:{ " + " | ".join(index_ids) + " }"
         else:
             filter = "*"
