@@ -36,8 +36,8 @@ class LanceDBSimilarityConfig(SimilarityConfig):
     """Configuration for a LanceDB similarity instance.
 
     Args:
-        embeddings_field (None): the name of the embeddings field to use
-        model (None): the name of the model to use
+        embeddings_field (None): the sample field containing the embeddings,
+            if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
         patches_field (None): the sample field defining the patches being
@@ -62,7 +62,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         uri="/tmp/lancedb",
         **kwargs,
     ):
-        if metric is not None and metric not in _SUPPORTED_METRICS:
+        if metric not in _SUPPORTED_METRICS:
             raise ValueError(
                 "Unsupported metric '%s'. Supported values are %s"
                 % (metric, tuple(_SUPPORTED_METRICS.keys()))
@@ -84,7 +84,6 @@ class LanceDBSimilarityConfig(SimilarityConfig):
 
     @property
     def method(self):
-        """The name of the similarity backend."""
         return "lancedb"
 
     @property
@@ -97,14 +96,10 @@ class LanceDBSimilarityConfig(SimilarityConfig):
 
     @property
     def max_k(self):
-        """A maximum k value for nearest neighbor queries, or None if there is
-        no limit.
-        """
         return None
 
     @property
     def supports_least_similarity(self):
-        """Whether this backend supports least similarity queries."""
         return False
 
     @property
@@ -185,7 +180,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
     @property
     def total_index_size(self):
         if self._table is None:
-            return None
+            return 0
 
         return len(self._table)
 
@@ -199,23 +194,6 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         warn_existing=False,
         reload=True,
     ):
-        """Adds the given embeddings to the index.
-
-        Args:
-            embeddings: a ``num_embeddings x num_dims`` array of embeddings
-            sample_ids: a ``num_embeddings`` array of sample IDs
-            label_ids (None): a ``num_embeddings`` array of label IDs, if
-                applicable
-            overwrite (True): whether to replace (True) or ignore (False)
-                existing embeddings with the same sample/label IDs
-            allow_existing (True): whether to ignore (True) or raise an error
-                (False) when ``overwrite`` is False and a provided ID already
-                exists in the
-            warn_missing (False): whether to log a warning if an embedding is
-                not added to the index because its ID already exists
-            reload (True): whether to call :meth:`reload` to refresh the
-                current view after the update
-        """
         if self._table is None:
             pa_table = pa.Table.from_arrays(
                 [[], [], []], names=["id", "sample_id", "vector"]
@@ -268,7 +246,8 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             ids = list(sample_ids)
 
         dim = embeddings.shape[1]
-        if self._table:  # update the table
+
+        if self._table:
             prev_embeddings = np.concatenate(
                 pa_table["vector"].to_numpy()
             ).reshape(-1, dim)
@@ -336,29 +315,6 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         allow_missing=True,
         warn_missing=False,
     ):
-        """Retrieves the embeddings for the given IDs from the index.
-
-        If no IDs are provided, the entire index is returned.
-
-        Args:
-            sample_ids (None): a sample ID or list of sample IDs for which to
-                retrieve embeddings
-            label_ids (None): a label ID or list of label IDs for which to
-                retrieve embeddings
-            allow_missing (True): whether to allow the index to not contain IDs
-                that you provide (True) or whether to raise an error in this
-                case (False)
-            warn_missing (False): whether to log a warning if the index does
-                not contain IDs that you provide
-
-        Returns:
-            a tuple of:
-
-            -   a ``num_embeddings x num_dims`` array of embeddings
-            -   a ``num_embeddings`` array of sample IDs
-            -   a ``num_embeddings`` array of label IDs, if applicable, or else
-                ``None``
-        """
         if label_ids is not None:
             if self.config.patches_field is None:
                 raise ValueError("This index does not support label IDs")
@@ -368,7 +324,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                     "Ignoring sample IDs when label IDs are provided"
                 )
 
-        pd_table = self._table.to_pandas()
+        df = self._table.to_pandas()
 
         found_embeddings = []
         found_sample_ids = []
@@ -376,10 +332,11 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         missing_ids = []
 
         if sample_ids is not None and self.config.patches_field is not None:
-            sample_ids = (
-                sample_ids if isinstance(sample_ids, list) else [sample_ids]
-            )
-            df = pd_table.set_index("sample_id")
+            df.set_index("sample_id", drop=False, inplace=True)
+
+            if not etau.is_container(sample_ids):
+                sample_ids = [sample_ids]
+
             for sample_id in sample_ids:
                 if sample_id in df.index:
                     found_embeddings.append(df.loc[sample_id]["vector"])
@@ -387,14 +344,14 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                     found_label_ids.append(df.loc[sample_id]["id"])
                 else:
                     missing_ids.append(sample_id)
-
         elif self.config.patches_field is not None:
-            df = pd_table.set_index("id")
+            df.set_index("id", drop=False, inplace=True)
+
             if label_ids is None:
                 label_ids = list(df.index)
-            label_ids = (
-                label_ids if isinstance(label_ids, list) else [label_ids]
-            )
+            elif not etau.is_container(label_ids):
+                label_ids = [label_ids]
+
             for label_id in label_ids:
                 if label_id in df.index:
                     found_embeddings.append(df.loc[label_id]["vector"])
@@ -403,16 +360,13 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 else:
                     missing_ids.append(label_id)
         else:
-            df = pd_table.set_index("sample_id")
+            df.set_index("id", drop=False, inplace=True)
 
             if sample_ids is None:
                 sample_ids = list(df.index)
-            else:
-                sample_ids = (
-                    sample_ids
-                    if isinstance(sample_ids, list)
-                    else [sample_ids]
-                )
+            elif not etau.is_container(sample_ids):
+                sample_ids = [sample_ids]
+
             for sample_id in sample_ids:
                 if sample_id in df.index:
                     found_embeddings.append(df.loc[sample_id]["vector"])
@@ -442,14 +396,17 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         return embeddings, sample_ids, label_ids
 
     def cleanup(self):
-        if self._db is not None:
-            for tbl in [
-                self.config.table_name,
-                self.config.table_name + "_filter",
-            ]:
-                if tbl in self._db.table_names():
-                    self._db.drop_table(tbl)
-            self._table = None
+        if self._db is None:
+            return
+
+        for tbl in (
+            self.config.table_name,
+            self.config.table_name + "_filter",
+        ):
+            if tbl in self._db.table_names():
+                self._db.drop_table(tbl)
+
+        self._table = None
 
     def _kneighbors(
         self,
@@ -462,13 +419,18 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         if query is None:
             raise ValueError("LanceDB does not support full index neighbors")
 
+        if reverse is True:
+            raise ValueError(
+                "LanceDB does not support least similarity queries"
+            )
+
         if aggregation not in (None, "mean"):
             raise ValueError(
                 f"LanceDB does not support {aggregation} aggregation"
             )
 
         if k is None:
-            k = len(self._table.to_arrow())
+            k = self.index_size
 
         query = self._parse_neighbors_query(query)
         if aggregation == "mean" and query.ndim == 2:
@@ -478,33 +440,30 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         if single_query:
             query = [query]
 
-        if self.config.patches_field is not None:
-            index_ids = list(self.current_label_ids)
-        else:
-            index_ids = list(self.current_sample_ids)
+        table = self._table
+
+        if self.has_view:
+            if self.config.patches_field is not None:
+                index_ids = list(self.current_label_ids)
+            else:
+                index_ids = list(self.current_sample_ids)
+
+            df = table.to_pandas()
+            df.set_index("id", drop=False, inplace=True)
+            df = df.loc[index_ids]
+            table = self._db.create_table(
+                self.config.table_name + "_filter", df, mode="overwrite"
+            )
+
+        metric = _SUPPORTED_METRICS[self.config.metric]
 
         ids = []
         dists = []
-        df = self._table.to_pandas().set_index("id")
-        df = df.loc[index_ids]
-        tbl_filtered = self._db.create_table(
-            self.config.table_name + "_filter", df, mode="overwrite"
-        )
-
         for q in query:
-            results = tbl_filtered.search(q)
-            if self.config.metric is not None:
-                results = results.metric(
-                    _SUPPORTED_METRICS[self.config.metric]
-                )
-
-            results = results.limit(k).to_df()
-            if reverse:
-                results = results.iloc[::-1]
-
+            results = table.search(q).metric(metric).limit(k).to_df()
             ids.append(results.id.tolist())
             if return_dists:
-                dists.append(results.score.tolist())
+                dists.append(results._distance.tolist())
 
         if single_query:
             ids = ids[0]
@@ -531,11 +490,10 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             single_query = False
 
         # Query by ID(s)
-        embeddings = (
-            self._table.to_pandas().set_index("id").loc[query_ids]["vector"]
-        )
-        query = np.array([emb for emb in embeddings])
-
+        df = self._table.to_pandas()
+        df.set_index("id", drop=False, inplace=True)
+        df = df.loc[query_ids]
+        query = np.array([v for v in df["vector"]])
         if single_query:
             query = query[0, :]
 

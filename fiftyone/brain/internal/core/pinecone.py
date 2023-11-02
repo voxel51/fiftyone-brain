@@ -242,7 +242,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
     @property
     def total_index_size(self):
         if self._index is None:
-            return None
+            return 0
 
         return self._index.describe_index_stats()["total_vector_count"]
 
@@ -534,12 +534,15 @@ class PineconeSimilarityIndex(SimilarityIndex):
         if single_query:
             query = [query]
 
-        if self.config.patches_field is not None:
-            index_ids = self.current_label_ids
-        else:
-            index_ids = self.current_sample_ids
+        if self.has_view:
+            if self.config.patches_field is not None:
+                index_ids = self.current_label_ids
+            else:
+                index_ids = self.current_sample_ids
 
-        _filter = {"id": {"$in": list(index_ids)}}
+            _filter = {"id": {"$in": list(index_ids)}}
+        else:
+            _filter = None
 
         ids = []
         dists = []

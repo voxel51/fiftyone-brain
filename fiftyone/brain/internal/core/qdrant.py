@@ -209,10 +209,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
         self._initialize()
 
     def _initialize(self):
-
-        # QdrantClient does not appear to play will with passing None as "use defaults"
-        # Place these defaults here (closer to QdrantClient callsite) rather than upstream
-        # in QdrantSimilarityConfig in case API/defaults change
+        # QdrantClient does not appear to like passing None as defaults
         grpc_port = (
             self.config.grpc_port
             if self.config.grpc_port is not None
@@ -307,7 +304,10 @@ class QdrantSimilarityIndex(SimilarityIndex):
 
     @property
     def total_index_size(self):
-        return self._client.count(self.config.collection_name).count
+        try:
+            return self._client.count(self.config.collection_name).count
+        except:
+            return 0
 
     @property
     def client(self):
@@ -592,16 +592,21 @@ class QdrantSimilarityIndex(SimilarityIndex):
         if single_query:
             query = [query]
 
-        if self.config.patches_field is not None:
-            index_ids = self.current_label_ids
-        else:
-            index_ids = self.current_sample_ids
+        if self.has_view:
+            if self.config.patches_field is not None:
+                index_ids = self.current_label_ids
+            else:
+                index_ids = self.current_sample_ids
 
-        _filter = qmodels.Filter(
-            must=[
-                qmodels.HasIdCondition(has_id=self._to_qdrant_ids(index_ids))
-            ]
-        )
+            _filter = qmodels.Filter(
+                must=[
+                    qmodels.HasIdCondition(
+                        has_id=self._to_qdrant_ids(index_ids)
+                    )
+                ]
+            )
+        else:
+            _filter = None
 
         ids = []
         dists = []

@@ -98,7 +98,12 @@ def compute_similarity(
 
     results = brain_method.initialize(samples, brain_key)
 
-    if embeddings is not False:
+    get_embeddings = embeddings is not False
+    if not results.is_external and results.total_index_size > 0:
+        # No need to load embeddings because the index already has them
+        get_embeddings = False
+
+    if get_embeddings:
         embeddings, sample_ids, label_ids = fbu.get_embeddings(
             samples,
             model=_model,
@@ -112,7 +117,6 @@ def compute_similarity(
             skip_failures=skip_failures,
         )
     else:
-        # Special syntax to allow embeddings to be added later
         embeddings = None
 
     if embeddings is not None:
@@ -299,6 +303,14 @@ class SimilarityIndex(fob.BrainResults):
         return self._config
 
     @property
+    def is_external(self):
+        """Whether this similarity index manages its own embeddings (True) or
+        loads them directly from the ``embeddings_field`` of the dataset
+        (False).
+        """
+        return True  # assume external unless explicitly overridden
+
+    @property
     def sample_ids(self):
         """The sample IDs of the full index, or ``None`` if not supported."""
         return None
@@ -318,6 +330,15 @@ class SimilarityIndex(fob.BrainResults):
         may be larger than the current :meth:`index_size`.
         """
         raise NotImplementedError("subclass must implement total_index_size")
+
+    @property
+    def has_view(self):
+        """Whether the index is currently restricted to a view.
+
+        Use :meth:`use_view` to restrict the index to a view, and use
+        :meth:`clear_view` to reset to the full index.
+        """
+        return self._curr_view.view() != self._samples.view()
 
     @property
     def view(self):
@@ -890,7 +911,6 @@ class SimilarityIndex(fob.BrainResults):
             samples,
             model=model,
             patches_field=self.config.patches_field,
-            embeddings_field=self.config.embeddings_field,
             force_square=force_square,
             alpha=alpha,
             batch_size=batch_size,
