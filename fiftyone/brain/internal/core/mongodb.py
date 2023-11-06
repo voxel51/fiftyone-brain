@@ -8,10 +8,13 @@ MongoDB similarity backend.
 import logging
 
 import numpy as np
+from pymongo.errors import OperationFailure
 
 import eta.core.utils as etau
 
 from fiftyone import ViewField as F
+import fiftyone.core.media as fom
+import fiftyone.core.utils as fou
 import fiftyone.brain.internal.core.utils as fbu
 from fiftyone.brain.similarity import (
     SimilarityConfig,
@@ -21,6 +24,12 @@ from fiftyone.brain.similarity import (
 
 
 logger = logging.getLogger(__name__)
+
+_SUPPORTED_METRICS = {
+    "cosine": "cosine",
+    "dotproduct": "dotProduct",
+    "euclidean": "euclidean",
+}
 
 
 class MongoDBSimilarityConfig(SimilarityConfig):
@@ -33,7 +42,11 @@ class MongoDBSimilarityConfig(SimilarityConfig):
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         supports_prompts (None): whether this run supports prompt queries
-        index_name (None): the name of the MongoDB vector index to use
+        index_name (None): the name of the MongoDB vector index to use or
+            create. If none is provided, a new index will be created
+        metric ("cosine"): the embedding distance metric to use when creating a
+            new index. Supported values are
+            ``("cosine", "dotproduct", "euclidean")``
         **kwargs: keyword arguments for :class:`SimilarityConfig`
     """
 
@@ -44,21 +57,28 @@ class MongoDBSimilarityConfig(SimilarityConfig):
         patches_field=None,
         supports_prompts=None,
         index_name=None,
+        metric="cosine",
         **kwargs,
     ):
-        if embeddings_field is None:
-            # compute_similarity() calls this parameter `embeddings`
+        if embeddings_field is None and index_name is None:
             raise ValueError(
-                "You must provide the name of the field that contains the "
+                "You must provide either the name of a field to read/write  "
                 "embeddings for this index by passing the `embeddings` "
-                "parameter"
+                "parameter, or you must provide the name of an existing "
+                "vector search index via the `index_name` parameter"
             )
 
-        if index_name is None:
+        # @todo support this. Will likely require copying embeddings to a new
+        # collection as vector search indexes do not yet support array fields
+        if patches_field is not None:
             raise ValueError(
-                "Programmatically creating vector search indexes is not yet "
-                "supported by MongoDB Atlas. You must first create the index "
-                "in Atlas and then provide the `index_name` parameter"
+                "The MongoDB backend does not yet support patch embeddings"
+            )
+
+        if metric not in _SUPPORTED_METRICS:
+            raise ValueError(
+                "Unsupported metric '%s'. Supported values are %s"
+                % (metric, tuple(_SUPPORTED_METRICS.keys()))
             )
 
         super().__init__(
@@ -70,6 +90,7 @@ class MongoDBSimilarityConfig(SimilarityConfig):
         )
 
         self.index_name = index_name
+        self.metric = metric
 
     @property
     def method(self):
@@ -96,13 +117,17 @@ class MongoDBSimilarity(Similarity):
     """
 
     def ensure_requirements(self):
-        # Could validate that user is connected to an Atlas cluster here
+        #
+        # https://pymongo.readthedocs.io/en/stable/api/pymongo/collection.html#pymongo.collection.Collection.create_search_index
+        #
+        # Could also validate that user is connected to an Atlas cluster here
         # eg Atlas clusters generally have hostnames which end in "mongodb.net"
         # https://stackoverflow.com/q/73180110
-        pass
+        #
+        fou.ensure_package("pymongo>=4.5")
 
     def ensure_usage_requirements(self):
-        pass
+        fou.ensure_package("pymongo>=4.5")
 
     def initialize(self, samples, brain_key):
         return MongoDBSimilarityIndex(
@@ -127,6 +152,9 @@ class MongoDBSimilarityIndex(SimilarityIndex):
 
         super().__init__(samples, config, brain_key, backend=backend)
 
+        self._index = None
+        self._initialize()
+
     @property
     def is_external(self):
         return False
@@ -143,6 +171,76 @@ class MongoDBSimilarityIndex(SimilarityIndex):
     def total_index_size(self):
         return len(self._sample_ids)
 
+    def _initialize(self):
+        coll = self._samples._dataset._sample_collection
+
+        try:
+            indexes = {i["name"]: i for i in coll.list_search_indexes()}
+        except OperationFailure:
+            # https://www.mongodb.com/docs/manual/release-notes/7.0/#atlas-search-index-management
+            # https://www.mongodb.com/docs/atlas/atlas-vector-search/vector-search-overview
+            if self.config.index_name is None:
+                raise ValueError(
+                    "You must be running MongoDB Atlas 7.0 or later in order "
+                    "to programmatically create vector search indexes. If "
+                    "you are running MongoDB Atlas 6.0.11 then you can still "
+                    "use this feature if you first manually create a vector "
+                    "search index and then provide its name via the "
+                    "`index_name` parameter"
+                )
+
+            # Must assume index exists because we can't use pymongo to check...
+            self._index = True
+
+            return
+
+        if self.config.index_name is None:
+            root = self.config.embeddings_field
+            index_name = fbu.get_unique_name(root, list(indexes.keys()))
+
+            self.config.index_name = index_name
+            self.save_config()
+        elif self.config.embeddings_field is None:
+            info = indexes.get(self.config.index_name, None)
+            if info is None:
+                raise ValueError(
+                    "Index '%s' does not exist" % self.config.index_name
+                )
+
+            self.config.embeddings_field = next(
+                iter(info["latestDefinition"]["mappings"]["fields"].keys())
+            )
+            self.save_config()
+
+        if self.config.index_name in indexes:
+            self._index = True
+
+    def _create_index(self, dimension):
+        metric = _SUPPORTED_METRICS[self.config.metric]
+
+        # https://www.mongodb.com/docs/atlas/atlas-search/field-types/knn-vector
+        # https://pymongo.readthedocs.io/en/stable/api/pymongo/collection.html#pymongo.collection.Collection.create_search_index
+        coll = self._samples._dataset._sample_collection
+        coll.create_search_index(
+            {
+                "name": self.config.index_name,
+                "definition": {
+                    "mappings": {
+                        "dynamic": True,
+                        "fields": {
+                            self.config.embeddings_field: {
+                                "type": "knnVector",
+                                "dimensions": dimension,
+                                "similarity": metric,
+                            }
+                        },
+                    }
+                },
+            }
+        )
+
+        self._index = True
+
     def add_to_index(
         self,
         embeddings,
@@ -153,6 +251,9 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         warn_existing=False,
         reload=True,
     ):
+        if self._index is None:
+            self._create_index(embeddings.shape[1])
+
         _sample_ids, _label_ids, ii, _ = fbu.add_ids(
             sample_ids,
             label_ids,
@@ -296,6 +397,19 @@ class MongoDBSimilarityIndex(SimilarityIndex):
 
         super().reload()
 
+    def cleanup(self):
+        if self._index is None:
+            return
+
+        try:
+            coll = self._samples._dataset._sample_collection
+            coll.drop_search_index(self.config.index_name)
+        except OperationFailure:
+            # requires MongoDB Atlas 7.0 or later
+            pass
+
+        self._index = None
+
     def _kneighbors(
         self,
         query=None,
@@ -339,6 +453,8 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         else:
             index_ids = None
 
+        dataset = self._samples._dataset
+
         ids = []
         dists = []
         for q in query:
@@ -352,13 +468,22 @@ class MongoDBSimilarityIndex(SimilarityIndex):
 
             if index_ids is not None:
                 search["filter"] = {"_id": {"$in": index_ids}}
+            elif dataset.media_type == fom.GROUP:
+                # $vectorSearch must be the first stage in all pipelines, so we
+                # have to incorporate slice selection as a $filter
+                name_field = dataset.group_field + ".name"
+                group_slice = self._samples.group_slice or dataset.group_slice
+                search["filter"] = {name_field: {"$eq": group_slice}}
 
             project = {"_id": 1}
             if return_dists:
                 project["score"] = {"$meta": "vectorSearchScore"}
 
+            # https://www.mongodb.com/docs/atlas/atlas-vector-search/vector-search-stage
             pipeline = [{"$vectorSearch": search}, {"$project": project}]
-            matches = list(self._samples._aggregate(pipeline=pipeline))
+            matches = list(
+                dataset._aggregate(pipeline=pipeline, manual_group_select=True)
+            )
 
             ids.append([str(m["_id"]) for m in matches])
             if return_dists:
