@@ -7,6 +7,7 @@ Similarity interface.
 """
 from collections import defaultdict
 from copy import deepcopy
+import inspect
 import logging
 
 from bson import ObjectId
@@ -131,6 +132,9 @@ def _parse_config(name, **kwargs):
     if name is None:
         name = fb.brain_config.default_similarity_backend
 
+    if inspect.isclass(name):
+        return name(**kwargs)
+
     backends = fb.brain_config.similarity_backends
 
     if name not in backends:
@@ -185,6 +189,10 @@ class SimilarityConfig(fob.BrainMethodConfig):
         self.patches_field = patches_field
         self.supports_prompts = supports_prompts
         super().__init__(**kwargs)
+
+    @property
+    def type(self):
+        return "similarity"
 
     @property
     def method(self):

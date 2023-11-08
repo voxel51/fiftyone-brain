@@ -189,8 +189,12 @@ class UniquenessConfig(fob.BrainMethodConfig):
         super().__init__(**kwargs)
 
     @property
-    def method(self):
+    def type(self):
         return "uniqueness"
+
+    @property
+    def method(self):
+        return "neighbors"
 
 
 class Uniqueness(fob.BrainMethod):
