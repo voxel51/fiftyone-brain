@@ -241,6 +241,24 @@ class MongoDBSimilarityIndex(SimilarityIndex):
 
         self._index = True
 
+    @property
+    def ready(self):
+        """Returns True/False whether the vector search index is ready to be
+        queried.
+        """
+        if self._index is None:
+            return False
+
+        try:
+            coll = self._samples._dataset._sample_collection
+            indexes = {i["name"]: i for i in coll.list_search_indexes()}
+        except OperationFailure:
+            # requires MongoDB Atlas 7.0 or later
+            return None
+
+        info = indexes.get(self.config.index_name, {})
+        return info.get("status", None) == "READY"
+
     def add_to_index(
         self,
         embeddings,
