@@ -451,6 +451,9 @@ class RedisSimilarityIndex(SimilarityIndex):
         return embeddings, sample_ids, label_ids
 
     def cleanup(self):
+        if self._index is None:
+            return
+
         self._index.dropindex(delete_documents=True)
         self._index = None
 
