@@ -46,6 +46,10 @@ class BrainConfig(EnvConfig):
         )
 
         self.similarity_backends = self._parse_similarity_backends(d)
+        if self.default_similarity_backend not in self.similarity_backends:
+            self.default_similarity_backend = next(
+                iter(sorted(self.similarity_backends.keys())), None
+            )
 
     def _parse_similarity_backends(self, d):
         d = d.get("similarity_backends", {})
@@ -62,12 +66,14 @@ class BrainConfig(EnvConfig):
                 ","
             )
 
-            # Declare new backends and omit any others not in `backends`
+            # Special syntax to append rather than override default backends
+            if "*" in backends:
+                backends = set(b for b in backends if b != "*")
+                backends |= set(self._BUILTIN_SIMILARITY_BACKENDS.keys())
+
             d = {backend: d.get(backend, {}) for backend in backends}
         else:
-            backends = sorted(self._BUILTIN_SIMILARITY_BACKENDS.keys())
-
-            # Declare builtin backends if necessary
+            backends = self._BUILTIN_SIMILARITY_BACKENDS.keys()
             for backend in backends:
                 if backend not in d:
                     d[backend] = {}
@@ -77,13 +83,13 @@ class BrainConfig(EnvConfig):
         # `FIFTYONE_BRAIN_SIMILARITY_<BACKEND>_<PARAMETER>`
         #
 
-        for backend, parameters in d.items():
+        for backend, d_backend in d.items():
             prefix = "FIFTYONE_BRAIN_SIMILARITY_%s_" % backend.upper()
             for env_name, env_value in env_vars.items():
                 if env_name.startswith(prefix):
                     name = env_name[len(prefix) :].lower()
                     value = _parse_env_value(env_value)
-                    parameters[name] = value
+                    d_backend[name] = value
 
         #
         # Set default parameters for builtin similarity backends
