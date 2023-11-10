@@ -13,6 +13,7 @@ from pymongo.errors import OperationFailure
 import eta.core.utils as etau
 
 from fiftyone import ViewField as F
+import fiftyone.core.fields as fof
 import fiftyone.core.media as fom
 import fiftyone.core.utils as fou
 import fiftyone.brain.internal.core.utils as fbu
@@ -216,6 +217,13 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             self._index = True
 
     def _create_index(self, dimension):
+        field = self._samples.get_field(self.config.embeddings_field)
+        if field is not None and not isinstance(field, fof.ListField):
+            raise ValueError(
+                "MongoDB vector search indexes require embeddings to be "
+                "stored in list fields"
+            )
+
         metric = _SUPPORTED_METRICS[self.config.metric]
 
         # https://www.mongodb.com/docs/atlas/atlas-search/field-types/knn-vector
@@ -290,7 +298,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
 
         fbu.add_embeddings(
             self._samples,
-            _embeddings,
+            _embeddings.tolist(),  # MongoDB vector indexes require list fields
             _sample_ids,
             _label_ids,
             self.config.embeddings_field,
