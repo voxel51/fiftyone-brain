@@ -514,6 +514,9 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         else:
             dists = dists[0, :]
 
+        if can_use_dists:
+            dists[np.isnan(dists)] = 0.0
+
         inds = np.argsort(dists)
         if reverse:
             inds = np.flip(inds)
