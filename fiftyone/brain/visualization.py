@@ -368,6 +368,10 @@ class VisualizationConfig(fob.BrainMethodConfig):
         super().__init__(**kwargs)
 
     @property
+    def type(self):
+        return "visualization"
+
+    @property
     def run_cls(self):
         run_cls_name = self.__class__.__name__[: -len("Config")]
         return getattr(fbv, run_cls_name)

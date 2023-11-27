@@ -86,8 +86,12 @@ class HardnessConfig(fob.BrainMethodConfig):
         super().__init__(**kwargs)
 
     @property
+    def type(self):
+        return "mistakenness"
+
+    @property
     def method(self):
-        return "hardness"
+        return "entropy"
 
 
 class Hardness(fob.BrainMethod):
