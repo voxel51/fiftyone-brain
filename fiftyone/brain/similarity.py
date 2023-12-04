@@ -54,13 +54,18 @@ def compute_similarity(
 
     fov.validate_collection(samples)
 
-    if etau.is_str(embeddings):
+    # Allow for `embeddings_field=XXX` and `embeddings=False` together
+    embeddings_field = kwargs.pop("embeddings_field", None)
+    if embeddings_field is not None or etau.is_str(embeddings):
+        if embeddings_field is None:
+            embeddings_field = embeddings
+            embeddings = None
+
         embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
             samples,
-            embeddings,
+            embeddings_field,
             patches_field=patches_field,
         )
-        embeddings = None
     else:
         embeddings_field = None
         embeddings_exist = None
@@ -105,6 +110,10 @@ def compute_similarity(
         get_embeddings = False
 
     if get_embeddings:
+        # Don't immediatly store embeddings in DB; let `add_to_index()` do it
+        if not embeddings_exist:
+            embeddings_field = None
+
         embeddings, sample_ids, label_ids = fbu.get_embeddings(
             samples,
             model=_model,
