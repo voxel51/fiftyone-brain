@@ -696,9 +696,9 @@ def parse_embeddings_field(samples, embeddings_field, patches_field=None):
 
         embeddings_field = embeddings_field[len(root) + 1]
 
-    if "." in _embeddings_field:
+    if "." in embeddings_field:
         _, root = samples._get_label_field_path(patches_field)
-        root += _embeddings_field.rsplit(".", 1)[0]
+        root += embeddings_field.rsplit(".", 1)[0]
         if not samples.has_field(root):
             raise ValueError(
                 "Invalid embeddings_field=%s; root field=%s does not exist"
