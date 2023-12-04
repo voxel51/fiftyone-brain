@@ -662,9 +662,7 @@ def get_values(samples, path_or_expr, ids, patches_field=None):
     )
 
 
-def parse_embeddings_field(
-    samples, embeddings_field, patches_field=None, allow_embedded=True
-):
+def parse_embeddings_field(samples, embeddings_field, patches_field=None):
     if not etau.is_str(embeddings_field):
         raise ValueError(
             "Invalid embeddings_field=%s; expected a string field name"
@@ -676,14 +674,17 @@ def parse_embeddings_field(
             embeddings_field
         )
 
-        if not allow_embedded and "." in _embeddings_field:
-            ftype = "frame" if is_frame_field else "sample"
-            raise ValueError(
-                "Invalid embeddings_field=%s; expected a top-level %s field "
-                "name that contains no '.'" % (_embeddings_field, ftype)
-            )
+        if "." in _embeddings_field:
+            root, _ = _embeddings_field.rsplit(".", 1)
+            if not samples.has_field(root):
+                raise ValueError(
+                    "Invalid embeddings_field=%s; root field=%s does not exist"
+                    % (embeddings_field, root)
+                )
 
-        return embeddings_field
+        embeddings_exist = samples.has_field(embeddings_field)
+
+        return embeddings_field, embeddings_exist
 
     if embeddings_field.startswith(patches_field + "."):
         _, root = samples._get_label_field_path(patches_field) + "."
@@ -695,14 +696,22 @@ def parse_embeddings_field(
 
         embeddings_field = embeddings_field[len(root) + 1]
 
-    if not allow_embedded and "." in embeddings_field:
-        raise ValueError(
-            "Invalid embeddings_field=%s for patches_field=%s; expected a "
-            "label attribute name that contains no '.'"
-            % (embeddings_field, patches_field)
-        )
+    if "." in embeddings_field:
+        _, root = samples._get_label_field_path(patches_field)
+        root += embeddings_field.rsplit(".", 1)[0]
+        if not samples.has_field(root):
+            raise ValueError(
+                "Invalid embeddings_field=%s; root field=%s does not exist"
+                % (embeddings_field, root)
+            )
 
-    return embeddings_field
+    _, embeddings_path = samples._get_label_field_path(
+        patches_field, embeddings_field
+    )
+
+    embeddings_exist = samples.has_field(embeddings_path)
+
+    return embeddings_field, embeddings_exist
 
 
 def get_embeddings(
@@ -752,6 +761,7 @@ def get_embeddings(
             embeddings = samples.compute_patch_embeddings(
                 model,
                 patches_field,
+                embeddings_field=embeddings_field,
                 force_square=force_square,
                 alpha=alpha,
                 handle_missing=handle_missing,
@@ -773,6 +783,7 @@ def get_embeddings(
             logger.info("Computing embeddings...")
             embeddings = samples.compute_embeddings(
                 model,
+                embeddings_field=embeddings_field,
                 batch_size=batch_size,
                 num_workers=num_workers,
                 skip_failures=skip_failures,
