@@ -173,6 +173,9 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         warn_existing=False,
         reload=True,
     ):
+        sample_ids = np.asarray(sample_ids)
+        label_ids = np.asarray(label_ids) if label_ids is not None else None
+
         _sample_ids, _label_ids, ii, jj = fbu.add_ids(
             sample_ids,
             label_ids,
@@ -193,8 +196,8 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
             fbu.add_embeddings(
                 self._samples,
                 _embeddings,
-                _sample_ids,
-                _label_ids,
+                sample_ids[ii],
+                label_ids[ii] if label_ids is not None else None,
                 self.config.embeddings_field,
                 patches_field=self.config.patches_field,
             )

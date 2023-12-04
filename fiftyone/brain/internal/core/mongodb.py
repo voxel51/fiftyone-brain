@@ -63,7 +63,7 @@ class MongoDBSimilarityConfig(SimilarityConfig):
     ):
         if embeddings_field is None and index_name is None:
             raise ValueError(
-                "You must provide either the name of a field to read/write  "
+                "You must provide either the name of a field to read/write "
                 "embeddings for this index by passing the `embeddings` "
                 "parameter, or you must provide the name of an existing "
                 "vector search index via the `index_name` parameter"
@@ -280,6 +280,9 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         if self._index is None:
             self._create_index(embeddings.shape[1])
 
+        sample_ids = np.asarray(sample_ids)
+        label_ids = np.asarray(label_ids) if label_ids is not None else None
+
         _sample_ids, _label_ids, ii, _ = fbu.add_ids(
             sample_ids,
             label_ids,
@@ -294,13 +297,11 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         if ii.size == 0:
             return
 
-        _embeddings = embeddings[ii, :]
-
         fbu.add_embeddings(
             self._samples,
-            _embeddings.tolist(),  # MongoDB vector indexes require list fields
-            _sample_ids,
-            _label_ids,
+            embeddings[ii, :].tolist(),  # MongoDB requires list fields
+            sample_ids[ii],
+            label_ids[ii] if label_ids is not None else None,
             self.config.embeddings_field,
             patches_field=self.config.patches_field,
         )
@@ -540,15 +541,42 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             single_query = False
 
         # Query by ID(s)
-        embeddings = (
-            self._table.to_pandas().set_index("id").loc[query_ids]["vector"]
-        )
-        query = np.array([emb for emb in embeddings])
+        embeddings = self._get_embeddings(query_ids)
+        num_missing = len(query_ids) - len(embeddings)
+        for e in embeddings:
+            num_missing += int(e is None)
 
+        if num_missing > 0:
+            if single_query:
+                raise ValueError("The query ID does not exist in this index")
+            else:
+                raise ValueError(
+                    f"{num_missing} query IDs do not exist in this index"
+                )
+
+        query = np.array(embeddings)
         if single_query:
             query = query[0, :]
 
         return query
+
+    def _get_embeddings(self, query_ids):
+        dataset = self._samples._dataset
+        patches_field = self.config.patches_field
+        embeddings_field = self.config.embeddings_field
+        if patches_field is not None:
+            _, embeddings_path = dataset._get_label_field_path(
+                patches_field, embeddings_field
+            )
+            view = dataset.filter_labels(
+                patches_field, F("_id").is_in(query_ids)
+            )
+            embeddings = view.values(embeddings_path, unwind=True)
+        else:
+            view = dataset.select(query_ids)
+            embeddings = view.values(embeddings_field)
+
+        return embeddings
 
     @staticmethod
     def _parse_data(samples, config):
