@@ -69,21 +69,27 @@ def compute_visualization(
         embeddings = None
         embeddings_field = None
         num_dims = _get_dimension(points)
-    elif model is None and embeddings is None:
-        model = _DEFAULT_MODEL
-        if batch_size is None:
-            batch_size = _DEFAULT_BATCH_SIZE
 
     if etau.is_str(embeddings):
-        embeddings_field = fbu.parse_embeddings_field(
+        embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
             samples,
             embeddings,
             patches_field=patches_field,
-            allow_embedded=model is None,
         )
         embeddings = None
     else:
         embeddings_field = None
+        embeddings_exist = None
+
+    if (
+        model is None
+        and points is None
+        and embeddings is None
+        and not embeddings_exist
+    ):
+        model = _DEFAULT_MODEL
+        if batch_size is None:
+            batch_size = _DEFAULT_BATCH_SIZE
 
     config = _parse_config(
         embeddings_field, model, patches_field, method, num_dims, **kwargs
@@ -285,7 +291,10 @@ class ManualVisualization(Visualization):
 def _parse_config(
     embeddings_field, model, patches_field, method, num_dims, **kwargs
 ):
-    if method is None or method == "umap":
+    if method is None:
+        method = "umap"
+
+    if method == "umap":
         config_cls = UMAPVisualizationConfig
     elif method == "tsne":
         config_cls = TSNEVisualizationConfig

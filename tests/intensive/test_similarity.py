@@ -4,7 +4,7 @@ Similarity tests.
 Usage::
 
     # Optional: specific backends to test
-    export SIMILARITY_BACKENDS=qdrant,pinecone,milvus,lancedb
+    export SIMILARITY_BACKENDS=qdrant,pinecone,milvus,lancedb,redis
 
     pytest tests/intensive/test_similarity.py -s -k test_XXX
 
@@ -34,6 +34,14 @@ LanceDB setup::
 
     pip install lancedb
 
+Redis setup::
+
+    brew tap redis-stack/redis-stack
+    brew install redis-stack
+    redis-stack-server
+
+    pip install redis
+
 Brain config setup at `~/.fiftyone/brain_config.json`::
 
     {
@@ -50,6 +58,10 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
             },
             "lancedb": {
                 "uri": "/tmp/lancedb"
+            },
+            "redis": {
+                "host": "localhost",
+                "port": 6379
             }
         }
     }
@@ -70,7 +82,7 @@ import fiftyone.zoo as foz
 from fiftyone import ViewField as F
 
 
-CUSTOM_BACKENDS = ["qdrant", "pinecone", "milvus", "lancedb"]
+CUSTOM_BACKENDS = ["qdrant", "pinecone", "milvus", "lancedb", "redis"]
 
 
 def get_custom_backends():
@@ -108,6 +120,13 @@ def test_brain_config():
 
             # this isn't mandatory
             # assert "uri" in similarity_backends["lancedb"]
+
+        if backend == "redis":
+            assert "redis" in similarity_backends
+
+            # this isn't mandatory
+            # assert "host" in similarity_backends["redis"]
+            # assert "port" in similarity_backends["redis"]
 
 
 def test_image_similarity_backends():

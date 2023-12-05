@@ -7,6 +7,7 @@ Similarity interface.
 """
 from collections import defaultdict
 from copy import deepcopy
+import inspect
 import logging
 
 from bson import ObjectId
@@ -53,21 +54,26 @@ def compute_similarity(
 
     fov.validate_collection(samples)
 
-    if model is None and embeddings is None:
+    # Allow for `embeddings_field=XXX` and `embeddings=False` together
+    embeddings_field = kwargs.pop("embeddings_field", None)
+    if embeddings_field is not None or etau.is_str(embeddings):
+        if embeddings_field is None:
+            embeddings_field = embeddings
+            embeddings = None
+
+        embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
+            samples,
+            embeddings_field,
+            patches_field=patches_field,
+        )
+    else:
+        embeddings_field = None
+        embeddings_exist = None
+
+    if model is None and embeddings is None and not embeddings_exist:
         model = _DEFAULT_MODEL
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
-
-    if etau.is_str(embeddings):
-        embeddings_field = fbu.parse_embeddings_field(
-            samples,
-            embeddings,
-            patches_field=patches_field,
-            allow_embedded=model is None,
-        )
-        embeddings = None
-    else:
-        embeddings_field = None
 
     if etau.is_str(model):
         _model = foz.load_zoo_model(model)
@@ -104,6 +110,10 @@ def compute_similarity(
         get_embeddings = False
 
     if get_embeddings:
+        # Don't immediatly store embeddings in DB; let `add_to_index()` do it
+        if not embeddings_exist:
+            embeddings_field = None
+
         embeddings, sample_ids, label_ids = fbu.get_embeddings(
             samples,
             model=_model,
@@ -130,6 +140,9 @@ def compute_similarity(
 def _parse_config(name, **kwargs):
     if name is None:
         name = fb.brain_config.default_similarity_backend
+
+    if inspect.isclass(name):
+        return name(**kwargs)
 
     backends = fb.brain_config.similarity_backends
 
@@ -185,6 +198,10 @@ class SimilarityConfig(fob.BrainMethodConfig):
         self.patches_field = patches_field
         self.supports_prompts = supports_prompts
         super().__init__(**kwargs)
+
+    @property
+    def type(self):
+        return "similarity"
 
     @property
     def method(self):

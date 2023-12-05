@@ -71,21 +71,21 @@ def compute_uniqueness(
             samples, roi_field, _ALLOWED_ROI_FIELD_TYPES
         )
 
-    if model is None and embeddings is None:
-        model = fbm.load_model(_DEFAULT_MODEL)
-        if batch_size is None:
-            batch_size = _DEFAULT_BATCH_SIZE
-
     if etau.is_str(embeddings):
-        embeddings_field = fbu.parse_embeddings_field(
+        embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
             samples,
             embeddings,
             patches_field=roi_field,
-            allow_embedded=model is None,
         )
         embeddings = None
     else:
         embeddings_field = None
+        embeddings_exist = None
+
+    if model is None and embeddings is None and not embeddings_exist:
+        model = fbm.load_model(_DEFAULT_MODEL)
+        if batch_size is None:
+            batch_size = _DEFAULT_BATCH_SIZE
 
     config = UniquenessConfig(
         uniqueness_field,
@@ -189,8 +189,12 @@ class UniquenessConfig(fob.BrainMethodConfig):
         super().__init__(**kwargs)
 
     @property
-    def method(self):
+    def type(self):
         return "uniqueness"
+
+    @property
+    def method(self):
+        return "neighbors"
 
 
 class Uniqueness(fob.BrainMethod):
