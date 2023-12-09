@@ -176,7 +176,10 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         coll = self._samples._dataset._sample_collection
 
         try:
-            indexes = {i["name"]: i for i in coll.list_search_indexes()}
+            indexes = {
+                i["name"]: i
+                for i in coll.aggregate([{"$listSearchIndexes": {}}])
+            }
         except OperationFailure:
             # https://www.mongodb.com/docs/manual/release-notes/7.0/#atlas-search-index-management
             # https://www.mongodb.com/docs/atlas/atlas-vector-search/vector-search-overview
@@ -259,7 +262,10 @@ class MongoDBSimilarityIndex(SimilarityIndex):
 
         try:
             coll = self._samples._dataset._sample_collection
-            indexes = {i["name"]: i for i in coll.list_search_indexes()}
+            indexes = {
+                i["name"]: i
+                for i in coll.aggregate([{"$listSearchIndexes": {}}])
+            }
         except OperationFailure:
             # requires MongoDB Atlas 7.0 or later
             return None
