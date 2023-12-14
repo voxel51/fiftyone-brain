@@ -49,9 +49,20 @@ class MilvusSimilarityConfig(SimilarityConfig):
             ``("dotproduct", "euclidean")``
         consistency_level ("Session"): the consistency level to use. Supported
             values are ``("Session", "Strong", "Bounded", "Eventually")``
-        uri (None): a full Milvus server address to use
+        uri (None): a full Milvus server address to use, like
+            ``"http://localhost:19530"``,
+            ``"tcp:localhost:19530"``, or
+            ``"https://ok.s3.south.com:19530"``
         user (None): a username to use
         password (None): a password to use
+        secure (None): whether to enable TLS (True)
+        token (None): a header token for RPC calls
+        db_name (None): a database name for the connection
+        client_key_path (None): a client.key path for TLS two-way
+        client_pem_path (None): a client.pem path for TLS two-way
+        ca_pem_path (None): a ca.pem path for TLS two-way
+        server_pem_path (None): a server.pem path for TLS one-way
+        server_name (None): the server name, for TLS
     """
 
     def __init__(
@@ -66,6 +77,14 @@ class MilvusSimilarityConfig(SimilarityConfig):
         uri=None,
         user=None,
         password=None,
+        secure=None,
+        token=None,
+        db_name=None,
+        client_key_path=None,
+        client_pem_path=None,
+        ca_pem_path=None,
+        server_pem_path=None,
+        server_name=None,
         **kwargs,
     ):
         if metric not in _SUPPORTED_METRICS:
@@ -90,6 +109,14 @@ class MilvusSimilarityConfig(SimilarityConfig):
         self._uri = uri
         self._user = user
         self._password = password
+        self._secure = secure
+        self._token = token
+        self._db_name = db_name
+        self._client_key_path = client_key_path
+        self._client_pem_path = client_pem_path
+        self._ca_pem_path = ca_pem_path
+        self._server_pem_path = server_pem_path
+        self._server_name = server_name
 
     @property
     def method(self):
@@ -120,6 +147,70 @@ class MilvusSimilarityConfig(SimilarityConfig):
         self._password = value
 
     @property
+    def secure(self):
+        return self._secure
+
+    @secure.setter
+    def secure(self, value):
+        self._secure = value
+
+    @property
+    def token(self):
+        return self._token
+
+    @token.setter
+    def token(self, value):
+        self._token = value
+
+    @property
+    def db_name(self):
+        return self._db_name
+
+    @db_name.setter
+    def db_name(self, value):
+        self._db_name = value
+
+    @property
+    def client_key_path(self):
+        return self._client_key_path
+
+    @client_key_path.setter
+    def client_key_path(self, value):
+        self._client_key_path = value
+
+    @property
+    def client_pem_path(self):
+        return self._client_pem_path
+
+    @client_pem_path.setter
+    def client_pem_path(self, value):
+        self._client_pem_path = value
+
+    @property
+    def ca_pem_path(self):
+        return self._ca_pem_path
+
+    @ca_pem_path.setter
+    def ca_pem_path(self, value):
+        self._ca_pem_path = value
+
+    @property
+    def server_pem_path(self):
+        return self._server_pem_path
+
+    @server_pem_path.setter
+    def server_pem_path(self, value):
+        self._server_pem_path = value
+
+    @property
+    def server_name(self):
+        return self._server_name
+
+    @server_name.setter
+    def server_name(self, value):
+        self._server_name = value
+
+    @property
     def max_k(self):
         return 16384
 
@@ -148,8 +239,33 @@ class MilvusSimilarityConfig(SimilarityConfig):
             },
         }
 
-    def load_credentials(self, uri=None, user=None, password=None):
-        self._load_parameters(uri=uri, user=user, password=password)
+    def load_credentials(
+        self,
+        uri=None,
+        user=None,
+        password=None,
+        secure=None,
+        token=None,
+        db_name=None,
+        client_key_path=None,
+        client_pem_path=None,
+        ca_pem_path=None,
+        server_pem_path=None,
+        server_name=None,
+    ):
+        self._load_parameters(
+            uri=uri,
+            user=user,
+            password=password,
+            secure=secure,
+            token=token,
+            db_name=db_name,
+            client_key_path=client_key_path,
+            client_pem_path=client_pem_path,
+            ca_pem_path=ca_pem_path,
+            server_pem_path=server_pem_path,
+            server_name=server_name,
+        )
 
 
 class MilvusSimilarity(Similarity):
@@ -189,14 +305,23 @@ class MilvusSimilarityIndex(SimilarityIndex):
 
     def _initialize(self):
         kwargs = {}
-        if self.config.uri:
-            kwargs["uri"] = self.config.uri
 
-        if self.config.user:
-            kwargs["user"] = self.config.user
-
-        if self.config.password:
-            kwargs["password"] = self.config.password
+        for key in (
+            "uri",
+            "user",
+            "password",
+            "secure",
+            "token",
+            "db_name",
+            "client_key_path",
+            "client_pem_path",
+            "ca_pem_path",
+            "server_pem_path",
+            "server_name",
+        ):
+            value = getattr(self.config, key, None)
+            if value is not None:
+                kwargs[key] = value
 
         alias = uuid4().hex if kwargs else "default"
 
