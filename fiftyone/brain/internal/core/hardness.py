@@ -43,7 +43,7 @@ def compute_hardness(samples, label_field, hardness_field):
     brain_key = hardness_field
     brain_method = config.build()
     brain_method.ensure_requirements()
-    brain_method.register_run(samples, brain_key)
+    brain_method.register_run(samples, brain_key, cleanup=False)
     brain_method.register_samples(samples)
 
     view = samples.select_fields(label_field)
