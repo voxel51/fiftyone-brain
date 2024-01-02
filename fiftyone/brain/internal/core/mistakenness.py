@@ -44,6 +44,7 @@ def compute_mistakenness(
     spurious_field,
     use_logits,
     copy_missing,
+    progress,
 ):
     """See ``fiftyone/brain/__init__.py``."""
 
@@ -111,13 +112,14 @@ def compute_mistakenness(
             eval_key=eval_key,
             classwise=False,
             iou=_DETECTION_IOU,
+            progress=progress,
         )
 
     view = samples.select_fields([label_field, pred_field])
     processing_frames = samples._is_frame_field(label_field)
 
     logger.info("Computing mistakenness...")
-    for sample in view.iter_samples(progress=True):
+    for sample in view.iter_samples(progress=progress):
         if processing_frames:
             images = sample.frames.values()
         else:

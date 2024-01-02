@@ -28,7 +28,12 @@ from .visualization import (
 brain_config = _foc.load_brain_config()
 
 
-def compute_hardness(samples, label_field, hardness_field="hardness"):
+def compute_hardness(
+    samples,
+    label_field,
+    hardness_field="hardness",
+    progress=None,
+):
     """Adds a hardness field to each sample scoring the difficulty that the
     specified label field observed in classifying the sample.
 
@@ -53,10 +58,13 @@ def compute_hardness(samples, label_field, hardness_field="hardness"):
             each sample
         hardness_field ("hardness"): the field name to use to store the
             hardness value for each sample
+        progress (None): whether to render a progress bar (True/False), use the
+            default value ``fiftyone.config.show_progress_bars`` (None), or a
+            progress callback function to invoke instead
     """
     import fiftyone.brain.internal.core.hardness as fbh
 
-    return fbh.compute_hardness(samples, label_field, hardness_field)
+    return fbh.compute_hardness(samples, label_field, hardness_field, progress)
 
 
 def compute_mistakenness(
@@ -68,6 +76,7 @@ def compute_mistakenness(
     spurious_field="possible_spurious",
     use_logits=False,
     copy_missing=False,
+    progress=None,
 ):
     """Computes the mistakenness (likelihood of being incorrect) of the labels
     in ``label_field`` based on the predcted labels in ``pred_field``.
@@ -146,6 +155,9 @@ def compute_mistakenness(
             when they are available
         copy_missing (False): whether to copy predicted objects that were
             deemed to be missing into ``label_field``
+        progress (None): whether to render a progress bar (True/False), use the
+            default value ``fiftyone.config.show_progress_bars`` (None), or a
+            progress callback function to invoke instead
     """
     import fiftyone.brain.internal.core.mistakenness as fbm
 
@@ -158,6 +170,7 @@ def compute_mistakenness(
         spurious_field,
         use_logits,
         copy_missing,
+        progress,
     )
 
 
@@ -172,6 +185,7 @@ def compute_uniqueness(
     batch_size=None,
     num_workers=None,
     skip_failures=True,
+    progress=None,
 ):
     """Adds a uniqueness field to each sample scoring how unique it is with
     respect to the rest of the samples.
@@ -231,6 +245,9 @@ def compute_uniqueness(
             embeddings
         skip_failures (True): whether to gracefully continue without raising an
             error if embeddings cannot be generated for a sample
+        progress (None): whether to render a progress bar (True/False), use the
+            default value ``fiftyone.config.show_progress_bars`` (None), or a
+            progress callback function to invoke instead
     """
     import fiftyone.brain.internal.core.uniqueness as fbu
 
@@ -245,6 +262,7 @@ def compute_uniqueness(
         batch_size,
         num_workers,
         skip_failures,
+        progress,
     )
 
 
@@ -262,6 +280,7 @@ def compute_visualization(
     batch_size=None,
     num_workers=None,
     skip_failures=True,
+    progress=None,
     **kwargs,
 ):
     """Computes a low-dimensional representation of the samples' media or their
@@ -364,6 +383,9 @@ def compute_visualization(
             embeddings
         skip_failures (True): whether to gracefully continue without raising an
             error if embeddings cannot be generated for a sample
+        progress (None): whether to render a progress bar (True/False), use the
+            default value ``fiftyone.config.show_progress_bars`` (None), or a
+            progress callback function to invoke instead
         **kwargs: optional keyword arguments for the constructor of the
             :class:`fiftyone.brain.visualization.VisualizationConfig`
             being used
@@ -387,6 +409,7 @@ def compute_visualization(
         batch_size,
         num_workers,
         skip_failures,
+        progress,
         **kwargs,
     )
 
@@ -402,6 +425,7 @@ def compute_similarity(
     batch_size=None,
     num_workers=None,
     skip_failures=True,
+    progress=None,
     backend=None,
     **kwargs,
 ):
@@ -496,6 +520,9 @@ def compute_similarity(
             embeddings
         skip_failures (True): whether to gracefully continue without raising an
             error if embeddings cannot be generated for a sample
+        progress (None): whether to render a progress bar (True/False), use the
+            default value ``fiftyone.config.show_progress_bars`` (None), or a
+            progress callback function to invoke instead
         backend (None): the similarity backend to use. The supported values are
             ``fiftyone.brain.brain_config.similarity_backends.keys()`` and the
             default is
@@ -520,12 +547,18 @@ def compute_similarity(
         batch_size,
         num_workers,
         skip_failures,
+        progress,
         backend,
         **kwargs,
     )
 
 
-def compute_exact_duplicates(samples, num_workers=None, skip_failures=True):
+def compute_exact_duplicates(
+    samples,
+    num_workers=None,
+    skip_failures=True,
+    progress=None,
+):
     """Detects duplicate media in a sample collection.
 
     This method detects exact duplicates with the same filehash. Use
@@ -540,6 +573,9 @@ def compute_exact_duplicates(samples, num_workers=None, skip_failures=True):
         num_workers (None): an optional number of processes to use
         skip_failures (True): whether to gracefully ignore samples whose
             filehash cannot be computed
+        progress (None): whether to render a progress bar (True/False), use the
+            default value ``fiftyone.config.show_progress_bars`` (None), or a
+            progress callback function to invoke instead
 
     Returns:
         a dictionary mapping IDs of samples with exact duplicates to lists of
@@ -547,4 +583,6 @@ def compute_exact_duplicates(samples, num_workers=None, skip_failures=True):
     """
     import fiftyone.brain.internal.core.duplicates as fbd
 
-    return fbd.compute_exact_duplicates(samples, num_workers, skip_failures)
+    return fbd.compute_exact_duplicates(
+        samples, num_workers, skip_failures, progress
+    )
