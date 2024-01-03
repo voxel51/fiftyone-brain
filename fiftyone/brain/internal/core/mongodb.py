@@ -232,23 +232,33 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         # https://www.mongodb.com/docs/atlas/atlas-search/field-types/knn-vector
         # https://pymongo.readthedocs.io/en/stable/api/pymongo/collection.html#pymongo.collection.Collection.create_search_index
         coll = self._samples._dataset._sample_collection
-        coll.create_search_index(
-            {
-                "name": self.config.index_name,
-                "definition": {
-                    "mappings": {
-                        "dynamic": True,
-                        "fields": {
-                            self.config.embeddings_field: {
-                                "type": "knnVector",
-                                "dimensions": dimension,
-                                "similarity": metric,
-                            }
-                        },
-                    }
-                },
-            }
-        )
+        # for compatibility with async motor driver, we must use the
+        # db.command interface instead of the Collection.create_search_index
+        cmd = {
+            "createSearchIndexes": self.config.index_name,
+            "indexes": [
+                {
+                    "name": self.config.index_name,
+                    "definition": {
+                        "mappings": {
+                            "dynamic": True,
+                            "fields": {
+                                self.config.embeddings_field: {
+                                    "type": "knnVector",
+                                    "dimensions": dimension,
+                                    "similarity": metric,
+                                }
+                            },
+                        }
+                    },
+                }
+            ],
+        }
+        with coll._conn_for_writes(None) as conn:
+            coll._command(
+                conn,
+                cmd,
+            )
 
         self._index = True
 
