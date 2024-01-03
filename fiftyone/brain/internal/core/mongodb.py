@@ -235,7 +235,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         # for compatibility with async motor driver, we must use the
         # db.command interface instead of the Collection.create_search_index
         cmd = {
-            "createSearchIndexes": self.config.index_name,
+            "createSearchIndexes": self._curr_view._root_dataset._sample_collection_name,
             "indexes": [
                 {
                     "name": self.config.index_name,
