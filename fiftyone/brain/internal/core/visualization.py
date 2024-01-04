@@ -18,7 +18,6 @@ import fiftyone.core.expressions as foe
 import fiftyone.core.plots as fop
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
-import fiftyone.zoo as foz
 
 from fiftyone.brain.visualization import (
     VisualizationResults,
@@ -83,34 +82,34 @@ def compute_visualization(
         embeddings_field = None
         embeddings_exist = None
 
-    # if (
-    #     model is None
-    #     and points is None
-    #     and embeddings is None
-    #     and not embeddings_exist
-    # ):
-    #     model = _DEFAULT_MODEL
-    #     if batch_size is None:
-    #         batch_size = _DEFAULT_BATCH_SIZE
-
-    if points is None and embeddings is None and not embeddings_exist:
+    if (
+        model is None
+        and points is None
+        and embeddings is None
+        and not embeddings_exist
+    ):
+        model = _DEFAULT_MODEL
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
 
-        if model is None:
-            _model = _DEFAULT_MODEL
-            model = fbm.load_model(_model)
-        elif etau.is_str(model):
-            _model = model
-            model_kwargs = model_kwargs or {}
-            try:
-                model = fbm.load_model(model, **model_kwargs)
-            except:
-                model = foz.load_zoo_model(_model, **model_kwargs)
+    # if points is None and embeddings is None and not embeddings_exist:
+    #     if batch_size is None:
+    #         batch_size = _DEFAULT_BATCH_SIZE
+
+    #     if model is None:
+    #         _model = _DEFAULT_MODEL
+    #         model = fbm.load_model(_model)
+    #     elif etau.is_str(model):
+    #         _model = model
+    #         model_kwargs = model_kwargs or {}
+    #         try:
+    #             model = fbm.load_model(model, **model_kwargs)
+    #         except:
+    #             model = foz.load_zoo_model(_model, **model_kwargs)
 
     config = _parse_config(
         embeddings_field,
-        _model,
+        model,
         patches_field,
         method,
         num_dims,
@@ -128,6 +127,7 @@ def compute_visualization(
         embeddings, sample_ids, label_ids = fbu.get_embeddings(
             samples,
             model=model,
+            model_kwargs=model_kwargs,
             patches_field=patches_field,
             embeddings_field=embeddings_field,
             embeddings=embeddings,

@@ -244,12 +244,12 @@ def compute_uniqueness(
         roi_field,
         embeddings,
         model,
+        model_kwargs,
         force_square,
         alpha,
         batch_size,
         num_workers,
         skip_failures,
-        model_kwargs=model_kwargs,
     )
 
 

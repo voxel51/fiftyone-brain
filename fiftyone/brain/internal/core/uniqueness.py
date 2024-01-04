@@ -18,7 +18,6 @@ import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
 import fiftyone.core.media as fom
 import fiftyone.core.validation as fov
-import fiftyone.zoo as foz
 
 import fiftyone.brain.internal.core.utils as fbu
 import fiftyone.brain.internal.models as fbm
@@ -84,26 +83,16 @@ def compute_uniqueness(
         embeddings_field = None
         embeddings_exist = None
 
-    if embeddings is None and not embeddings_exist:
+    if model is None and embeddings is None and not embeddings_exist:
+        model = fbm.load_model(_DEFAULT_MODEL)
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
-
-        if model is None:
-            _model = _DEFAULT_MODEL
-            model = fbm.load_model(_DEFAULT_MODEL)
-        elif etau.is_str(model):
-            _model = model
-            model_kwargs = model_kwargs or {}
-            try:
-                model = fbm.load_model(model, **model_kwargs)
-            except:
-                model = foz.load_zoo_model(model, **model_kwargs)
 
     config = UniquenessConfig(
         uniqueness_field,
         roi_field=roi_field,
         embeddings_field=embeddings_field,
-        model=_model,
+        model=model,
         model_kwargs=model_kwargs,
     )
     brain_key = uniqueness_field
@@ -120,6 +109,7 @@ def compute_uniqueness(
     embeddings, sample_ids, _ = fbu.get_embeddings(
         samples,
         model=model,
+        model_kwargs=model_kwargs,
         patches_field=roi_field,
         embeddings_field=embeddings_field,
         embeddings=embeddings,
