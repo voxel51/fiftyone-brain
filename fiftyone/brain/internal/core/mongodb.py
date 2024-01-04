@@ -170,7 +170,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
 
     @property
     def total_index_size(self):
-        return len(self._sample_ids)
+        return len(self._sample_ids) if self._index is not None else 0
 
     def _initialize(self):
         coll = self._samples._dataset._sample_collection
@@ -197,6 +197,11 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             self._index = True
 
             return
+
+        # self.config.index_name appears to be available largely for Mongo Atlas 6.0 support.
+        # The case where a user provides an index_name that already exists in indexes is quite
+        # dangerous otherwise as the existing index must precisely match (or be a superset perhaps)
+        # of self._sample_ids
 
         if self.config.index_name is None:
             root = self.config.embeddings_field
