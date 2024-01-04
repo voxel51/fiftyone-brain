@@ -232,9 +232,9 @@ def compute_uniqueness(
             embeddings
         skip_failures (True): whether to gracefully continue without raising an
             error if embeddings cannot be generated for a sample
-        model_kwargs (None): optional keyword arguments to pass to the
-            :class:`fiftyone.core.models.Model` constructor when a model name
-            is provided
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the :class:`fiftyone.core.models.Model` constructor when a model
+            name is provided
     """
     import fiftyone.brain.internal.core.uniqueness as fbu
 
@@ -370,9 +370,9 @@ def compute_visualization(
             embeddings
         skip_failures (True): whether to gracefully continue without raising an
             error if embeddings cannot be generated for a sample
-        model_kwargs (None): optional keyword arguments to pass to the
-            :class:`fiftyone.core.models.Model` constructor when a model name
-            is provided
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the :class:`fiftyone.core.models.Model` constructor when a model
+            name is provided
         **kwargs: optional keyword arguments for the constructor of the
             :class:`fiftyone.brain.visualization.VisualizationConfig`
             being used
@@ -511,9 +511,9 @@ def compute_similarity(
             ``fiftyone.brain.brain_config.similarity_backends.keys()`` and the
             default is
             ``fiftyone.brain.brain_config.default_similarity_backend``
-        model_kwargs (None): optional keyword arguments to pass to the
-            :class:`fiftyone.core.models.Model` constructor when a model name
-            is provided
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the :class:`fiftyone.core.models.Model` constructor when a model
+            name is provided
         **kwargs: keyword arguments for the
             :class:`fiftyone.brian.SimilarityConfig` subclass of the backend
             being used
