@@ -172,6 +172,7 @@ def compute_uniqueness(
     batch_size=None,
     num_workers=None,
     skip_failures=True,
+    model_kwargs=None,
 ):
     """Adds a uniqueness field to each sample scoring how unique it is with
     respect to the rest of the samples.
@@ -231,6 +232,9 @@ def compute_uniqueness(
             embeddings
         skip_failures (True): whether to gracefully continue without raising an
             error if embeddings cannot be generated for a sample
+        model_kwargs (None): optional keyword arguments to pass to the
+            :class:`fiftyone.core.models.Model` constructor when a model name
+            is provided
     """
     import fiftyone.brain.internal.core.uniqueness as fbu
 
@@ -245,6 +249,7 @@ def compute_uniqueness(
         batch_size,
         num_workers,
         skip_failures,
+        model_kwargs=model_kwargs,
     )
 
 
