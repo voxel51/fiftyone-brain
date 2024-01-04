@@ -167,12 +167,12 @@ def compute_uniqueness(
     roi_field=None,
     embeddings=None,
     model=None,
+    model_kwargs=None,
     force_square=False,
     alpha=None,
     batch_size=None,
     num_workers=None,
     skip_failures=True,
-    model_kwargs=None,
 ):
     """Adds a uniqueness field to each sample scoring how unique it is with
     respect to the rest of the samples.
@@ -215,6 +215,9 @@ def compute_uniqueness(
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/models.html>`_
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the :class:`fiftyone.core.models.Model` constructor when a model
+            name is provided
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``roi_field`` are specified
@@ -232,9 +235,6 @@ def compute_uniqueness(
             embeddings
         skip_failures (True): whether to gracefully continue without raising an
             error if embeddings cannot be generated for a sample
-        model_kwargs (None): a dictionary of optional keyword arguments to pass
-            to the :class:`fiftyone.core.models.Model` constructor when a model
-            name is provided
     """
     import fiftyone.brain.internal.core.uniqueness as fbu
 
@@ -262,12 +262,12 @@ def compute_visualization(
     num_dims=2,
     method="umap",
     model=None,
+    model_kwargs=None,
     force_square=False,
     alpha=None,
     batch_size=None,
     num_workers=None,
     skip_failures=True,
-    model_kwargs=None,
     **kwargs,
 ):
     """Computes a low-dimensional representation of the samples' media or their
@@ -353,6 +353,9 @@ def compute_visualization(
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the :class:`fiftyone.core.models.Model` constructor when a model
+            name is provided
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``patches_field`` are specified
@@ -370,9 +373,6 @@ def compute_visualization(
             embeddings
         skip_failures (True): whether to gracefully continue without raising an
             error if embeddings cannot be generated for a sample
-        model_kwargs (None): a dictionary of optional keyword arguments to pass
-            to the :class:`fiftyone.core.models.Model` constructor when a model
-            name is provided
         **kwargs: optional keyword arguments for the constructor of the
             :class:`fiftyone.brain.visualization.VisualizationConfig`
             being used
@@ -407,13 +407,13 @@ def compute_similarity(
     embeddings=None,
     brain_key=None,
     model=None,
+    model_kwargs=None,
     force_square=False,
     alpha=None,
     batch_size=None,
     num_workers=None,
     skip_failures=True,
     backend=None,
-    model_kwargs=None,
     **kwargs,
 ):
     """Uses embeddings to index the samples or their patches so that you can
@@ -490,6 +490,9 @@ def compute_similarity(
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
             to use, or that was already used, to generate embeddings. The model
             must expose embeddings (``model.has_embeddings = True``)
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the :class:`fiftyone.core.models.Model` constructor when a model
+            name is provided
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``patches_field`` are specified
@@ -511,9 +514,6 @@ def compute_similarity(
             ``fiftyone.brain.brain_config.similarity_backends.keys()`` and the
             default is
             ``fiftyone.brain.brain_config.default_similarity_backend``
-        model_kwargs (None): a dictionary of optional keyword arguments to pass
-            to the :class:`fiftyone.core.models.Model` constructor when a model
-            name is provided
         **kwargs: keyword arguments for the
             :class:`fiftyone.brian.SimilarityConfig` subclass of the backend
             being used
