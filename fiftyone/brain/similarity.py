@@ -48,6 +48,7 @@ def compute_similarity(
     num_workers,
     skip_failures,
     backend,
+    model_kwargs,
     **kwargs,
 ):
     """See ``fiftyone/brain/__init__.py``."""
@@ -76,7 +77,7 @@ def compute_similarity(
             batch_size = _DEFAULT_BATCH_SIZE
 
     if etau.is_str(model):
-        _model = foz.load_zoo_model(model)
+        _model = foz.load_zoo_model(model, **model_kwargs)
         try:
             supports_prompts = _model.can_embed_prompts
         except:
@@ -91,6 +92,7 @@ def compute_similarity(
         patches_field=patches_field,
         model=model,
         supports_prompts=supports_prompts,
+        model_kwargs=model_kwargs,
         **kwargs,
     )
     brain_method = config.build()
@@ -188,6 +190,7 @@ class SimilarityConfig(fob.BrainMethodConfig):
         model=None,
         patches_field=None,
         supports_prompts=None,
+        model_kwargs=None,
         **kwargs,
     ):
         if model is not None and not etau.is_str(model):
@@ -197,6 +200,7 @@ class SimilarityConfig(fob.BrainMethodConfig):
         self.model = model
         self.patches_field = patches_field
         self.supports_prompts = supports_prompts
+        self.model_kwargs = model_kwargs or {}
         super().__init__(**kwargs)
 
     @property
@@ -847,7 +851,8 @@ class SimilarityIndex(fob.BrainResults):
                 raise ValueError("These results don't have a stored model")
 
             if etau.is_str(model):
-                model = foz.load_zoo_model(model)
+                model_kwargs = self.config.model_kwargs or {}
+                model = foz.load_zoo_model(model, **model_kwargs)
 
             self._model = model
 

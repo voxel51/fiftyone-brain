@@ -403,6 +403,7 @@ def compute_similarity(
     num_workers=None,
     skip_failures=True,
     backend=None,
+    model_kwargs=None,
     **kwargs,
 ):
     """Uses embeddings to index the samples or their patches so that you can
@@ -500,6 +501,9 @@ def compute_similarity(
             ``fiftyone.brain.brain_config.similarity_backends.keys()`` and the
             default is
             ``fiftyone.brain.brain_config.default_similarity_backend``
+        model_kwargs (None): optional keyword arguments to pass to the
+            :class:`fiftyone.core.models.Model` constructor when a model name
+            is provided
         **kwargs: keyword arguments for the
             :class:`fiftyone.brian.SimilarityConfig` subclass of the backend
             being used
@@ -521,6 +525,7 @@ def compute_similarity(
         num_workers,
         skip_failures,
         backend,
+        model_kwargs,
         **kwargs,
     )
 
