@@ -267,6 +267,7 @@ def compute_visualization(
     batch_size=None,
     num_workers=None,
     skip_failures=True,
+    model_kwargs=None,
     **kwargs,
 ):
     """Computes a low-dimensional representation of the samples' media or their
@@ -369,6 +370,9 @@ def compute_visualization(
             embeddings
         skip_failures (True): whether to gracefully continue without raising an
             error if embeddings cannot be generated for a sample
+        model_kwargs (None): optional keyword arguments to pass to the
+            :class:`fiftyone.core.models.Model` constructor when a model name
+            is provided
         **kwargs: optional keyword arguments for the constructor of the
             :class:`fiftyone.brain.visualization.VisualizationConfig`
             being used
@@ -392,6 +396,7 @@ def compute_visualization(
         batch_size,
         num_workers,
         skip_failures,
+        model_kwargs=model_kwargs,
         **kwargs,
     )
 

@@ -28,6 +28,7 @@ from fiftyone.brain.visualization import (
     ManualVisualizationConfig,
 )
 import fiftyone.brain.internal.core.utils as fbu
+import fiftyone.brain.internal.models as fbm
 
 umap = fou.lazy_import("umap")
 
@@ -52,6 +53,7 @@ def compute_visualization(
     batch_size,
     num_workers,
     skip_failures,
+    model_kwargs=None,
     **kwargs,
 ):
     """See ``fiftyone/brain/__init__.py``."""
@@ -81,18 +83,39 @@ def compute_visualization(
         embeddings_field = None
         embeddings_exist = None
 
-    if (
-        model is None
-        and points is None
-        and embeddings is None
-        and not embeddings_exist
-    ):
-        model = _DEFAULT_MODEL
+    # if (
+    #     model is None
+    #     and points is None
+    #     and embeddings is None
+    #     and not embeddings_exist
+    # ):
+    #     model = _DEFAULT_MODEL
+    #     if batch_size is None:
+    #         batch_size = _DEFAULT_BATCH_SIZE
+
+    if points is None and embeddings is None and not embeddings_exist:
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
 
+        if model is None:
+            _model = _DEFAULT_MODEL
+            model = fbm.load_model(_model)
+        elif etau.is_str(model):
+            _model = model
+            model_kwargs = model_kwargs or {}
+            try:
+                model = fbm.load_model(model, **model_kwargs)
+            except:
+                model = foz.load_zoo_model(_model, **model_kwargs)
+
     config = _parse_config(
-        embeddings_field, model, patches_field, method, num_dims, **kwargs
+        embeddings_field,
+        _model,
+        patches_field,
+        method,
+        num_dims,
+        model_kwargs,
+        **kwargs,
     )
 
     brain_method = config.build()
@@ -289,7 +312,13 @@ class ManualVisualization(Visualization):
 
 
 def _parse_config(
-    embeddings_field, model, patches_field, method, num_dims, **kwargs
+    embeddings_field,
+    model,
+    patches_field,
+    method,
+    num_dims,
+    model_kwargs,
+    **kwargs,
 ):
     if method is None:
         method = "umap"
@@ -310,6 +339,7 @@ def _parse_config(
         model=model,
         patches_field=patches_field,
         num_dims=num_dims,
+        model_kwargs=model_kwargs,
         **kwargs,
     )
 
