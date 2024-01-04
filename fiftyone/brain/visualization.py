@@ -345,21 +345,21 @@ class VisualizationConfig(fob.BrainMethodConfig):
             if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
-        patches_field (None): the sample field defining the patches being
-            analyzed, if any
-        num_dims (2): the dimension of the visualization space
         model_kwargs (None): optional keyword arguments to pass to the
             :class:`fiftyone.core.models.Model` constructor when a model name
             is provided
+        patches_field (None): the sample field defining the patches being
+            analyzed, if any
+        num_dims (2): the dimension of the visualization space
     """
 
     def __init__(
         self,
         embeddings_field=None,
         model=None,
+        model_kwargs=None,
         patches_field=None,
         num_dims=2,
-        model_kwargs=None,
         **kwargs,
     ):
         if model is not None and not etau.is_str(model):
@@ -367,9 +367,9 @@ class VisualizationConfig(fob.BrainMethodConfig):
 
         self.embeddings_field = embeddings_field
         self.model = model
+        self.model_kwargs = model_kwargs or {}
         self.patches_field = patches_field
         self.num_dims = num_dims
-        self.model_kwargs = model_kwargs or {}
         super().__init__(**kwargs)
 
     @property
@@ -394,6 +394,9 @@ class UMAPVisualizationConfig(VisualizationConfig):
             if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
+        model_kwargs (None): optional keyword arguments to pass to the
+            :class:`fiftyone.core.models.Model` constructor when a model name
+            is provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
@@ -411,15 +414,13 @@ class UMAPVisualizationConfig(VisualizationConfig):
             values are in ``[0.001, 0.5]``
         seed (None): a random seed
         verbose (True): whether to log progress
-        model_kwargs (None): optional keyword arguments to pass to the
-            :class:`fiftyone.core.models.Model` constructor when a model name
-            is provided
     """
 
     def __init__(
         self,
         embeddings_field=None,
         model=None,
+        model_kwargs=None,
         patches_field=None,
         num_dims=2,
         num_neighbors=15,
@@ -427,15 +428,14 @@ class UMAPVisualizationConfig(VisualizationConfig):
         min_dist=0.1,
         seed=None,
         verbose=True,
-        model_kwargs=None,
         **kwargs,
     ):
         super().__init__(
             embeddings_field=embeddings_field,
             model=model,
+            model_kwargs=model_kwargs,
             patches_field=patches_field,
             num_dims=num_dims,
-            model_kwargs=model_kwargs,
             **kwargs,
         )
         self.num_neighbors = num_neighbors
@@ -461,6 +461,9 @@ class TSNEVisualizationConfig(VisualizationConfig):
             if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
+        model_kwargs (None): optional keyword arguments to pass to the
+            :class:`fiftyone.core.models.Model` constructor when a model name
+            is provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
@@ -489,15 +492,13 @@ class TSNEVisualizationConfig(VisualizationConfig):
             least 250
         seed (None): a random seed
         verbose (True): whether to log progress
-        model_kwargs (None): optional keyword arguments to pass to the
-            :class:`fiftyone.core.models.Model` constructor when a model name
-            is provided
     """
 
     def __init__(
         self,
         embeddings_field=None,
         model=None,
+        model_kwargs=None,
         patches_field=None,
         num_dims=2,
         pca_dims=50,
@@ -508,15 +509,14 @@ class TSNEVisualizationConfig(VisualizationConfig):
         max_iters=1000,
         seed=None,
         verbose=True,
-        model_kwargs=None,
         **kwargs,
     ):
         super().__init__(
             embeddings_field=embeddings_field,
             model=model,
+            model_kwargs=model_kwargs,
             patches_field=patches_field,
             num_dims=num_dims,
-            model_kwargs=model_kwargs,
             **kwargs,
         )
         self.pca_dims = pca_dims
@@ -545,34 +545,34 @@ class PCAVisualizationConfig(VisualizationConfig):
             if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
+        model_kwargs (None): optional keyword arguments to pass to the
+            :class:`fiftyone.core.models.Model` constructor when a model name
+            is provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
         svd_solver ("randomized"): the SVD solver to use. Consult the sklearn
             docmentation for details
         seed (None): a random seed
-        model_kwargs (None): optional keyword arguments to pass to the
-            :class:`fiftyone.core.models.Model` constructor when a model name
-            is provided
     """
 
     def __init__(
         self,
         embeddings_field=None,
         model=None,
+        model_kwargs=None,
         patches_field=None,
         num_dims=2,
         svd_solver="randomized",
         seed=None,
-        model_kwargs=None,
         **kwargs,
     ):
         super().__init__(
             embeddings_field=embeddings_field,
             model=model,
+            model_kwargs=model_kwargs,
             patches_field=patches_field,
             num_dims=num_dims,
-            model_kwargs=model_kwargs,
             **kwargs,
         )
         self.svd_solver = svd_solver

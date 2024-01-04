@@ -42,13 +42,13 @@ def compute_similarity(
     embeddings,
     brain_key,
     model,
+    model_kwargs,
     force_square,
     alpha,
     batch_size,
     num_workers,
     skip_failures,
     backend,
-    model_kwargs,
     **kwargs,
 ):
     """See ``fiftyone/brain/__init__.py``."""
@@ -91,8 +91,8 @@ def compute_similarity(
         embeddings_field=embeddings_field,
         patches_field=patches_field,
         model=model,
-        supports_prompts=supports_prompts,
         model_kwargs=model_kwargs,
+        supports_prompts=supports_prompts,
         **kwargs,
     )
     brain_method = config.build()
@@ -188,9 +188,9 @@ class SimilarityConfig(fob.BrainMethodConfig):
         self,
         embeddings_field=None,
         model=None,
+        model_kwargs=None,
         patches_field=None,
         supports_prompts=None,
-        model_kwargs=None,
         **kwargs,
     ):
         if model is not None and not etau.is_str(model):
@@ -198,9 +198,9 @@ class SimilarityConfig(fob.BrainMethodConfig):
 
         self.embeddings_field = embeddings_field
         self.model = model
+        self.model_kwargs = model_kwargs or {}
         self.patches_field = patches_field
         self.supports_prompts = supports_prompts
-        self.model_kwargs = model_kwargs or {}
         super().__init__(**kwargs)
 
     @property
