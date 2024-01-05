@@ -345,9 +345,8 @@ class VisualizationConfig(fob.BrainMethodConfig):
             if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
-        model_kwargs (None): optional keyword arguments to pass to the
-            :class:`fiftyone.core.models.Model` constructor when a model name
-            is provided
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
@@ -367,7 +366,7 @@ class VisualizationConfig(fob.BrainMethodConfig):
 
         self.embeddings_field = embeddings_field
         self.model = model
-        self.model_kwargs = model_kwargs or {}
+        self.model_kwargs = model_kwargs
         self.patches_field = patches_field
         self.num_dims = num_dims
         super().__init__(**kwargs)
@@ -394,9 +393,8 @@ class UMAPVisualizationConfig(VisualizationConfig):
             if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
-        model_kwargs (None): optional keyword arguments to pass to the
-            :class:`fiftyone.core.models.Model` constructor when a model name
-            is provided
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
@@ -461,9 +459,8 @@ class TSNEVisualizationConfig(VisualizationConfig):
             if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
-        model_kwargs (None): optional keyword arguments to pass to the
-            :class:`fiftyone.core.models.Model` constructor when a model name
-            is provided
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
@@ -545,9 +542,8 @@ class PCAVisualizationConfig(VisualizationConfig):
             if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
-        model_kwargs (None): optional keyword arguments to pass to the
-            :class:`fiftyone.core.models.Model` constructor when a model name
-            is provided
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space

@@ -750,8 +750,7 @@ def get_embeddings(
         and not _has_embeddings_field(samples, embeddings_field, patches_field)
     ):
         if etau.is_str(model):
-            model_kwargs = model_kwargs or {}
-            model = foz.load_zoo_model(model, **model_kwargs)
+            model = foz.load_zoo_model(model, **model_kwargs or {})
 
         if not isinstance(model, fom.Model):
             raise ValueError(

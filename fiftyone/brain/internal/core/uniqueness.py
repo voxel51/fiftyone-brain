@@ -190,7 +190,7 @@ class UniquenessConfig(fob.BrainMethodConfig):
         self.roi_field = roi_field
         self.embeddings_field = embeddings_field
         self.model = model
-        self.model_kwargs = model_kwargs or {}
+        self.model_kwargs = model_kwargs
         super().__init__(**kwargs)
 
     @property

@@ -47,12 +47,12 @@ def compute_visualization(
     num_dims,
     method,
     model,
+    model_kwargs,
     force_square,
     alpha,
     batch_size,
     num_workers,
     skip_failures,
-    model_kwargs=None,
     **kwargs,
 ):
     """See ``fiftyone/brain/__init__.py``."""
@@ -92,28 +92,13 @@ def compute_visualization(
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
 
-    # if points is None and embeddings is None and not embeddings_exist:
-    #     if batch_size is None:
-    #         batch_size = _DEFAULT_BATCH_SIZE
-
-    #     if model is None:
-    #         _model = _DEFAULT_MODEL
-    #         model = fbm.load_model(_model)
-    #     elif etau.is_str(model):
-    #         _model = model
-    #         model_kwargs = model_kwargs or {}
-    #         try:
-    #             model = fbm.load_model(model, **model_kwargs)
-    #         except:
-    #             model = foz.load_zoo_model(_model, **model_kwargs)
-
     config = _parse_config(
         embeddings_field,
         model,
+        model_kwargs,
         patches_field,
         method,
         num_dims,
-        model_kwargs,
         **kwargs,
     )
 
@@ -314,10 +299,10 @@ class ManualVisualization(Visualization):
 def _parse_config(
     embeddings_field,
     model,
+    model_kwargs,
     patches_field,
     method,
     num_dims,
-    model_kwargs,
     **kwargs,
 ):
     if method is None:
@@ -337,9 +322,9 @@ def _parse_config(
     return config_cls(
         embeddings_field=embeddings_field,
         model=model,
+        model_kwargs=model_kwargs,
         patches_field=patches_field,
         num_dims=num_dims,
-        model_kwargs=model_kwargs,
         **kwargs,
     )
 

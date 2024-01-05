@@ -216,8 +216,7 @@ def compute_uniqueness(
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
         model_kwargs (None): a dictionary of optional keyword arguments to pass
-            to the :class:`fiftyone.core.models.Model` constructor when a model
-            name is provided
+            to the model's ``Config`` when a model name is provided
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``roi_field`` are specified
@@ -354,8 +353,7 @@ def compute_visualization(
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
         model_kwargs (None): a dictionary of optional keyword arguments to pass
-            to the :class:`fiftyone.core.models.Model` constructor when a model
-            name is provided
+            to the model's ``Config`` when a model name is provided
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``patches_field`` are specified
@@ -391,12 +389,12 @@ def compute_visualization(
         num_dims,
         method,
         model,
+        model_kwargs,
         force_square,
         alpha,
         batch_size,
         num_workers,
         skip_failures,
-        model_kwargs=model_kwargs,
         **kwargs,
     )
 
@@ -491,8 +489,7 @@ def compute_similarity(
             to use, or that was already used, to generate embeddings. The model
             must expose embeddings (``model.has_embeddings = True``)
         model_kwargs (None): a dictionary of optional keyword arguments to pass
-            to the :class:`fiftyone.core.models.Model` constructor when a model
-            name is provided
+            to the model's ``Config`` when a model name is provided
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``patches_field`` are specified
@@ -529,13 +526,13 @@ def compute_similarity(
         embeddings,
         brain_key,
         model,
+        model_kwargs,
         force_square,
         alpha,
         batch_size,
         num_workers,
         skip_failures,
         backend,
-        model_kwargs,
         **kwargs,
     )
 
