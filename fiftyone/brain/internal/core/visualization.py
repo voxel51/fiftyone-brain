@@ -27,7 +27,6 @@ from fiftyone.brain.visualization import (
     ManualVisualizationConfig,
 )
 import fiftyone.brain.internal.core.utils as fbu
-import fiftyone.brain.internal.models as fbm
 
 umap = fou.lazy_import("umap")
 

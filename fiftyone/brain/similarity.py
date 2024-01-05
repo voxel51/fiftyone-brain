@@ -77,7 +77,8 @@ def compute_similarity(
             batch_size = _DEFAULT_BATCH_SIZE
 
     if etau.is_str(model):
-        _model = foz.load_zoo_model(model, **model_kwargs or {})
+        _model_kwargs = model_kwargs or {}
+        _model = foz.load_zoo_model(model, **_model_kwargs)
         try:
             supports_prompts = _model.can_embed_prompts
         except:
