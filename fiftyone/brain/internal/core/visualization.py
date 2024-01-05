@@ -18,7 +18,6 @@ import fiftyone.core.expressions as foe
 import fiftyone.core.plots as fop
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
-import fiftyone.zoo as foz
 
 from fiftyone.brain.visualization import (
     VisualizationResults,
@@ -47,6 +46,7 @@ def compute_visualization(
     num_dims,
     method,
     model,
+    model_kwargs,
     force_square,
     alpha,
     batch_size,
@@ -92,7 +92,13 @@ def compute_visualization(
             batch_size = _DEFAULT_BATCH_SIZE
 
     config = _parse_config(
-        embeddings_field, model, patches_field, method, num_dims, **kwargs
+        embeddings_field,
+        model,
+        model_kwargs,
+        patches_field,
+        method,
+        num_dims,
+        **kwargs,
     )
 
     brain_method = config.build()
@@ -105,6 +111,7 @@ def compute_visualization(
         embeddings, sample_ids, label_ids = fbu.get_embeddings(
             samples,
             model=model,
+            model_kwargs=model_kwargs,
             patches_field=patches_field,
             embeddings_field=embeddings_field,
             embeddings=embeddings,
@@ -289,7 +296,13 @@ class ManualVisualization(Visualization):
 
 
 def _parse_config(
-    embeddings_field, model, patches_field, method, num_dims, **kwargs
+    embeddings_field,
+    model,
+    model_kwargs,
+    patches_field,
+    method,
+    num_dims,
+    **kwargs,
 ):
     if method is None:
         method = "umap"
@@ -308,6 +321,7 @@ def _parse_config(
     return config_cls(
         embeddings_field=embeddings_field,
         model=model,
+        model_kwargs=model_kwargs,
         patches_field=patches_field,
         num_dims=num_dims,
         **kwargs,

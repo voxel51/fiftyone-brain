@@ -345,6 +345,8 @@ class VisualizationConfig(fob.BrainMethodConfig):
             if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
@@ -354,6 +356,7 @@ class VisualizationConfig(fob.BrainMethodConfig):
         self,
         embeddings_field=None,
         model=None,
+        model_kwargs=None,
         patches_field=None,
         num_dims=2,
         **kwargs,
@@ -363,6 +366,7 @@ class VisualizationConfig(fob.BrainMethodConfig):
 
         self.embeddings_field = embeddings_field
         self.model = model
+        self.model_kwargs = model_kwargs
         self.patches_field = patches_field
         self.num_dims = num_dims
         super().__init__(**kwargs)
@@ -389,6 +393,8 @@ class UMAPVisualizationConfig(VisualizationConfig):
             if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
@@ -412,6 +418,7 @@ class UMAPVisualizationConfig(VisualizationConfig):
         self,
         embeddings_field=None,
         model=None,
+        model_kwargs=None,
         patches_field=None,
         num_dims=2,
         num_neighbors=15,
@@ -424,6 +431,7 @@ class UMAPVisualizationConfig(VisualizationConfig):
         super().__init__(
             embeddings_field=embeddings_field,
             model=model,
+            model_kwargs=model_kwargs,
             patches_field=patches_field,
             num_dims=num_dims,
             **kwargs,
@@ -451,6 +459,8 @@ class TSNEVisualizationConfig(VisualizationConfig):
             if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
@@ -485,6 +495,7 @@ class TSNEVisualizationConfig(VisualizationConfig):
         self,
         embeddings_field=None,
         model=None,
+        model_kwargs=None,
         patches_field=None,
         num_dims=2,
         pca_dims=50,
@@ -500,6 +511,7 @@ class TSNEVisualizationConfig(VisualizationConfig):
         super().__init__(
             embeddings_field=embeddings_field,
             model=model,
+            model_kwargs=model_kwargs,
             patches_field=patches_field,
             num_dims=num_dims,
             **kwargs,
@@ -530,6 +542,8 @@ class PCAVisualizationConfig(VisualizationConfig):
             if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
@@ -542,6 +556,7 @@ class PCAVisualizationConfig(VisualizationConfig):
         self,
         embeddings_field=None,
         model=None,
+        model_kwargs=None,
         patches_field=None,
         num_dims=2,
         svd_solver="randomized",
@@ -551,6 +566,7 @@ class PCAVisualizationConfig(VisualizationConfig):
         super().__init__(
             embeddings_field=embeddings_field,
             model=model,
+            model_kwargs=model_kwargs,
             patches_field=patches_field,
             num_dims=num_dims,
             **kwargs,

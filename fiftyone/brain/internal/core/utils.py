@@ -717,6 +717,7 @@ def parse_embeddings_field(samples, embeddings_field, patches_field=None):
 def get_embeddings(
     samples,
     model=None,
+    model_kwargs=None,
     patches_field=None,
     embeddings_field=None,
     embeddings=None,
@@ -749,7 +750,8 @@ def get_embeddings(
         and not _has_embeddings_field(samples, embeddings_field, patches_field)
     ):
         if etau.is_str(model):
-            model = foz.load_zoo_model(model)
+            model_kwargs = model_kwargs or {}
+            model = foz.load_zoo_model(model, **model_kwargs)
 
         if not isinstance(model, fom.Model):
             raise ValueError(

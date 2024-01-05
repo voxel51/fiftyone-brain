@@ -167,6 +167,7 @@ def compute_uniqueness(
     roi_field=None,
     embeddings=None,
     model=None,
+    model_kwargs=None,
     force_square=False,
     alpha=None,
     batch_size=None,
@@ -214,6 +215,8 @@ def compute_uniqueness(
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/models.html>`_
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``roi_field`` are specified
@@ -240,6 +243,7 @@ def compute_uniqueness(
         roi_field,
         embeddings,
         model,
+        model_kwargs,
         force_square,
         alpha,
         batch_size,
@@ -257,6 +261,7 @@ def compute_visualization(
     num_dims=2,
     method="umap",
     model=None,
+    model_kwargs=None,
     force_square=False,
     alpha=None,
     batch_size=None,
@@ -347,6 +352,8 @@ def compute_visualization(
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
             to use to generate embeddings. The model must expose embeddings
             (``model.has_embeddings = True``)
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``patches_field`` are specified
@@ -382,6 +389,7 @@ def compute_visualization(
         num_dims,
         method,
         model,
+        model_kwargs,
         force_square,
         alpha,
         batch_size,
@@ -397,6 +405,7 @@ def compute_similarity(
     embeddings=None,
     brain_key=None,
     model=None,
+    model_kwargs=None,
     force_square=False,
     alpha=None,
     batch_size=None,
@@ -479,6 +488,8 @@ def compute_similarity(
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
             to use, or that was already used, to generate embeddings. The model
             must expose embeddings (``model.has_embeddings = True``)
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``patches_field`` are specified
@@ -515,6 +526,7 @@ def compute_similarity(
         embeddings,
         brain_key,
         model,
+        model_kwargs,
         force_square,
         alpha,
         batch_size,

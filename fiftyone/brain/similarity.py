@@ -42,6 +42,7 @@ def compute_similarity(
     embeddings,
     brain_key,
     model,
+    model_kwargs,
     force_square,
     alpha,
     batch_size,
@@ -76,7 +77,8 @@ def compute_similarity(
             batch_size = _DEFAULT_BATCH_SIZE
 
     if etau.is_str(model):
-        _model = foz.load_zoo_model(model)
+        _model_kwargs = model_kwargs or {}
+        _model = foz.load_zoo_model(model, **_model_kwargs)
         try:
             supports_prompts = _model.can_embed_prompts
         except:
@@ -90,6 +92,7 @@ def compute_similarity(
         embeddings_field=embeddings_field,
         patches_field=patches_field,
         model=model,
+        model_kwargs=model_kwargs,
         supports_prompts=supports_prompts,
         **kwargs,
     )
@@ -177,6 +180,8 @@ class SimilarityConfig(fob.BrainMethodConfig):
             if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         supports_prompts (False): whether this run supports prompt queries
@@ -186,6 +191,7 @@ class SimilarityConfig(fob.BrainMethodConfig):
         self,
         embeddings_field=None,
         model=None,
+        model_kwargs=None,
         patches_field=None,
         supports_prompts=None,
         **kwargs,
@@ -195,6 +201,7 @@ class SimilarityConfig(fob.BrainMethodConfig):
 
         self.embeddings_field = embeddings_field
         self.model = model
+        self.model_kwargs = model_kwargs
         self.patches_field = patches_field
         self.supports_prompts = supports_prompts
         super().__init__(**kwargs)
@@ -847,7 +854,8 @@ class SimilarityIndex(fob.BrainResults):
                 raise ValueError("These results don't have a stored model")
 
             if etau.is_str(model):
-                model = foz.load_zoo_model(model)
+                model_kwargs = self.config.model_kwargs or {}
+                model = foz.load_zoo_model(model, **model_kwargs)
 
             self._model = model
 

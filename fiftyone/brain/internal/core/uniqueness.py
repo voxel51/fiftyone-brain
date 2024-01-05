@@ -44,6 +44,7 @@ def compute_uniqueness(
     roi_field,
     embeddings,
     model,
+    model_kwargs,
     force_square,
     alpha,
     batch_size,
@@ -92,6 +93,7 @@ def compute_uniqueness(
         roi_field=roi_field,
         embeddings_field=embeddings_field,
         model=model,
+        model_kwargs=model_kwargs,
     )
     brain_key = uniqueness_field
     brain_method = config.build()
@@ -107,6 +109,7 @@ def compute_uniqueness(
     embeddings, sample_ids, _ = fbu.get_embeddings(
         samples,
         model=model,
+        model_kwargs=model_kwargs,
         patches_field=roi_field,
         embeddings_field=embeddings_field,
         embeddings=embeddings,
@@ -177,6 +180,7 @@ class UniquenessConfig(fob.BrainMethodConfig):
         roi_field=None,
         embeddings_field=None,
         model=None,
+        model_kwargs=None,
         **kwargs,
     ):
         if model is not None and not etau.is_str(model):
@@ -186,6 +190,7 @@ class UniquenessConfig(fob.BrainMethodConfig):
         self.roi_field = roi_field
         self.embeddings_field = embeddings_field
         self.model = model
+        self.model_kwargs = model_kwargs
         super().__init__(**kwargs)
 
     @property
