@@ -442,7 +442,7 @@ class SimilarityIndex(fob.BrainResults):
             allow_existing (True): whether to ignore (True) or raise an error
                 (False) when ``overwrite`` is False and a provided ID already
                 exists in the
-            warn_missing (False): whether to log a warning if an embedding is
+            warn_existing (False): whether to log a warning if an embedding is
                 not added to the index because its ID already exists
             reload (True): whether to call :meth:`reload` to refresh the
                 current view after the update
