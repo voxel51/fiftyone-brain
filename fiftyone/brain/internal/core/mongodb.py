@@ -479,12 +479,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             query = [query]
 
         if self.has_view:
-            if self.config.patches_field is not None:
-                index_ids = list(self.current_label_ids)
-            else:
-                index_ids = list(self.current_sample_ids)
-        else:
-            index_ids = None
+            raise ValueError("views are not supported")
 
         dataset = self._samples._dataset
 
@@ -499,9 +494,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
                 "queryVector": q.tolist(),
             }
 
-            if index_ids is not None:
-                search["filter"] = {"_id": {"$in": index_ids}}
-            elif dataset.media_type == fom.GROUP:
+            if dataset.media_type == fom.GROUP:
                 # $vectorSearch must be the first stage in all pipelines, so we
                 # have to incorporate slice selection as a $filter
                 name_field = dataset.group_field + ".name"
