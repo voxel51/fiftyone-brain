@@ -268,7 +268,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
                 patches_field=self.config.patches_field,
             )
 
-        _embeddings = np.delete(self._embeddings, rm_inds)
+        _embeddings = np.delete(self._embeddings, rm_inds, axis=0)
 
         self._embeddings = _embeddings
         self._sample_ids = _sample_ids
