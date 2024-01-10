@@ -7,6 +7,7 @@ MongoDB similarity backend.
 """
 import logging
 
+from bson import ObjectId
 import numpy as np
 from pymongo.errors import OperationFailure
 
@@ -147,7 +148,10 @@ class MongoDBSimilarityIndex(SimilarityIndex):
     """
 
     def __init__(self, samples, config, brain_key, backend=None):
-        sample_ids, label_ids = self._parse_data(samples, config)
+        dataset = samples._dataset
+        sample_ids, label_ids = self._parse_data(dataset, config)
+
+        self._dataset = dataset
         self._sample_ids = sample_ids
         self._label_ids = label_ids
 
@@ -173,7 +177,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         return len(self._sample_ids)
 
     def _initialize(self):
-        coll = self._samples._dataset._sample_collection
+        coll = self._dataset._sample_collection
 
         try:
             indexes = {
@@ -217,10 +221,33 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             self.save_config()
 
         if self.config.index_name in indexes:
+            # Index already exists
             self._index = True
+        elif self.total_index_size > 0:
+            # Embeddings already exist but the index hasn't been declared yet
+            dimension = self._get_dimension()
+            self._create_index(dimension)
+        else:
+            # Index will be created when add_to_index() is called
+            pass
+
+    def _get_dimension(self):
+        if self.total_index_size == 0:
+            return None
+
+        if self.config.patches_field is not None:
+            embeddings, _, _ = self.get_embeddings(
+                label_ids=self._label_ids[:1]
+            )
+        else:
+            embeddings, _, _ = self.get_embeddings(
+                sample_ids=self._sample_ids[:1]
+            )
+
+        return embeddings.shape[1]
 
     def _create_index(self, dimension):
-        field = self._samples.get_field(self.config.embeddings_field)
+        field = self._dataset.get_field(self.config.embeddings_field)
         if field is not None and not isinstance(field, fof.ListField):
             raise ValueError(
                 "MongoDB vector search indexes require embeddings to be "
@@ -231,7 +258,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
 
         # https://www.mongodb.com/docs/atlas/atlas-search/field-types/knn-vector
         # https://pymongo.readthedocs.io/en/stable/api/pymongo/collection.html#pymongo.collection.Collection.create_search_index
-        coll = self._samples._dataset._sample_collection
+        coll = self._dataset._sample_collection
         coll.create_search_index(
             {
                 "name": self.config.index_name,
@@ -261,7 +288,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             return False
 
         try:
-            coll = self._samples._dataset._sample_collection
+            coll = self._dataset._sample_collection
             indexes = {
                 i["name"]: i
                 for i in coll.aggregate([{"$listSearchIndexes": {}}])
@@ -304,7 +331,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             return
 
         fbu.add_embeddings(
-            self._samples,
+            self._dataset,
             embeddings[ii, :].tolist(),  # MongoDB requires list fields
             sample_ids[ii],
             label_ids[ii] if label_ids is not None else None,
@@ -347,7 +374,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             rm_label_ids = None
 
         fbu.remove_embeddings(
-            self._samples,
+            self._dataset,
             self.config.embeddings_field,
             sample_ids=rm_sample_ids,
             label_ids=rm_label_ids,
@@ -368,7 +395,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         warn_missing=False,
     ):
         _embeddings, _sample_ids, _label_ids = fbu.get_embeddings(
-            self._samples,
+            self._dataset,
             patches_field=self.config.patches_field,
             embeddings_field=self.config.embeddings_field,
         )
@@ -424,7 +451,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         return embeddings, sample_ids, label_ids
 
     def reload(self):
-        sample_ids, label_ids = self._parse_data(self._samples, self.config)
+        sample_ids, label_ids = self._parse_data(self._dataset, self.config)
         self._sample_ids = sample_ids
         self._label_ids = label_ids
 
@@ -435,7 +462,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             return
 
         try:
-            coll = self._samples._dataset._sample_collection
+            coll = self._dataset._sample_collection
             coll.drop_search_index(self.config.index_name)
         except OperationFailure:
             # requires MongoDB Atlas 7.0 or later
@@ -479,14 +506,21 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             query = [query]
 
         if self.has_view:
-            if self.config.patches_field is not None:
-                index_ids = list(self.current_label_ids)
-            else:
-                index_ids = list(self.current_sample_ids)
+            # https://www.mongodb.com/community/forums/t/258494
+            logger.warning(
+                "The MongoDB backend does not yet support views; the full "
+                "index will instead be queried, which may result in fewer "
+                "matches in your current view"
+            )
+            index_ids = None
+            # if self.config.patches_field is not None:
+            #     index_ids = self.current_label_ids
+            # else:
+            #     index_ids = self.current_sample_ids
         else:
             index_ids = None
 
-        dataset = self._samples._dataset
+        dataset = self._dataset
 
         ids = []
         dists = []
@@ -500,12 +534,14 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             }
 
             if index_ids is not None:
-                search["filter"] = {"_id": {"$in": index_ids}}
+                search["filter"] = {
+                    "_id": {"$in": [ObjectId(_id) for _id in index_ids]}
+                }
             elif dataset.media_type == fom.GROUP:
                 # $vectorSearch must be the first stage in all pipelines, so we
                 # have to incorporate slice selection as a $filter
                 name_field = dataset.group_field + ".name"
-                group_slice = self._samples.group_slice or dataset.group_slice
+                group_slice = self.view.group_slice or dataset.group_slice
                 search["filter"] = {name_field: {"$eq": group_slice}}
 
             project = {"_id": 1}
@@ -567,7 +603,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         return query
 
     def _get_embeddings(self, query_ids):
-        dataset = self._samples._dataset
+        dataset = self._dataset
         patches_field = self.config.patches_field
         embeddings_field = self.config.embeddings_field
         if patches_field is not None:

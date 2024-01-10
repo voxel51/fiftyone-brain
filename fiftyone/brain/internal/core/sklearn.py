@@ -123,14 +123,16 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         label_ids=None,
         backend=None,
     ):
+        dataset = samples._dataset
         embeddings, sample_ids, label_ids = self._parse_data(
-            samples,
+            dataset,
             config,
             embeddings=embeddings,
             sample_ids=sample_ids,
             label_ids=label_ids,
         )
 
+        self._dataset = dataset
         self._embeddings = embeddings
         self._sample_ids = sample_ids
         self._label_ids = label_ids
@@ -194,7 +196,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
 
         if self.config.embeddings_field is not None:
             fbu.add_embeddings(
-                self._samples,
+                self._dataset,
                 _embeddings,
                 sample_ids[ii],
                 label_ids[ii] if label_ids is not None else None,
@@ -259,7 +261,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
                 rm_label_ids = None
 
             fbu.remove_embeddings(
-                self._samples,
+                self._dataset,
                 self.config.embeddings_field,
                 sample_ids=rm_sample_ids,
                 label_ids=rm_label_ids,
@@ -345,7 +347,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
     def reload(self):
         if self.config.embeddings_field is not None:
             embeddings, sample_ids, label_ids = self._parse_data(
-                self._samples, self.config
+                self._dataset, self.config
             )
 
             self._embeddings = embeddings
@@ -665,7 +667,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
     ):
         if embeddings is None:
             embeddings, sample_ids, label_ids = fbu.get_embeddings(
-                samples._dataset,
+                samples,
                 patches_field=config.patches_field,
                 embeddings_field=config.embeddings_field,
             )
