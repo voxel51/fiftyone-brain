@@ -123,16 +123,15 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         label_ids=None,
         backend=None,
     ):
-        dataset = samples._dataset
         embeddings, sample_ids, label_ids = self._parse_data(
-            dataset,
+            samples,
             config,
             embeddings=embeddings,
             sample_ids=sample_ids,
             label_ids=label_ids,
         )
 
-        self._dataset = dataset
+        self._dataset = samples._dataset
         self._embeddings = embeddings
         self._sample_ids = sample_ids
         self._label_ids = label_ids
@@ -667,7 +666,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
     ):
         if embeddings is None:
             embeddings, sample_ids, label_ids = fbu.get_embeddings(
-                samples,
+                samples._dataset,
                 patches_field=config.patches_field,
                 embeddings_field=config.embeddings_field,
             )
