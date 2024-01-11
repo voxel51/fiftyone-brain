@@ -480,7 +480,7 @@ def add_ids(
         if patches_field is not None:
             label_ids = np.array(label_ids)
 
-        m = jj[-1] - n + 1
+        m = max(jj) - n + 1
 
         if n == 0:
             index_sample_ids = np.array([], dtype=sample_ids.dtype)

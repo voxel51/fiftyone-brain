@@ -208,9 +208,8 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         n = _e.shape[0]
         if n == 0:
             _e = np.empty((0, embeddings.shape[1]), dtype=embeddings.dtype)
-
         d = _e.shape[1]
-        m = jj[-1] - n + 1
+        m = max(jj) - n + 1
 
         if m > 0:
             if _e.size > 0:
