@@ -753,11 +753,6 @@ def get_embeddings(
             model_kwargs = model_kwargs or {}
             model = foz.load_zoo_model(model, **model_kwargs)
 
-        if not isinstance(model, fom.Model):
-            raise ValueError(
-                "Model must be a %s; found %s" % (fom.Model, type(model))
-            )
-
         if patches_field is not None:
             logger.info("Computing patch embeddings...")
             embeddings = samples.compute_patch_embeddings(
