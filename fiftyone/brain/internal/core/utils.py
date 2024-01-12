@@ -443,24 +443,28 @@ def add_ids(
     for _i, _id in enumerate(ids):
         _idx = ids_map.get(_id, None)
         if _idx is None:
-            ii.append(_i)
-            jj.append(new_idx)
+            _idx = new_idx
             new_idx += 1
-        elif overwrite:
-            ii.append(_i)
-            jj.append(_idx)
+
+        ii.append(_i)
+        jj.append(_idx)
 
     ii = np.array(ii)
     jj = np.array(jj)
 
     n = len(index_sample_ids)
 
-    if not allow_existing:
+    if not overwrite:
         existing_inds = np.nonzero(jj < n)[0]
         num_existing = existing_inds.size
 
         if num_existing > 0:
-            if warn_existing:
+            if not allow_existing:
+                raise ValueError(
+                    "Found %d IDs (eg '%s') that are already present in the "
+                    "index" % (num_existing, ids[ii[0]])
+                )
+            elif warn_existing:
                 logger.warning(
                     "Ignoring %d IDs (eg '%s') that are already present in "
                     "the index",
@@ -470,18 +474,13 @@ def add_ids(
 
                 ii = np.delete(ii, existing_inds)
                 jj = np.delete(jj, existing_inds)
-            else:
-                raise ValueError(
-                    "Found %d IDs (eg '%s') that are already present in the "
-                    "index" % (num_existing, ids[ii[0]])
-                )
 
     if ii.size > 0:
         sample_ids = np.array(sample_ids)
         if patches_field is not None:
             label_ids = np.array(label_ids)
 
-        m = jj[-1] - n + 1
+        m = max(jj) - n + 1
 
         if n == 0:
             index_sample_ids = np.array([], dtype=sample_ids.dtype)
