@@ -98,7 +98,7 @@ def compute_uniqueness(
     brain_key = uniqueness_field
     brain_method = config.build()
     brain_method.ensure_requirements()
-    brain_method.register_run(samples, brain_key)
+    brain_method.register_run(samples, brain_key, cleanup=False)
 
     if roi_field is not None:
         # @todo experiment with mean(), max(), abs().max(), etc
