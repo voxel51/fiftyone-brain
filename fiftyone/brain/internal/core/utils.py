@@ -443,24 +443,28 @@ def add_ids(
     for _i, _id in enumerate(ids):
         _idx = ids_map.get(_id, None)
         if _idx is None:
-            ii.append(_i)
-            jj.append(new_idx)
+            _idx = new_idx
             new_idx += 1
-        elif overwrite:
-            ii.append(_i)
-            jj.append(_idx)
+
+        ii.append(_i)
+        jj.append(_idx)
 
     ii = np.array(ii)
     jj = np.array(jj)
 
     n = len(index_sample_ids)
 
-    if not allow_existing:
+    if not overwrite:
         existing_inds = np.nonzero(jj < n)[0]
         num_existing = existing_inds.size
 
         if num_existing > 0:
-            if warn_existing:
+            if not allow_existing:
+                raise ValueError(
+                    "Found %d IDs (eg '%s') that are already present in the "
+                    "index" % (num_existing, ids[ii[0]])
+                )
+            elif warn_existing:
                 logger.warning(
                     "Ignoring %d IDs (eg '%s') that are already present in "
                     "the index",
@@ -470,18 +474,13 @@ def add_ids(
 
                 ii = np.delete(ii, existing_inds)
                 jj = np.delete(jj, existing_inds)
-            else:
-                raise ValueError(
-                    "Found %d IDs (eg '%s') that are already present in the "
-                    "index" % (num_existing, ids[ii[0]])
-                )
 
     if ii.size > 0:
         sample_ids = np.array(sample_ids)
         if patches_field is not None:
             label_ids = np.array(label_ids)
 
-        m = jj[-1] - n + 1
+        m = max(jj) - n + 1
 
         if n == 0:
             index_sample_ids = np.array([], dtype=sample_ids.dtype)
@@ -717,6 +716,7 @@ def parse_embeddings_field(samples, embeddings_field, patches_field=None):
 def get_embeddings(
     samples,
     model=None,
+    model_kwargs=None,
     patches_field=None,
     embeddings_field=None,
     embeddings=None,
@@ -727,6 +727,7 @@ def get_embeddings(
     batch_size=None,
     num_workers=None,
     skip_failures=True,
+    progress=None,
 ):
     _validate_args(samples, patches_field=patches_field)
 
@@ -749,12 +750,8 @@ def get_embeddings(
         and not _has_embeddings_field(samples, embeddings_field, patches_field)
     ):
         if etau.is_str(model):
-            model = foz.load_zoo_model(model)
-
-        if not isinstance(model, fom.Model):
-            raise ValueError(
-                "Model must be a %s; found %s" % (fom.Model, type(model))
-            )
+            model_kwargs = model_kwargs or {}
+            model = foz.load_zoo_model(model, **model_kwargs)
 
         if patches_field is not None:
             logger.info("Computing patch embeddings...")
@@ -768,6 +765,7 @@ def get_embeddings(
                 batch_size=batch_size,
                 num_workers=num_workers,
                 skip_failures=skip_failures,
+                progress=progress,
             )
         else:
             if (
@@ -787,6 +785,7 @@ def get_embeddings(
                 batch_size=batch_size,
                 num_workers=num_workers,
                 skip_failures=skip_failures,
+                progress=progress,
             )
 
     if embeddings is None and embeddings_field is not None:

@@ -44,11 +44,13 @@ def compute_uniqueness(
     roi_field,
     embeddings,
     model,
+    model_kwargs,
     force_square,
     alpha,
     batch_size,
     num_workers,
     skip_failures,
+    progress,
 ):
     """See ``fiftyone/brain/__init__.py``."""
 
@@ -92,11 +94,12 @@ def compute_uniqueness(
         roi_field=roi_field,
         embeddings_field=embeddings_field,
         model=model,
+        model_kwargs=model_kwargs,
     )
     brain_key = uniqueness_field
     brain_method = config.build()
     brain_method.ensure_requirements()
-    brain_method.register_run(samples, brain_key)
+    brain_method.register_run(samples, brain_key, cleanup=False)
 
     if roi_field is not None:
         # @todo experiment with mean(), max(), abs().max(), etc
@@ -107,6 +110,7 @@ def compute_uniqueness(
     embeddings, sample_ids, _ = fbu.get_embeddings(
         samples,
         model=model,
+        model_kwargs=model_kwargs,
         patches_field=roi_field,
         embeddings_field=embeddings_field,
         embeddings=embeddings,
@@ -117,6 +121,7 @@ def compute_uniqueness(
         batch_size=batch_size,
         num_workers=num_workers,
         skip_failures=skip_failures,
+        progress=progress,
     )
 
     logger.info("Computing uniqueness...")
@@ -177,6 +182,7 @@ class UniquenessConfig(fob.BrainMethodConfig):
         roi_field=None,
         embeddings_field=None,
         model=None,
+        model_kwargs=None,
         **kwargs,
     ):
         if model is not None and not etau.is_str(model):
@@ -186,6 +192,7 @@ class UniquenessConfig(fob.BrainMethodConfig):
         self.roi_field = roi_field
         self.embeddings_field = embeddings_field
         self.model = model
+        self.model_kwargs = model_kwargs
         super().__init__(**kwargs)
 
     @property

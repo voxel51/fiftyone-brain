@@ -131,6 +131,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
             label_ids=label_ids,
         )
 
+        self._dataset = samples._dataset
         self._embeddings = embeddings
         self._sample_ids = sample_ids
         self._label_ids = label_ids
@@ -194,7 +195,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
 
         if self.config.embeddings_field is not None:
             fbu.add_embeddings(
-                self._samples,
+                self._dataset,
                 _embeddings,
                 sample_ids[ii],
                 label_ids[ii] if label_ids is not None else None,
@@ -207,9 +208,8 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         n = _e.shape[0]
         if n == 0:
             _e = np.empty((0, embeddings.shape[1]), dtype=embeddings.dtype)
-
         d = _e.shape[1]
-        m = jj[-1] - n + 1
+        m = max(jj) - n + 1
 
         if m > 0:
             if _e.size > 0:
@@ -259,14 +259,14 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
                 rm_label_ids = None
 
             fbu.remove_embeddings(
-                self._samples,
+                self._dataset,
                 self.config.embeddings_field,
                 sample_ids=rm_sample_ids,
                 label_ids=rm_label_ids,
                 patches_field=self.config.patches_field,
             )
 
-        _embeddings = np.delete(self._embeddings, rm_inds)
+        _embeddings = np.delete(self._embeddings, rm_inds, axis=0)
 
         self._embeddings = _embeddings
         self._sample_ids = _sample_ids
@@ -345,7 +345,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
     def reload(self):
         if self.config.embeddings_field is not None:
             embeddings, sample_ids, label_ids = self._parse_data(
-                self._samples, self.config
+                self._dataset, self.config
             )
 
             self._embeddings = embeddings

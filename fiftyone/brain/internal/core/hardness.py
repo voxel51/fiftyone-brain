@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 _ALLOWED_TYPES = (fol.Classification, fol.Classifications)
 
 
-def compute_hardness(samples, label_field, hardness_field):
+def compute_hardness(samples, label_field, hardness_field, progress):
     """See ``fiftyone/brain/__init__.py``."""
 
     #
@@ -43,14 +43,14 @@ def compute_hardness(samples, label_field, hardness_field):
     brain_key = hardness_field
     brain_method = config.build()
     brain_method.ensure_requirements()
-    brain_method.register_run(samples, brain_key)
+    brain_method.register_run(samples, brain_key, cleanup=False)
     brain_method.register_samples(samples)
 
     view = samples.select_fields(label_field)
     processing_frames = samples._is_frame_field(label_field)
 
     logger.info("Computing hardness...")
-    for sample in view.iter_samples(progress=True):
+    for sample in view.iter_samples(progress=progress):
         if processing_frames:
             images = sample.frames.values()
         else:

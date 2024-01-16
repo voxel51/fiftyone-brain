@@ -18,7 +18,6 @@ import fiftyone.core.expressions as foe
 import fiftyone.core.plots as fop
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
-import fiftyone.zoo as foz
 
 from fiftyone.brain.visualization import (
     VisualizationResults,
@@ -47,11 +46,13 @@ def compute_visualization(
     num_dims,
     method,
     model,
+    model_kwargs,
     force_square,
     alpha,
     batch_size,
     num_workers,
     skip_failures,
+    progress,
     **kwargs,
 ):
     """See ``fiftyone/brain/__init__.py``."""
@@ -92,7 +93,13 @@ def compute_visualization(
             batch_size = _DEFAULT_BATCH_SIZE
 
     config = _parse_config(
-        embeddings_field, model, patches_field, method, num_dims, **kwargs
+        embeddings_field,
+        model,
+        model_kwargs,
+        patches_field,
+        method,
+        num_dims,
+        **kwargs,
     )
 
     brain_method = config.build()
@@ -105,6 +112,7 @@ def compute_visualization(
         embeddings, sample_ids, label_ids = fbu.get_embeddings(
             samples,
             model=model,
+            model_kwargs=model_kwargs,
             patches_field=patches_field,
             embeddings_field=embeddings_field,
             embeddings=embeddings,
@@ -113,6 +121,7 @@ def compute_visualization(
             batch_size=batch_size,
             num_workers=num_workers,
             skip_failures=skip_failures,
+            progress=progress,
         )
 
         logger.info("Generating visualization...")
@@ -289,7 +298,13 @@ class ManualVisualization(Visualization):
 
 
 def _parse_config(
-    embeddings_field, model, patches_field, method, num_dims, **kwargs
+    embeddings_field,
+    model,
+    model_kwargs,
+    patches_field,
+    method,
+    num_dims,
+    **kwargs,
 ):
     if method is None:
         method = "umap"
@@ -308,6 +323,7 @@ def _parse_config(
     return config_cls(
         embeddings_field=embeddings_field,
         model=model,
+        model_kwargs=model_kwargs,
         patches_field=patches_field,
         num_dims=num_dims,
         **kwargs,

@@ -42,11 +42,13 @@ def compute_similarity(
     embeddings,
     brain_key,
     model,
+    model_kwargs,
     force_square,
     alpha,
     batch_size,
     num_workers,
     skip_failures,
+    progress,
     backend,
     **kwargs,
 ):
@@ -76,7 +78,8 @@ def compute_similarity(
             batch_size = _DEFAULT_BATCH_SIZE
 
     if etau.is_str(model):
-        _model = foz.load_zoo_model(model)
+        _model_kwargs = model_kwargs or {}
+        _model = foz.load_zoo_model(model, **_model_kwargs)
         try:
             supports_prompts = _model.can_embed_prompts
         except:
@@ -90,6 +93,7 @@ def compute_similarity(
         embeddings_field=embeddings_field,
         patches_field=patches_field,
         model=model,
+        model_kwargs=model_kwargs,
         supports_prompts=supports_prompts,
         **kwargs,
     )
@@ -125,6 +129,7 @@ def compute_similarity(
             batch_size=batch_size,
             num_workers=num_workers,
             skip_failures=skip_failures,
+            progress=progress,
         )
     else:
         embeddings = None
@@ -177,6 +182,8 @@ class SimilarityConfig(fob.BrainMethodConfig):
             if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         supports_prompts (False): whether this run supports prompt queries
@@ -186,6 +193,7 @@ class SimilarityConfig(fob.BrainMethodConfig):
         self,
         embeddings_field=None,
         model=None,
+        model_kwargs=None,
         patches_field=None,
         supports_prompts=None,
         **kwargs,
@@ -195,6 +203,7 @@ class SimilarityConfig(fob.BrainMethodConfig):
 
         self.embeddings_field = embeddings_field
         self.model = model
+        self.model_kwargs = model_kwargs
         self.patches_field = patches_field
         self.supports_prompts = supports_prompts
         super().__init__(**kwargs)
@@ -435,7 +444,7 @@ class SimilarityIndex(fob.BrainResults):
             allow_existing (True): whether to ignore (True) or raise an error
                 (False) when ``overwrite`` is False and a provided ID already
                 exists in the
-            warn_missing (False): whether to log a warning if an embedding is
+            warn_existing (False): whether to log a warning if an embedding is
                 not added to the index because its ID already exists
             reload (True): whether to call :meth:`reload` to refresh the
                 current view after the update
@@ -847,7 +856,8 @@ class SimilarityIndex(fob.BrainResults):
                 raise ValueError("These results don't have a stored model")
 
             if etau.is_str(model):
-                model = foz.load_zoo_model(model)
+                model_kwargs = self.config.model_kwargs or {}
+                model = foz.load_zoo_model(model, **model_kwargs)
 
             self._model = model
 
@@ -864,6 +874,7 @@ class SimilarityIndex(fob.BrainResults):
         warn_existing=False,
         force_square=False,
         alpha=None,
+        progress=None,
     ):
         """Computes embeddings for the given samples using this backend's
         model.
@@ -894,6 +905,9 @@ class SimilarityIndex(fob.BrainResults):
                 ``alpha = 1.1`` to expand the boxes by 10%, and set
                 ``alpha = 0.9`` to contract the boxes by 10%. Only applicable
                 when a ``model`` and ``patches_field`` are specified
+            progress (None): whether to render a progress bar (True/False), use
+                the default value ``fiftyone.config.show_progress_bars``
+                (None), or a progress callback function to invoke instead
 
         Returns:
             a tuple of:
@@ -933,6 +947,7 @@ class SimilarityIndex(fob.BrainResults):
             batch_size=batch_size,
             num_workers=num_workers,
             skip_failures=skip_failures,
+            progress=progress,
         )
 
     @classmethod

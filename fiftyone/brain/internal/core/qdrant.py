@@ -363,8 +363,7 @@ class QdrantSimilarityIndex(SimilarityIndex):
 
         if existing_ids and not overwrite:
             del_inds = [i for i, _id in enumerate(ids) if _id in existing_ids]
-
-            embeddings = np.delete(embeddings, del_inds)
+            embeddings = np.delete(embeddings, del_inds, axis=0)
             sample_ids = np.delete(sample_ids, del_inds)
             if label_ids is not None:
                 label_ids = np.delete(label_ids, del_inds)
