@@ -52,6 +52,7 @@ def compute_visualization(
     batch_size,
     num_workers,
     skip_failures,
+    progress,
     **kwargs,
 ):
     """See ``fiftyone/brain/__init__.py``."""
@@ -120,6 +121,7 @@ def compute_visualization(
             batch_size=batch_size,
             num_workers=num_workers,
             skip_failures=skip_failures,
+            progress=progress,
         )
 
         logger.info("Generating visualization...")

@@ -727,6 +727,7 @@ def get_embeddings(
     batch_size=None,
     num_workers=None,
     skip_failures=True,
+    progress=None,
 ):
     _validate_args(samples, patches_field=patches_field)
 
@@ -764,6 +765,7 @@ def get_embeddings(
                 batch_size=batch_size,
                 num_workers=num_workers,
                 skip_failures=skip_failures,
+                progress=progress,
             )
         else:
             if (
@@ -783,6 +785,7 @@ def get_embeddings(
                 batch_size=batch_size,
                 num_workers=num_workers,
                 skip_failures=skip_failures,
+                progress=progress,
             )
 
     if embeddings is None and embeddings_field is not None:

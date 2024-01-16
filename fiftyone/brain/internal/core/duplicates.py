@@ -18,7 +18,7 @@ import fiftyone.core.validation as fov
 logger = logging.getLogger(__name__)
 
 
-def compute_exact_duplicates(samples, num_workers, skip_failures):
+def compute_exact_duplicates(samples, num_workers, skip_failures, progress):
     """See ``fiftyone/brain/__init__.py``."""
 
     fov.validate_collection(samples)
@@ -34,9 +34,11 @@ def compute_exact_duplicates(samples, num_workers, skip_failures):
     method = "md5" if samples.media_type == fom.VIDEO else None
 
     if num_workers <= 1:
-        hashes = _compute_filehashes(samples, method)
+        hashes = _compute_filehashes(samples, method, progress)
     else:
-        hashes = _compute_filehashes_multi(samples, method, num_workers)
+        hashes = _compute_filehashes_multi(
+            samples, method, num_workers, progress
+        )
 
     num_missing = sum(h is None for h in hashes)
     if num_missing > 0:
@@ -61,24 +63,24 @@ def compute_exact_duplicates(samples, num_workers, skip_failures):
     return dict(neighbors_map)
 
 
-def _compute_filehashes(samples, method):
+def _compute_filehashes(samples, method, progress):
     ids, filepaths = samples.values(["id", "filepath"])
 
-    with fou.ProgressBar(total=len(ids)) as pb:
+    with fou.ProgressBar(total=len(ids), progress=progress) as pb:
         return {
             _id: _compute_filehash(filepath, method)
             for _id, filepath in pb(zip(ids, filepaths))
         }
 
 
-def _compute_filehashes_multi(samples, method, num_workers):
+def _compute_filehashes_multi(samples, method, num_workers, progress):
     ids, filepaths = samples.values(["id", "filepath"])
 
     methods = itertools.repeat(method)
 
     inputs = list(zip(ids, filepaths, methods))
 
-    with fou.ProgressBar(total=len(inputs)) as pb:
+    with fou.ProgressBar(total=len(inputs), progress=progress) as pb:
         with multiprocessing.Pool(processes=num_workers) as pool:
             return {
                 k: v

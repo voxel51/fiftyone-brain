@@ -50,6 +50,7 @@ def compute_uniqueness(
     batch_size,
     num_workers,
     skip_failures,
+    progress,
 ):
     """See ``fiftyone/brain/__init__.py``."""
 
@@ -120,6 +121,7 @@ def compute_uniqueness(
         batch_size=batch_size,
         num_workers=num_workers,
         skip_failures=skip_failures,
+        progress=progress,
     )
 
     logger.info("Computing uniqueness...")

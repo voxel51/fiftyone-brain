@@ -48,6 +48,7 @@ def compute_similarity(
     batch_size,
     num_workers,
     skip_failures,
+    progress,
     backend,
     **kwargs,
 ):
@@ -128,6 +129,7 @@ def compute_similarity(
             batch_size=batch_size,
             num_workers=num_workers,
             skip_failures=skip_failures,
+            progress=progress,
         )
     else:
         embeddings = None
@@ -872,6 +874,7 @@ class SimilarityIndex(fob.BrainResults):
         warn_existing=False,
         force_square=False,
         alpha=None,
+        progress=None,
     ):
         """Computes embeddings for the given samples using this backend's
         model.
@@ -902,6 +905,9 @@ class SimilarityIndex(fob.BrainResults):
                 ``alpha = 1.1`` to expand the boxes by 10%, and set
                 ``alpha = 0.9`` to contract the boxes by 10%. Only applicable
                 when a ``model`` and ``patches_field`` are specified
+            progress (None): whether to render a progress bar (True/False), use
+                the default value ``fiftyone.config.show_progress_bars``
+                (None), or a progress callback function to invoke instead
 
         Returns:
             a tuple of:
@@ -941,6 +947,7 @@ class SimilarityIndex(fob.BrainResults):
             batch_size=batch_size,
             num_workers=num_workers,
             skip_failures=skip_failures,
+            progress=progress,
         )
 
     @classmethod
