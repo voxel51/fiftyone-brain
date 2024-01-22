@@ -35,6 +35,9 @@ class BrainConfig(EnvConfig):
         "mongodb": {
             "config_cls": "fiftyone.brain.internal.core.mongodb.MongoDBSimilarityConfig",
         },
+        "weaviate": {
+            "config_cls": "fiftyone.brain.internal.core.weaviate.WeaviateSimilarityConfig",
+        },
     }
 
     def __init__(self, d=None):
