@@ -717,15 +717,13 @@ class SimilarityIndex(fob.BrainResults):
 
         # Construct sorted view
         stages = []
-        print(selecting_samples)
-        print(ids)
+
         if selecting_samples:
             stage = fos.Select(ids, ordered=True)
             stages.append(stage)
         else:
             # Sorting by object similarity but this is not a patches view, so
             # arrange the samples in order of their first occuring label
-            print(sample_ids)
             result_sample_ids = _unique_no_sort(sample_ids)
             stage = fos.Select(result_sample_ids, ordered=True)
             stages.append(stage)
