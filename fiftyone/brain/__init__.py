@@ -300,7 +300,7 @@ def compute_visualization(
 
         model = foz.load_zoo_model("mobilenet-v2-imagenet-torch")
 
-    You can use the ``method`` parameter to select the dimensionality-reduction
+    You can use the ``method`` parameter to select the dimensionality reduction
     method to use, and you can optionally customize the method by passing
     additional parameters for the method's
     :class:`fiftyone.brain.visualization.VisualizationConfig` class as
@@ -361,7 +361,7 @@ def compute_visualization(
         brain_key (None): a brain key under which to store the results of this
             method
         num_dims (2): the dimension of the visualization space
-        method (None): the dimensionality-reduction method to use. The
+        method (None): the dimensionality reduction method to use. The
             supported values are
             ``fiftyone.brain.brain_config.visualization_methods.keys()`` and
             the default is
