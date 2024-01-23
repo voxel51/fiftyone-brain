@@ -5,6 +5,7 @@ Visualization methods.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+import inspect
 import logging
 
 import numpy as np
@@ -93,12 +94,12 @@ def compute_visualization(
             batch_size = _DEFAULT_BATCH_SIZE
 
     config = _parse_config(
-        embeddings_field,
-        model,
-        model_kwargs,
-        patches_field,
         method,
-        num_dims,
+        embeddings_field=embeddings_field,
+        model=model,
+        model_kwargs=model_kwargs,
+        patches_field=patches_field,
+        num_dims=num_dims,
         **kwargs,
     )
 
@@ -297,17 +298,12 @@ class ManualVisualization(Visualization):
         )
 
 
-def _parse_config(
-    embeddings_field,
-    model,
-    model_kwargs,
-    patches_field,
-    method,
-    num_dims,
-    **kwargs,
-):
+def _parse_config(method, **kwargs):
     if method is None:
         method = "umap"
+
+    if inspect.isclass(method):
+        return method(**kwargs)
 
     if method == "umap":
         config_cls = UMAPVisualizationConfig
@@ -320,14 +316,7 @@ def _parse_config(
     else:
         raise ValueError("Unsupported method '%s'" % method)
 
-    return config_cls(
-        embeddings_field=embeddings_field,
-        model=model,
-        model_kwargs=model_kwargs,
-        patches_field=patches_field,
-        num_dims=num_dims,
-        **kwargs,
-    )
+    return config_cls(**kwargs)
 
 
 def _get_dimension(points):
