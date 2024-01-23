@@ -16,12 +16,9 @@ from .similarity import (
     SimilarityIndex,
 )
 from .visualization import (
+    Visualization,
     VisualizationConfig,
     VisualizationResults,
-    UMAPVisualizationConfig,
-    TSNEVisualizationConfig,
-    PCAVisualizationConfig,
-    ManualVisualizationConfig,
 )
 
 
@@ -400,7 +397,7 @@ def compute_visualization(
     Returns:
         a :class:`fiftyone.brain.visualization.VisualizationResults`
     """
-    import fiftyone.brain.internal.core.visualization as fbv
+    import fiftyone.brain.visualization as fbv
 
     return fbv.compute_visualization(
         samples,
