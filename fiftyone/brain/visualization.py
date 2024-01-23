@@ -5,6 +5,7 @@ Visualization interface.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+from copy import deepcopy
 import inspect
 import logging
 
@@ -14,6 +15,7 @@ import sklearn.manifold as skm
 
 import eta.core.utils as etau
 
+import fiftyone.brain as fb
 import fiftyone.core.brain as fob
 import fiftyone.core.expressions as foe
 import fiftyone.core.plots as fop
@@ -210,25 +212,38 @@ def _is_expr(arg):
     return isinstance(arg, (foe.ViewExpression, dict))
 
 
-def _parse_config(method, **kwargs):
-    if method is None:
-        method = "umap"
+def _parse_config(name, **kwargs):
+    if name is None:
+        name = fb.brain_config.default_visualization_method
 
-    if inspect.isclass(method):
-        return method(**kwargs)
+    if inspect.isclass(name):
+        return name(**kwargs)
 
-    if method == "umap":
-        config_cls = UMAPVisualizationConfig
-    elif method == "tsne":
-        config_cls = TSNEVisualizationConfig
-    elif method == "pca":
-        config_cls = PCAVisualizationConfig
-    elif method == "manual":
-        config_cls = ManualVisualizationConfig
-    else:
-        raise ValueError("Unsupported method '%s'" % method)
+    methods = fb.brain_config.visualization_methods
 
-    return config_cls(**kwargs)
+    if name not in methods:
+        raise ValueError(
+            "Unsupported method '%s'. The available methods are %s"
+            % (name, sorted(methods.keys()))
+        )
+
+    params = deepcopy(methods[name])
+
+    config_cls = kwargs.pop("config_cls", None)
+
+    if config_cls is None:
+        config_cls = params.pop("config_cls", None)
+
+    if config_cls is None:
+        raise ValueError(
+            "Visualization method '%s' has no `config_cls`" % name
+        )
+
+    if etau.is_str(config_cls):
+        config_cls = etau.get_class(config_cls)
+
+    params.update(**kwargs)
+    return config_cls(**params)
 
 
 def _get_dimension(points):

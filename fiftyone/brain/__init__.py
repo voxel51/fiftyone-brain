@@ -274,7 +274,7 @@ def compute_visualization(
     points=None,
     brain_key=None,
     num_dims=2,
-    method="umap",
+    method=None,
     model=None,
     model_kwargs=None,
     force_square=False,
@@ -306,7 +306,7 @@ def compute_visualization(
     :class:`fiftyone.brain.visualization.VisualizationConfig` class as
     ``kwargs``.
 
-    The supported ``method`` values and their associated config classes are:
+    The builtin ``method`` values and their associated config classes are:
 
     -   ``"umap"``: :class:`fiftyone.brain.visualization.UMAPVisualizationConfig`
     -   ``"tsne"``: :class:`fiftyone.brain.visualization.TSNEVisualizationConfig`
@@ -361,8 +361,11 @@ def compute_visualization(
         brain_key (None): a brain key under which to store the results of this
             method
         num_dims (2): the dimension of the visualization space
-        method ("umap"): the dimensionality-reduction method to use. Supported
-            values are ``("umap", "tsne", "pca", "manual")``
+        method (None): the dimensionality-reduction method to use. The
+            supported values are
+            ``fiftyone.brain.brain_config.visualization_methods.keys()`` and
+            the default is
+            ``fiftyone.brain.brain_config.default_visualization_method``
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
