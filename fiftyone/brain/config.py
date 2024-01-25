@@ -37,6 +37,21 @@ class BrainConfig(EnvConfig):
         },
     }
 
+    _BUILTIN_VISUALIZATION_METHODS = {
+        "umap": {
+            "config_cls": "fiftyone.brain.visualization.UMAPVisualizationConfig",
+        },
+        "tsne": {
+            "config_cls": "fiftyone.brain.visualization.TSNEVisualizationConfig",
+        },
+        "pca": {
+            "config_cls": "fiftyone.brain.visualization.PCAVisualizationConfig",
+        },
+        "manual": {
+            "config_cls": "fiftyone.brain.visualization.ManualVisualizationConfig",
+        },
+    }
+
     def __init__(self, d=None):
         if d is None:
             d = {}
@@ -52,6 +67,19 @@ class BrainConfig(EnvConfig):
         if self.default_similarity_backend not in self.similarity_backends:
             self.default_similarity_backend = next(
                 iter(sorted(self.similarity_backends.keys())), None
+            )
+
+        self.default_visualization_method = self.parse_string(
+            d,
+            "default_visualization_method",
+            env_var="FIFTYONE_BRAIN_DEFAULT_VISUALIZATION_METHOD",
+            default="umap",
+        )
+
+        self.visualization_methods = self._parse_visualization_methods(d)
+        if self.default_visualization_method not in self.visualization_methods:
+            self.default_visualization_method = next(
+                iter(sorted(self.visualization_methods.keys())), None
             )
 
     def _parse_similarity_backends(self, d):
@@ -106,6 +134,61 @@ class BrainConfig(EnvConfig):
             for name, value in defaults.items():
                 if name not in d_backend:
                     d_backend[name] = value
+
+        return d
+
+    def _parse_visualization_methods(self, d):
+        d = d.get("visualization_methods", {})
+        env_vars = dict(os.environ)
+
+        #
+        # `FIFTYONE_BRAIN_VISUALIZATION_METHODS` can be used to declare which
+        # methods are exposed. This may exclude builtin methods and/or declare
+        # new methods
+        #
+
+        if "FIFTYONE_BRAIN_VISUALIZATION_METHODS" in env_vars:
+            methods = env_vars["FIFTYONE_BRAIN_VISUALIZATION_METHODS"].split(
+                ","
+            )
+
+            # Special syntax to append rather than override default methods
+            if "*" in methods:
+                methods = set(m for m in methods if m != "*")
+                methods |= set(self._BUILTIN_VISUALIZATION_METHODS.keys())
+
+            d = {method: d.get(method, {}) for method in methods}
+        else:
+            methods = self._BUILTIN_VISUALIZATION_METHODS.keys()
+            for method in methods:
+                if method not in d:
+                    d[method] = {}
+
+        #
+        # Extract parameters from any environment variables of the form
+        # `FIFTYONE_BRAIN_VISUALIZATION_<METHOD>_<PARAMETER>`
+        #
+
+        for method, d_method in d.items():
+            prefix = "FIFTYONE_BRAIN_VISUALIZATION_%s_" % method.upper()
+            for env_name, env_value in env_vars.items():
+                if env_name.startswith(prefix):
+                    name = env_name[len(prefix) :].lower()
+                    value = _parse_env_value(env_value)
+                    d_method[name] = value
+
+        #
+        # Set default parameters for builtin visualization methods
+        #
+
+        for method, defaults in self._BUILTIN_VISUALIZATION_METHODS.items():
+            if method not in d:
+                continue
+
+            d_method = d[method]
+            for name, value in defaults.items():
+                if name not in d_method:
+                    d_method[name] = value
 
         return d
 
