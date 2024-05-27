@@ -47,14 +47,15 @@ class ElasticsearchSimilarityConfig(SimilarityConfig):
         metric ("cosine"): the embedding distance metric to use when creating a
             new index. Supported values are
             ``("cosine", "dotproduct", "euclidean", "innerproduct")``
-        hosts (None):
-        cloud_id (None):
-        username (None):
-        password (None):
-        api_key (None):
-        ca_certs (None):
-        bearer_auth (None):
-        ssl_assert_fingerprint (None):
+        hosts (None): the full Elasticsearch server address(es) to use. Can be
+            a string or list of strings
+        cloud_id (None): the Cloud ID of an Elastic Cloud to connect to
+        username (None): a username to use
+        password (None): a password to use
+        api_key (None): an API key to use
+        ca_certs (None): a path to a CA certificate
+        bearer_auth (None): a bearer token to use
+        ssl_assert_fingerprint (None): a SHA256 fingerprint to use
         **kwargs: keyword arguments for :class:`SimilarityConfig`
     """
 
@@ -247,6 +248,11 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
     @property
     def total_index_size(self):
         return self._client.count(index=self.config.index_name)["count"]
+
+    @property
+    def client(self):
+        """The client instance for Elasticsearch."""
+        return self._client
 
     def _initialize(self):
         kwargs = {}
