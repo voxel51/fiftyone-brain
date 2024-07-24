@@ -143,24 +143,20 @@ def _compute_representativeness(embeddings, method="nn"):
     #
     # @todo experiment on which method for assessing representativeness
     #
-    if method == "cluster-center":
-        num_embeddings = len(embeddings)
-        logger.info(
-            "Computing clusters for %d embeddings; this may take awhile...",
-            num_embeddings,
-        )
-        final_ranking, _ = _cluster_ranker(embeddings)
-    elif method == "cluster-center-downweight":
-        num_embeddings = len(embeddings)
-        logger.info(
-            "Computing clusters for %d embeddings; this may take awhile...",
-            num_embeddings,
-        )
-        initial_ranking, _ = _cluster_ranker(embeddings)
+    num_embeddings = len(embeddings)
+    logger.info(
+        "Computing clusters for %d embeddings; this may take awhile...",
+        num_embeddings,
+    )
 
+    final_ranking, _ = _cluster_ranker(
+        embeddings, cluster_algorithm="meanshift"
+    )
+
+    if method == "cluster-center-downweight":
         logger.info("Applying iterative downweighting...")
         final_ranking = _adjust_rankings(
-            embeddings, initial_ranking, ball_radius=0.5
+            embeddings, final_ranking, ball_radius=0.5
         )
     else:
         raise ValueError(
@@ -172,23 +168,31 @@ def _compute_representativeness(embeddings, method="nn"):
     return final_ranking
 
 
-def _cluster_ranker(embeddings):
+def _cluster_ranker(embeddings, cluster_algorithm="kmeans", N=20):
     # Cluster
-    bandwidth = skc.estimate_bandwidth(embeddings, quantile=0.8, n_samples=500)
-    clusterer = skc.MeanShift(bandwidth=bandwidth, bin_seeding=True).fit(
-        embeddings
-    )
+    if cluster_algorithm == "meanshift":
+        bandwidth = skc.estimate_bandwidth(
+            embeddings, quantile=0.8, n_samples=500
+        )
+        clusterer = skc.MeanShift(bandwidth=bandwidth, bin_seeding=True).fit(
+            embeddings
+        )
+    elif cluster_algorithm == "kmeans":
+        clusterer = skc.KMeans(n_clusters=N).fit(embeddings)
+    else:
+        raise ValueError(
+            "Clustering algorithms {} no supported. Please use one of ['meanshift', 'kmeans']".format(
+                cluster_algorithm
+            )
+        )
 
     cluster_centers = clusterer.cluster_centers_
     cluster_ids = clusterer.labels_
 
     # Get distance from each point to it's closest cluster center
-    sample_dists = np.zeros(len(embeddings))
-    for i in range(len(embeddings)):
-        sample_dists[i] = np.linalg.norm(
-            embeddings[i] - cluster_centers[cluster_ids[i]]
-        )
-
+    sample_dists = np.linalg.norm(
+        embeddings - cluster_centers[cluster_ids], axis=1
+    )
     centerness_ranking = 1 / (1 + sample_dists)
     return centerness_ranking, clusterer
 
