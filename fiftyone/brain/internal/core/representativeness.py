@@ -139,7 +139,7 @@ def compute_representativeness(
     logger.info("Representativeness computation complete")
 
 
-def _compute_representativeness(embeddings, method="nn"):
+def _compute_representativeness(embeddings, method="cluster-center"):
     #
     # @todo experiment on which method for assessing representativeness
     #
@@ -160,7 +160,7 @@ def _compute_representativeness(embeddings, method="nn"):
         )
     else:
         raise ValueError(
-            "Method {} not supported. Please use a supported method".format(
+            "Method {} not supported. Please use one of ['cluster-center', 'cluster-center-downweight']".format(
                 method
             )
         )
@@ -181,7 +181,7 @@ def _cluster_ranker(embeddings, cluster_algorithm="kmeans", N=20):
         clusterer = skc.KMeans(n_clusters=N).fit(embeddings)
     else:
         raise ValueError(
-            "Clustering algorithms {} no supported. Please use one of ['meanshift', 'kmeans']".format(
+            "Clustering algorithm {} no supported. Please use one of ['meanshift', 'kmeans']".format(
                 cluster_algorithm
             )
         )
@@ -242,6 +242,7 @@ class RepresentativenessConfig(fob.BrainMethodConfig):
         self.roi_field = roi_field
         self.embeddings_field = embeddings_field
         self.model = model
+        self._method = method
         self.model_kwargs = model_kwargs
         super().__init__(**kwargs)
 
@@ -251,7 +252,12 @@ class RepresentativenessConfig(fob.BrainMethodConfig):
 
     @property
     def method(self):
-        return "neighbors"
+        return self._method
+
+    @classmethod
+    def _virtual_attributes(cls):
+        # By default 'method' is virtual but we omit so it *IS* serialized
+        return ["cls", "type"]
 
 
 class Representativeness(fob.BrainMethod):
