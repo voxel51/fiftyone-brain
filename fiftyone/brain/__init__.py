@@ -298,10 +298,11 @@ def compute_representativeness(
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
-        representativeness_field ("representativeness"): the field name to use to store the
-            representativeness value for each sample
+        representativeness_field ("representativeness"): the field name to use
+            to store the representativeness value for each sample
         method ("cluster-center"): the name of the method to use to compute the
-            representativeness. One of ['cluster-center', 'cluster-center-downweight']
+            representativeness. One of ['cluster-center',
+            'cluster-center-downweight']
         roi_field (None): an optional :class:`fiftyone.core.labels.Detection`,
             :class:`fiftyone.core.labels.Detections`,
             :class:`fiftyone.core.labels.Polyline`, or
