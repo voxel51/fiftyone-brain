@@ -88,6 +88,7 @@ def compute_representativeness(
     config = RepresentativenessConfig(
         representativeness_field,
         roi_field=roi_field,
+        method=method,
         embeddings_field=embeddings_field,
         model=model,
         model_kwargs=model_kwargs,
@@ -149,14 +150,14 @@ def _compute_representativeness(embeddings, method="cluster-center"):
         num_embeddings,
     )
 
-    final_ranking, _ = _cluster_ranker(
-        embeddings, cluster_algorithm="meanshift"
-    )
+    initial_ranking, _ = _cluster_ranker(embeddings)
 
-    if method == "cluster-center-downweight":
+    if method == "cluster-center":
+        final_ranking = initial_ranking
+    elif method == "cluster-center-downweight":
         logger.info("Applying iterative downweighting...")
         final_ranking = _adjust_rankings(
-            embeddings, final_ranking, ball_radius=0.5
+            embeddings, initial_ranking, ball_radius=0.5
         )
     else:
         raise ValueError(
@@ -193,7 +194,9 @@ def _cluster_ranker(embeddings, cluster_algorithm="kmeans", N=20):
     sample_dists = np.linalg.norm(
         embeddings - cluster_centers[cluster_ids], axis=1
     )
+
     centerness_ranking = 1 / (1 + sample_dists)
+    centerness_ranking = centerness_ranking / centerness_ranking.max()
     return centerness_ranking, clusterer
 
 
@@ -228,7 +231,7 @@ class RepresentativenessConfig(fob.BrainMethodConfig):
     def __init__(
         self,
         representativeness_field,
-        method="nn",
+        method="cluster-center",
         roi_field=None,
         embeddings_field=None,
         model=None,
