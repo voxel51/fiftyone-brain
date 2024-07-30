@@ -169,7 +169,9 @@ def _compute_representativeness(embeddings, method="cluster-center"):
     return final_ranking
 
 
-def _cluster_ranker(embeddings, cluster_algorithm="kmeans", N=20):
+def _cluster_ranker(
+    embeddings, cluster_algorithm="kmeans", N=20, norm_method="local"
+):
     # Cluster
     if cluster_algorithm == "meanshift":
         bandwidth = skc.estimate_bandwidth(
@@ -196,7 +198,20 @@ def _cluster_ranker(embeddings, cluster_algorithm="kmeans", N=20):
     )
 
     centerness_ranking = 1 / (1 + sample_dists)
-    centerness_ranking = centerness_ranking / centerness_ranking.max()
+
+    # Normalize per cluster vs globally
+    norm_method = "local"
+    if norm_method == "global":
+        centerness_ranking = centerness_ranking / centerness_ranking.max()
+    elif norm_method == "local":
+        unique_ids = np.unique(cluster_ids)
+        for unique_id in unique_ids:
+            cluster_indices = np.where(cluster_ids == unique_id)[0]
+            cluster_dists = sample_dists[cluster_indices]
+            cluster_dists /= cluster_dists.max()
+            sample_dists[cluster_indices] = cluster_dists
+        centerness_ranking = sample_dists
+
     return centerness_ranking, clusterer
 
 
