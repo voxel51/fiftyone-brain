@@ -181,7 +181,7 @@ def _cluster_ranker(
             embeddings
         )
     elif cluster_algorithm == "kmeans":
-        clusterer = skc.KMeans(n_clusters=N).fit(embeddings)
+        clusterer = skc.KMeans(n_clusters=N, random_state=1234).fit(embeddings)
     else:
         raise ValueError(
             "Clustering algorithm {} no supported. Please use one of ['meanshift', 'kmeans']".format(
