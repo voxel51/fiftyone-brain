@@ -87,8 +87,8 @@ def compute_representativeness(
 
     config = RepresentativenessConfig(
         representativeness_field,
-        roi_field=roi_field,
         method=method,
+        roi_field=roi_field,
         embeddings_field=embeddings_field,
         model=model,
         model_kwargs=model_kwargs,
@@ -161,9 +161,11 @@ def _compute_representativeness(embeddings, method="cluster-center"):
         )
     else:
         raise ValueError(
-            "Method {} not supported. Please use one of ['cluster-center', 'cluster-center-downweight']".format(
-                method
+            (
+                "Method '%s' not supported. Please use one of "
+                "['cluster-center', 'cluster-center-downweight']"
             )
+            % method
         )
 
     return final_ranking
@@ -184,9 +186,11 @@ def _cluster_ranker(
         clusterer = skc.KMeans(n_clusters=N, random_state=1234).fit(embeddings)
     else:
         raise ValueError(
-            "Clustering algorithm {} no supported. Please use one of ['meanshift', 'kmeans']".format(
-                cluster_algorithm
+            (
+                "Clustering algorithm '%s' not supported. Please use one of "
+                "['meanshift', 'kmeans']"
             )
+            % cluster_algorithm
         )
 
     cluster_centers = clusterer.cluster_centers_
@@ -246,7 +250,7 @@ class RepresentativenessConfig(fob.BrainMethodConfig):
     def __init__(
         self,
         representativeness_field,
-        method="cluster-center",
+        method=None,
         roi_field=None,
         embeddings_field=None,
         model=None,
@@ -257,10 +261,10 @@ class RepresentativenessConfig(fob.BrainMethodConfig):
             model = etau.get_class_name(model)
 
         self.representativeness_field = representativeness_field
+        self._method = method
         self.roi_field = roi_field
         self.embeddings_field = embeddings_field
         self.model = model
-        self._method = method
         self.model_kwargs = model_kwargs
         super().__init__(**kwargs)
 
