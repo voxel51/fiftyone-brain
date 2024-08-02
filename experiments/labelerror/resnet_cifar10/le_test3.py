@@ -3,7 +3,7 @@ le_test3 --> initial tests for using fiftyone with this code
 Loads the data, assigns ground-truth labels, loads a model
 Runs prediction and associates predictions with the fiftyone dataset
 
-| Copyright 2017-2023, Voxel51, Inc.
+| Copyright 2017-2024, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
