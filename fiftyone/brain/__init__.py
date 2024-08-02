@@ -267,6 +267,111 @@ def compute_uniqueness(
     )
 
 
+def compute_representativeness(
+    samples,
+    representativeness_field="representativeness",
+    method="cluster-center",
+    roi_field=None,
+    embeddings=None,
+    model=None,
+    model_kwargs=None,
+    force_square=False,
+    alpha=None,
+    batch_size=None,
+    num_workers=None,
+    skip_failures=True,
+    progress=None,
+):
+    """Adds a representativeness field to each sample scoring how representative
+    of nearby samples it is.
+
+    This function only uses the pixel data and can therefore process labeled or
+    unlabeled samples.
+
+    If no ``embeddings`` or ``model`` is provided, a default model is used to
+    generate embeddings.
+
+    .. note::
+
+        Runs of this method can be referenced later via brain key
+        ``representativeness_field``.
+
+    Args:
+        samples: a :class:`fiftyone.core.collections.SampleCollection`
+        representativeness_field ("representativeness"): the field name to use
+            to store the representativeness value for each sample
+        method ("cluster-center"): the name of the method to use to compute the
+            representativeness. The supported values are
+            ``["cluster-center", 'cluster-center-downweight']``.
+            ``"cluster-center"` will make a sample's representativeness
+            proportional to it's proximity to cluster centers, while
+            ``"cluster-center-downweight"`` will ensure more diversity in
+            representative samples
+        roi_field (None): an optional :class:`fiftyone.core.labels.Detection`,
+            :class:`fiftyone.core.labels.Detections`,
+            :class:`fiftyone.core.labels.Polyline`, or
+            :class:`fiftyone.core.labels.Polylines` field defining a region of
+            interest within each image to use to compute representativeness
+        embeddings (None): if no ``model`` is provided, this argument specifies
+            pre-computed embeddings to use, which can be any of the following:
+
+            -   a ``num_samples x num_dims`` array of embeddings
+            -   if ``roi_field`` is specified,  a dict mapping sample IDs to
+                ``num_patches x num_dims`` arrays of patch embeddings
+            -   the name of a dataset field containing the embeddings to use
+
+            If a ``model`` is provided, this argument specifies the name of a
+            field in which to store the computed embeddings. In either case,
+            when working with patch embeddings, you can provide either the
+            fully-qualified path to the patch embeddings or just the name of
+            the label attribute in ``roi_field``
+        model (None): a :class:`fiftyone.core.models.Model` or the name of a
+            model from the
+            `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/models.html>`_
+            to use to generate embeddings. The model must expose embeddings
+            (``model.has_embeddings = True``)
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
+        force_square (False): whether to minimally manipulate the patch
+            bounding boxes into squares prior to extraction. Only applicable
+            when a ``model`` and ``roi_field`` are specified
+        alpha (None): an optional expansion/contraction to apply to the patches
+            before extracting them, in ``[-1, inf)``. If provided, the length
+            and width of the box are expanded (or contracted, when
+            ``alpha < 0``) by ``(100 * alpha)%``. For example, set
+            ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
+            to contract the boxes by 10%. Only applicable when a ``model`` and
+            ``roi_field`` are specified
+        batch_size (None): a batch size to use when computing embeddings. Only
+            applicable when a ``model`` is provided
+        num_workers (None): the number of workers to use when loading images.
+            Only applicable when a Torch-based model is being used to compute
+            embeddings
+        skip_failures (True): whether to gracefully continue without raising an
+            error if embeddings cannot be generated for a sample
+        progress (None): whether to render a progress bar (True/False), use the
+            default value ``fiftyone.config.show_progress_bars`` (None), or a
+            progress callback function to invoke instead
+    """
+    import fiftyone.brain.internal.core.representativeness as fbr
+
+    return fbr.compute_representativeness(
+        samples,
+        representativeness_field,
+        method,
+        roi_field,
+        embeddings,
+        model,
+        model_kwargs,
+        force_square,
+        alpha,
+        batch_size,
+        num_workers,
+        skip_failures,
+        progress,
+    )
+
+
 def compute_visualization(
     samples,
     patches_field=None,
