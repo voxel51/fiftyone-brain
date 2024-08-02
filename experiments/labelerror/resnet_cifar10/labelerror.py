@@ -19,7 +19,7 @@ TODO Another comparison would be to select just random samples to check and fix.
 In addition, simple reporting on the accuracy of the identification of errors
 in the annotations
 
-| Copyright 2017-2023, Voxel51, Inc.
+| Copyright 2017-2024, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
