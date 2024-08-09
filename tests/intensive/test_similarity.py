@@ -44,7 +44,16 @@ Redis setup::
 
 Elasticsearch setup::
 
-    # Instructions at: https://www.elastic.co/guide/en/elasticsearch/reference/current/getting-started.html#run-elasticsearch
+    # Instructions from: https://www.elastic.co/guide/en/elasticsearch/reference/current/getting-started.html#run-elasticsearch
+    docker run -p 127.0.0.1:9200:9200 -d \
+        --name elasticsearch \
+        -e ELASTIC_PASSWORD=elastic \
+        -e "discovery.type=single-node" \
+        -e "xpack.security.http.ssl.enabled=false" \
+        -e "xpack.license.self_generated.type=trial" \
+        docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+
+    pip install elasticsearch
 
 Brain config setup at `~/.fiftyone/brain_config.json`::
 
@@ -70,8 +79,7 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
             "elasticsearch": {
                 "hosts": "http://localhost:9200",
                 "username": "elastic",
-                "password": "XXXXXXX",
-                "ssl_assert_fingerprint": "YYYYYYY"
+                "password": "elastic"
             }
         }
     }
@@ -92,7 +100,14 @@ import fiftyone.zoo as foz
 from fiftyone import ViewField as F
 
 
-CUSTOM_BACKENDS = ["qdrant", "pinecone", "milvus", "lancedb", "redis", "elasticsearch"]
+CUSTOM_BACKENDS = [
+    "qdrant",
+    "pinecone",
+    "milvus",
+    "lancedb",
+    "redis",
+    "elasticsearch",
+]
 
 
 def get_custom_backends():
