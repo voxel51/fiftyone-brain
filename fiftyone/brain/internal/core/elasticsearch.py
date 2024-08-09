@@ -22,6 +22,7 @@ from fiftyone.brain.similarity import (
 
 es = fou.lazy_import("elasticsearch")
 
+
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_METRICS = {
@@ -56,6 +57,7 @@ class ElasticsearchSimilarityConfig(SimilarityConfig):
         ca_certs (None): a path to a CA certificate
         bearer_auth (None): a bearer token to use
         ssl_assert_fingerprint (None): a SHA256 fingerprint to use
+        verify_certs (None): whether to verify SSL certificates
         **kwargs: keyword arguments for :class:`SimilarityConfig`
     """
 
@@ -75,11 +77,13 @@ class ElasticsearchSimilarityConfig(SimilarityConfig):
         ca_certs=None,
         bearer_auth=None,
         ssl_assert_fingerprint=None,
+        verify_certs=None,
         **kwargs,
     ):
         if patches_field is not None:
             raise ValueError(
-                "The Elasticsearch backend does not yet support patch embeddings"
+                "The Elasticsearch backend does not yet support patch "
+                "embeddings"
             )
 
         if metric not in _SUPPORTED_METRICS:
@@ -107,6 +111,7 @@ class ElasticsearchSimilarityConfig(SimilarityConfig):
         self._ca_certs = ca_certs
         self._bearer_auth = bearer_auth
         self._ssl_assert_fingerprint = ssl_assert_fingerprint
+        self._verify_certs = verify_certs
 
     @property
     def method(self):
@@ -177,6 +182,14 @@ class ElasticsearchSimilarityConfig(SimilarityConfig):
         self._ssl_assert_fingerprint = value
 
     @property
+    def verify_certs(self):
+        return self._verify_certs
+
+    @verify_certs.setter
+    def verify_certs(self, value):
+        self._verify_certs = value
+
+    @property
     def max_k(self):
         return 10000  # Elasticsearch limit
 
@@ -198,6 +211,7 @@ class ElasticsearchSimilarityConfig(SimilarityConfig):
         ca_certs=None,
         bearer_auth=None,
         ssl_assert_fingerprint=None,
+        verify_certs=None,
     ):
         self._load_parameters(
             hosts=hosts,
@@ -208,6 +222,7 @@ class ElasticsearchSimilarityConfig(SimilarityConfig):
             ca_certs=ca_certs,
             bearer_auth=bearer_auth,
             ssl_assert_fingerprint=ssl_assert_fingerprint,
+            verify_certs=verify_certs,
         )
 
 
@@ -251,7 +266,7 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
 
     @property
     def client(self):
-        """The client instance for Elasticsearch."""
+        """The ``elasticsearch.Elasticsearch`` instance for this index."""
         return self._client
 
     def _initialize(self):
@@ -266,6 +281,7 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
             "ca_certs",
             "bearer_auth",
             "ssl_assert_fingerprint",
+            "verify_certs",
         ):
             value = getattr(self.config, key, None)
             if value is not None:
@@ -329,7 +345,9 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
                 }
             }
         }
-        self._client.indices.create(index=self.config.index_name, mappings=mappings)
+        self._client.indices.create(
+            index=self.config.index_name, mappings=mappings
+        )
 
     def _get_existing_ids(self, ids):
         docs = [{"_index": self.config.index_name, "_id": i} for i in ids]
@@ -402,10 +420,16 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
         ):
             operations = []
             for _e, _id, _sid in zip(_embeddings, _ids, _sample_ids):
-                operations.append({"index": {"_index": self.config.index_name, "_id": _id}})
+                operations.append(
+                    {"index": {"_index": self.config.index_name, "_id": _id}}
+                )
                 operations.append({"sample_id": _sid, "vector": _e})
 
-            self._client.bulk(index=self.config.index_name, operations=operations, refresh=True)
+            self._client.bulk(
+                index=self.config.index_name,
+                operations=operations,
+                refresh=True,
+            )
 
         if reload:
             self.reload()
@@ -440,7 +464,11 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
                         "Ignoring %d IDs that are not present in the index",
                         num_missing,
                     )
-        operations = [{"delete": {"_index": self.config.index_name, "_id": i}} for i in ids]
+
+        operations = [
+            {"delete": {"_index": self.config.index_name, "_id": i}}
+            for i in ids
+        ]
         self._client.bulk(body=operations, refresh=True)
 
         if reload:
@@ -527,17 +555,39 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
         if sample_ids is None:
             for batch in range(0, self.total_index_size, batch_size):
                 kwargs = {"from": batch}
-                response = self._client.search(index=self.config.index_name, body={"query":{"bool": {"must": [{"exists": {"field": "vector"}}]}}}, size=batch_size, **kwargs)
-                _found_embeddings, _found_sample_ids, _ = self._parse_embeddings_response(response["hits"]["hits"], label_id=False)
+                response = self._client.search(
+                    index=self.config.index_name,
+                    body={
+                        "query": {
+                            "bool": {"must": [{"exists": {"field": "vector"}}]}
+                        }
+                    },
+                    size=batch_size,
+                    **kwargs,
+                )
+                (
+                    _found_embeddings,
+                    _found_sample_ids,
+                    _,
+                ) = self._parse_embeddings_response(
+                    response["hits"]["hits"], label_id=False
+                )
                 found_embeddings += _found_embeddings
                 found_sample_ids += _found_sample_ids
                 return found_embeddings, found_sample_ids, None, []
-
         else:
             for batch_ids in fou.iter_batches(sample_ids, batch_size):
-                response = self._client.mget(index=self.config.index_name, ids=batch_ids, source=True)
+                response = self._client.mget(
+                    index=self.config.index_name, ids=batch_ids, source=True
+                )
 
-                _found_embeddings, _found_sample_ids, _ = self._parse_embeddings_response(response["docs"], label_id=False)
+                (
+                    _found_embeddings,
+                    _found_sample_ids,
+                    _,
+                ) = self._parse_embeddings_response(
+                    response["docs"], label_id=False
+                )
                 found_embeddings += _found_embeddings
                 found_sample_ids += _found_sample_ids
 
@@ -553,16 +603,35 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
         if label_ids is None:
             for batch in range(0, self.total_index_size, batch_size):
                 kwargs = {"from": batch}
-                response = self._client.search(index=self.config.index_name, body={"query":{"bool": {"must": [{"exists": {"field": "vector"}}]}}}, size=batch_size, **kwargs)
-                _found_embeddings, _found_sample_ids, _found_label_ids = self._parse_embeddings_response(response["hits"]["hits"])
+                response = self._client.search(
+                    index=self.config.index_name,
+                    body={
+                        "query": {
+                            "bool": {"must": [{"exists": {"field": "vector"}}]}
+                        }
+                    },
+                    size=batch_size,
+                    **kwargs,
+                )
+                (
+                    _found_embeddings,
+                    _found_sample_ids,
+                    _found_label_ids,
+                ) = self._parse_embeddings_response(response["hits"]["hits"])
                 found_embeddings += _found_embeddings
                 found_sample_ids += _found_sample_ids
                 found_label_ids += _found_label_ids
 
         for batch_ids in fou.iter_batches(label_ids, batch_size):
-            response = self._client.mget(index=self.config.index_name, ids=batch_ids, source=True)
+            response = self._client.mget(
+                index=self.config.index_name, ids=batch_ids, source=True
+            )
 
-            _found_embeddings, _found_sample_ids, _found_label_ids = self._parse_embeddings_response(response["docs"])
+            (
+                _found_embeddings,
+                _found_sample_ids,
+                _found_label_ids,
+            ) = self._parse_embeddings_response(response["docs"])
             found_embeddings += _found_embeddings
             found_sample_ids += _found_sample_ids
             found_label_ids += _found_label_ids
@@ -579,9 +648,15 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
         found_label_ids = []
 
         for batch_ids in fou.iter_batches(sample_ids, batch_size):
-            response = self._client.search(body={"query": {"terms": {"sample_id": sample_ids}}})
+            response = self._client.search(
+                body={"query": {"terms": {"sample_id": sample_ids}}}
+            )
 
-            _found_embeddings, _found_sample_ids, _found_label_ids = self._parse_embeddings_response(response["hits"]["hits"])
+            (
+                _found_embeddings,
+                _found_sample_ids,
+                _found_label_ids,
+            ) = self._parse_embeddings_response(response["hits"]["hits"])
             found_embeddings += _found_embeddings
             found_sample_ids += _found_sample_ids
             found_label_ids += _found_label_ids
@@ -591,7 +666,9 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
         return found_embeddings, found_sample_ids, found_label_ids, missing_ids
 
     def cleanup(self):
-        self._client.indices.delete(index=self.config.index_name, ignore_unavailable=True)
+        self._client.indices.delete(
+            index=self.config.index_name, ignore_unavailable=True
+        )
 
     def _kneighbors(
         self,
@@ -602,7 +679,9 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
         return_dists=False,
     ):
         if query is None:
-            raise ValueError("Elasticsearch does not support full index neighbors")
+            raise ValueError(
+                "Elasticsearch does not support full index neighbors"
+            )
 
         if reverse is True:
             raise ValueError(
@@ -635,7 +714,7 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
         ids = []
         dists = []
         for q in query:
-            knn={
+            knn = {
                 "field": "vector",
                 "query_vector": q.tolist(),
                 "k": k,
@@ -676,8 +755,12 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
             single_query = False
 
         # Query by ID(s)
-        response = self._client.mget(index=self.config.index_name, ids=query_ids, source=True)
-        query = np.array([r["_source"]["vector"] for r in response["docs"] if r["found"]])
+        response = self._client.mget(
+            index=self.config.index_name, ids=query_ids, source=True
+        )
+        query = np.array(
+            [r["_source"]["vector"] for r in response["docs"] if r["found"]]
+        )
 
         if single_query:
             query = query[0, :]
