@@ -718,6 +718,7 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
                 "field": "vector",
                 "query_vector": q.tolist(),
                 "k": k,
+                "num_candidates": 10 * k,
             }
             if _filter:
                 knn["filter"] = _filter
@@ -725,6 +726,7 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
             response = self._client.search(
                 index=self.config.index_name,
                 knn=knn,
+                size=k,
             )
             ids.append([r["_id"] for r in response["hits"]["hits"]])
             if return_dists:
