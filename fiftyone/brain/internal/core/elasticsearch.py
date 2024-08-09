@@ -80,7 +80,6 @@ class ElasticsearchSimilarityConfig(SimilarityConfig):
         verify_certs=None,
         **kwargs,
     ):
-
         if metric not in _SUPPORTED_METRICS:
             raise ValueError(
                 "Unsupported metric '%s'. Supported values are %s"
@@ -253,11 +252,15 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
     def __init__(self, samples, config, brain_key, backend=None):
         super().__init__(samples, config, brain_key, backend=backend)
         self._client = None
+        self._metric = None
         self._initialize()
 
     @property
     def total_index_size(self):
-        return self._client.count(index=self.config.index_name)["count"]
+        try:
+            return self._client.count(index=self.config.index_name)["count"]
+        except:
+            return 0
 
     @property
     def client(self):
@@ -296,11 +299,9 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
                 "information"
             ) from e
 
-        index_names = self._get_index_names()
-
         if self.config.index_name is None:
             root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
-            index_name = fbu.get_unique_name(root, index_names)
+            index_name = fbu.get_unique_name(root, self._get_index_names())
 
             self.config.index_name = index_name
             self.save_config()
@@ -353,9 +354,22 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
         return embeddings.shape[1]
 
     def _get_metric(self):
-        return self._client.indices.get_mapping(index=self.config.index_name)[
-            self.config.index_name
-        ]["mappings"]["properties"]["vector"]["similarity"]
+        if self._metric is None:
+            try:
+                # We must ask ES rather than using `self.config.metric` because
+                # we may be working with a preexisting index
+                self._metric = self._client.indices.get_mapping(
+                    index=self.config.index_name
+                )[self.config.index_name]["mappings"]["properties"]["vector"][
+                    "similarity"
+                ]
+            except:
+                logger.warning(
+                    "Failed to infer similarity metric from index '%s'",
+                    self.config.index_name,
+                )
+
+        return self._metric
 
     def _index_exists(self):
         if self.config.index_name is None:
@@ -364,19 +378,21 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
         return self.config.index_name in self._get_index_names()
 
     def _create_index(self, dimension):
+        metric = _SUPPORTED_METRICS[self.config.metric]
         mappings = {
             "properties": {
                 "vector": {
                     "type": "dense_vector",
                     "dims": dimension,
                     "index": "true",
-                    "similarity": _SUPPORTED_METRICS[self.config.metric],
+                    "similarity": metric,
                 }
             }
         }
         self._client.indices.create(
             index=self.config.index_name, mappings=mappings
         )
+        self._metric = metric
 
     def _get_existing_ids(self, ids):
         docs = [{"_index": self.config.index_name, "_id": i} for i in ids]
@@ -436,11 +452,7 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
                 label_ids = np.delete(label_ids, del_inds)
 
         if self._get_metric() == _SUPPORTED_METRICS["dotproduct"]:
-            # dotproduct required normalized vectors
-            logger.info("Normalizing vectors for dotproduct compatibility...")
-            embeddings = (
-                embeddings / np.linalg.norm(embeddings, axis=1)[:, np.newaxis]
-            )
+            embeddings /= np.linalg.norm(embeddings, axis=1)[:, np.newaxis]
 
         embeddings = [e.tolist() for e in embeddings]
         sample_ids = list(sample_ids)
@@ -715,7 +727,7 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
         dists = []
         for q in query:
             if self._get_metric() == _SUPPORTED_METRICS["dotproduct"]:
-                q = q / np.linalg.norm(q)
+                q /= np.linalg.norm(q)
 
             knn = {
                 "field": "vector",
