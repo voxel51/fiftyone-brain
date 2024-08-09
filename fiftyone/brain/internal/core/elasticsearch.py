@@ -328,6 +328,9 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
 
         return embeddings.shape[1]
 
+    def _get_metric(self):
+        return self._client.indices.get_mapping(index=self.config.index_name)[self.config.index_name]["mappings"]["properties"]["vector"]["similarity"]
+
     def _index_exists(self):
         if self.config.index_name is None:
             return False
@@ -405,6 +408,11 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
             sample_ids = np.delete(sample_ids, del_inds)
             if label_ids is not None:
                 label_ids = np.delete(label_ids, del_inds)
+
+        if self._get_metric() == _SUPPORTED_METRICS["dotproduct"]:
+            # dotproduct required normalized vectors
+            logger.info("Normalizing vectors for dotproduct compatibility...")
+            embeddings = embeddings / np.linalg.norm(embeddings, axis=1)[:, np.newaxis]
 
         embeddings = [e.tolist() for e in embeddings]
         sample_ids = list(sample_ids)
@@ -714,6 +722,9 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
         ids = []
         dists = []
         for q in query:
+            if self._get_metric() == _SUPPORTED_METRICS["dotproduct"]:
+                q = q / np.linalg.norm(q)
+
             knn = {
                 "field": "vector",
                 "query_vector": q.tolist(),
