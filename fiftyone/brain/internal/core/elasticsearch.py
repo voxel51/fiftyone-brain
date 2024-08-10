@@ -496,15 +496,15 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
             ids = sample_ids
 
         if not allow_missing or warn_missing:
-            existing_ids = self._index.fetch(ids).vectors.keys()
-            missing_ids = set(existing_ids) - set(ids)
+            existing_ids = self._get_existing_ids(ids)
+            missing_ids = set(ids) - set(existing_ids)
             num_missing = len(missing_ids)
 
             if num_missing > 0:
                 if not allow_missing:
                     raise ValueError(
                         "Found %d IDs (eg %s) that are not present in the "
-                        "index" % (num_missing, missing_ids[0])
+                        "index" % (num_missing, next(iter(missing_ids)))
                     )
 
                 if warn_missing:
@@ -512,6 +512,8 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
                         "Ignoring %d IDs that are not present in the index",
                         num_missing,
                     )
+
+                ids = existing_ids
 
         operations = [
             {"delete": {"_index": self.config.index_name, "_id": i}}
