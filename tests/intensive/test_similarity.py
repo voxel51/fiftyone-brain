@@ -42,6 +42,19 @@ Redis setup::
 
     pip install redis
 
+Elasticsearch setup::
+
+    # Instructions from: https://www.elastic.co/guide/en/elasticsearch/reference/current/getting-started.html#run-elasticsearch
+    docker run -p 127.0.0.1:9200:9200 -d \
+        --name elasticsearch \
+        -e ELASTIC_PASSWORD=elastic \
+        -e "discovery.type=single-node" \
+        -e "xpack.security.http.ssl.enabled=false" \
+        -e "xpack.license.self_generated.type=trial" \
+        docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+
+    pip install elasticsearch
+
 Brain config setup at `~/.fiftyone/brain_config.json`::
 
     {
@@ -63,6 +76,11 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
                 "host": "localhost",
                 "port": 6379
             }
+            "elasticsearch": {
+                "hosts": "http://localhost:9200",
+                "username": "elastic",
+                "password": "elastic"
+            }
         }
     }
 
@@ -82,7 +100,14 @@ import fiftyone.zoo as foz
 from fiftyone import ViewField as F
 
 
-CUSTOM_BACKENDS = ["qdrant", "pinecone", "milvus", "lancedb", "redis"]
+CUSTOM_BACKENDS = [
+    "qdrant",
+    "pinecone",
+    "milvus",
+    "lancedb",
+    "redis",
+    "elasticsearch",
+]
 
 
 def get_custom_backends():
@@ -127,6 +152,9 @@ def test_brain_config():
             # this isn't mandatory
             # assert "host" in similarity_backends["redis"]
             # assert "port" in similarity_backends["redis"]
+
+        if backend == "elasticsearch":
+            assert "elasticsearch" in similarity_backends
 
 
 def test_image_similarity_backends():

@@ -35,6 +35,10 @@ class BrainConfig(EnvConfig):
         "mongodb": {
             "config_cls": "fiftyone.brain.internal.core.mongodb.MongoDBSimilarityConfig",
         },
+        "elasticsearch": {
+            "config_cls": "fiftyone.brain.internal.core.elasticsearch.ElasticsearchSimilarityConfig",
+        },
+
     }
 
     _BUILTIN_VISUALIZATION_METHODS = {
