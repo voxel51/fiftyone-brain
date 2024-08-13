@@ -1,7 +1,7 @@
 """
 Brain config.
 
-| Copyright 2017-2023, Voxel51, Inc.
+| Copyright 2017-2024, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -35,6 +35,10 @@ class BrainConfig(EnvConfig):
         "mongodb": {
             "config_cls": "fiftyone.brain.internal.core.mongodb.MongoDBSimilarityConfig",
         },
+        "elasticsearch": {
+            "config_cls": "fiftyone.brain.internal.core.elasticsearch.ElasticsearchSimilarityConfig",
+        },
+
     }
 
     _BUILTIN_VISUALIZATION_METHODS = {

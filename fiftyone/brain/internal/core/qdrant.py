@@ -1,7 +1,7 @@
 """
 Qdrant similarity backend.
 
-| Copyright 2017-2023, Voxel51, Inc.
+| Copyright 2017-2024, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -409,22 +409,23 @@ class QdrantSimilarityIndex(SimilarityIndex):
 
         if warn_missing or not allow_missing:
             response = self._retrieve_points(qids, with_vectors=False)
-
             existing_ids = self._to_fiftyone_ids([r.id for r in response])
-            missing_ids = list(set(ids) - set(existing_ids))
+            missing_ids = set(ids) - set(existing_ids)
             num_missing_ids = len(missing_ids)
 
             if num_missing_ids > 0:
                 if not allow_missing:
                     raise ValueError(
                         "Found %d IDs (eg %s) that do not exist in the index"
-                        % (num_missing_ids, missing_ids[0])
+                        % (num_missing_ids, next(iter(missing_ids)))
                     )
                 if warn_missing and not allow_missing:
                     logger.warning(
                         "Skipping %d IDs that do not exist in the index",
                         num_missing_ids,
                     )
+
+            qids = self._to_qdrant_ids(existing_ids)
 
         self._client.delete(
             collection_name=self.config.collection_name,
