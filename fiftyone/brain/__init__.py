@@ -652,6 +652,9 @@ def compute_similarity(
     """
     import fiftyone.brain.similarity as fbs
 
+    if brain_key is None:
+        raise ValueError("brain_key cannot be None")
+
     return fbs.compute_similarity(
         samples,
         patches_field,
