@@ -902,8 +902,8 @@ class SimilarityIndex(fob.BrainResults):
                 patches before extracting them, in ``[-1, inf)``. If provided,
                 the length and width of the box are expanded (or contracted,
                 when ``alpha < 0``) by ``(100 * alpha)%``. For example, set
-                ``alpha = 1.1`` to expand the boxes by 10%, and set
-                ``alpha = 0.9`` to contract the boxes by 10%. Only applicable
+                ``alpha = 0.1`` to expand the boxes by 10%, and set
+                ``alpha = -0.1`` to contract the boxes by 10%. Only applicable
                 when a ``model`` and ``patches_field`` are specified
             progress (None): whether to render a progress bar (True/False), use
                 the default value ``fiftyone.config.show_progress_bars``
