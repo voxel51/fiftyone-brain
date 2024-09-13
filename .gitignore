@@ -16,3 +16,4 @@ dist/
 
 /fiftyone/brain/internal/models/cache/**/*
 !/fiftyone/brain/internal/models/cache/manifest.json
+*.pth
