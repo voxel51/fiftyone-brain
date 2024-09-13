@@ -34,3 +34,10 @@ IF %DEV_INSTALL%==true (
 )
 
 echo ***** INSTALLATION COMPLETE *****
+exit /b
+
+:helpmessage
+echo Additional Arguments:
+echo -h      Display help message
+echo -d      Install developer dependencies.
+exit /b
