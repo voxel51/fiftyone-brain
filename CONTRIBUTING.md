@@ -2,9 +2,6 @@
 For all contributions we currently follow all of the practices established in
 [FiftyOne](https://github.com/voxel51/fiftyone/blob/develop/CONTRIBUTING.md). 
 
-> Happy exception: FiftyOne Brain is strictly Python 3 code, so we do not
-> follow the Python 2 compability instructions in ETA!
-
 ## Exposure of methods in top-level brain package
 
 The `fiftyone.brain` package should expose all core user-functionality at the
