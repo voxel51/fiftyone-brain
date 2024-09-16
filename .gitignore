@@ -2,18 +2,18 @@ __pycache__
 .DS_store
 .ipynb_checkpoints
 
+*~
 *.egg-info
 *.py[cod]
 *.pth
+*.swp
 
+.idea
 .project
 .pydevproject
-.idea
 
 build/
 dist/
-
-*~
 
 /fiftyone/brain/internal/models/cache/**/*
 !/fiftyone/brain/internal/models/cache/manifest.json
