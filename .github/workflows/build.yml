@@ -71,7 +71,7 @@ jobs:
         run: |
           pip install --upgrade pip setuptools wheel
       - name: Download fiftyone-brain wheel
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           path: dist
       - name: Install fiftyone
@@ -113,7 +113,7 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - name: Download wheels
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           path: dist
       - name: Install dependencies
