@@ -1,16 +1,17 @@
-
-**/*.DS_store
-
 __pycache__
+.DS_store
+.ipynb_checkpoints
+
+*.egg-info
 *.py[cod]
+*.pth
+
+.project
+.pydevproject
+.idea
 
 build/
 dist/
-*.egg-info
-.project
-.pydevproject
-**/*.ipynb_checkpoints
-.idea
 
 *~
 
