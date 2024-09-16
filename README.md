@@ -6,17 +6,10 @@ The brains behind [FiftyOne](https://github.com/voxel51/fiftyone).
 
 -   `docs/` documentation about the repository and project
 
--   `experiments/` internal-only examples that demonstrate concrete value-add
-    of the FiftyOne Brain
-
 -   `fiftyone/brain/` definition of the `fiftyone.brain` package
 
     -   `fiftyone/brain/internal/` all propreitary internal code powering the
         public namespace of the Brain (TODO: refactor for open source)
-
--   `production/` work needed to generate production models, code, etc.,
-    associated with the Brain. It contains scripts and such for repeatable,
-    versioned model training for uniqueness, for example
 
 -   `requirements/` Python requirements for the project
 
