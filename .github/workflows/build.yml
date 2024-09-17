@@ -51,7 +51,9 @@ jobs:
     needs: [build]
     runs-on: ubuntu-20.04
     env:
+      FIFTYONE_DATASET_ZOO_DIR: ${{ github.workspace }}/.fiftyone
       FIFTYONE_DO_NOT_TRACK: true
+      FIFTYONE_MODEL_ZOO_DIR: ${{ github.workspace }}/.fiftyone
     strategy:
       fail-fast: false
       matrix:
@@ -103,6 +105,13 @@ jobs:
       - name: Install test dependencies
         run: |
           pip install imageio pytest torch torchvision
+      - name: Cache Zoo
+        id: fiftyone-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .fiftyone
+          key: zoo-${{ hashFiles('tests/**') }}
       - name: Run tests
         run: |
           pytest --verbose tests/ --ignore tests/intensive/
