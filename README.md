@@ -1,30 +1,35 @@
 # FiftyOne Brain
 
-The brains behind [FiftyOne](https://github.com/voxel51/fiftyone).
+The brains behind [FiftyOne](https://github.com/voxel51/fiftyone). For
+documentation, [see here](https://docs.voxel51.com/brain.html).
 
-## Repository Layout
+## Repository layout
 
--   `docs/` documentation about the repository and project
-
--   `fiftyone/brain/` definition of the `fiftyone.brain` package
-
-    -   `fiftyone/brain/internal/` all propreitary internal code powering the
-        public namespace of the Brain (TODO: refactor for open source)
-
--   `requirements/` Python requirements for the project
-
--   `tests/` tests for the various components of the Brain
+-   `fiftyone/brain/`: definition of the `fiftyone.brain` namespace
+-   `requirements/`: Python requirements for the project
+-   `tests/`: tests for the various components of the Brain
 
 ## Installation
 
-Clone the repository:
+The FiftyOne Brain is distributed via the `fiftyone-brain` package, and a
+suitable version is automatically included with every `fiftyone` install!
+
+```shell
+pip install fiftyone
+pip show fiftyone-brain
+```
+
+### Installing from source
+
+If you wish to do a source install of the latest FiftyOne Brain version, simply
+clone this repository:
 
 ```shell
 git clone https://github.com/voxel51/fiftyone-brain
 cd fiftyone-brain
 ```
 
-and install it:
+and run the install script:
 
 ```shell
 bash install.bash
@@ -39,12 +44,24 @@ developer installation using the `-d` flag of the install script:
 bash install.bash -d
 ```
 
-You should also checkout the
-[Developer's Guide](https://github.com/voxel51/fiftyone-brain/blob/develop/docs/dev_guide.md)
-to get started.
+Check out the [contribution guide](CONTRIBUTING.md) to get started.
 
 ## Uninstallation
 
 ```shell
 pip uninstall fiftyone-brain
+```
+
+## Citation
+
+If you use FiftyOne in your research, feel free to cite the project (but only
+if you love it 😊):
+
+```bibtex
+@article{moore2020fiftyone,
+  title={FiftyOne},
+  author={Moore, B. E. and Corso, J. J.},
+  journal={GitHub. Note: https://github.com/voxel51/fiftyone},
+  year={2020}
+}
 ```
