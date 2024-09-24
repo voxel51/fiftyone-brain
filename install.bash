@@ -39,9 +39,10 @@ if [ ${DEV_INSTALL} = true ]; then
     echo "Performing dev install"
     pip install -r requirements/dev.txt
     pre-commit install
+    pip install -e .
 else
     pip install -r requirements.txt
+    pip install .
 fi
-pip install -e .
 
 echo "***** INSTALLATION COMPLETE *****"

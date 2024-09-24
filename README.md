@@ -36,10 +36,7 @@ and more.
 
 ## Repository Layout
 
--   `fiftyone/brain/` definition of the `fiftyone.brain` package
-
-    -   `fiftyone/brain/internal/` all propreitary internal code powering the
-        public namespace of the Brain (TODO: refactor for open source)
+-   `fiftyone/brain/` definition of the `fiftyone.brain` namespace
 
 -   `requirements/` Python requirements for the project
 
@@ -47,24 +44,40 @@ and more.
 
 ## Installation
 
-Note that this repository is automatically installed during an installation of
-[FiftyOne](https://github.com/voxel51/fiftyone). These installation
-instructions are for developers looking to work directly within the repository.
+The FiftyOne Brain is distributed via the `fiftyone-brain` package, and a
+suitable version is automatically included with every `fiftyone` install!
 
-Clone the repository:
+```shell
+pip install fiftyone
+pip show fiftyone-brain
+```
+
+### Installing from source
+
+If you wish to do a source install of the latest FiftyOne Brain version, simply
+clone this repository:
 
 ```shell
 git clone https://github.com/voxel51/fiftyone-brain
 cd fiftyone-brain
 ```
 
-and install it:
+and run the install script:
+
+```shell
+bash install.bash
+```
+
+### Developer installation
+
+If you are a developer contributing to this repository, you should perform a
+developer installation using the `-d` flag of the install script:
 
 ```shell
 bash install.bash -d
 ```
 
-Noting that the `-d` explicitly performs a developer install.
+Check out the [contribution guide](CONTRIBUTING.md) to get started.
 
 ## Uninstallation
 
