@@ -126,10 +126,10 @@ class MongoDBSimilarity(Similarity):
         # eg Atlas clusters generally have hostnames which end in "mongodb.net"
         # https://stackoverflow.com/q/73180110
         #
-        fou.ensure_package("pymongo>=4.5")
+        fou.ensure_package("pymongo>=4.5,<4.9")
 
     def ensure_usage_requirements(self):
-        fou.ensure_package("pymongo>=4.5")
+        fou.ensure_package("pymongo>=4.5,<4.9")
 
     def initialize(self, samples, brain_key):
         return MongoDBSimilarityIndex(
