@@ -3,13 +3,7 @@
 
 **FiftyOne Brain**
 
-The open source AI/ML capabilities for the
-[FiftyOne](https://github.com/voxel51/fiftyone) ecosystem, implementing the
-AIML capabilities enabling users to automatically analyze and manipulate
-datasets and models in smart and intuitive ways. The FiftyOne Brain includes
-features like visual similarity search, query by text, finding unique and
-representative samples, finding media quality problems and annotation mistakes,
-and more.
+**Open Source AI from @Voxel51**
 
 ---
 
@@ -31,6 +25,16 @@ and more.
 
 </p>
 </div>
+
+---
+
+The open source AI/ML capabilities for the
+[FiftyOne](https://github.com/voxel51/fiftyone) ecosystem, implementing the
+AIML capabilities enabling users to automatically analyze and manipulate
+datasets and models in smart and intuitive ways. The FiftyOne Brain includes
+features like visual similarity search, query by text, finding unique and
+representative samples, finding media quality problems and annotation mistakes,
+and more.
 
 ## Repository Layout
 
