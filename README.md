@@ -1,7 +1,7 @@
 <div align="center">
 <p align="center">
 
-<img src="https://github.com/user-attachments/assets/17afdf93-289c-40f1-805c-06344f095cf6.png" height="55px">
+<img src="https://github.com/user-attachments/assets/17afdf93-289c-40f1-805c-06344f095cf6" height="55px">
 
 **Open Source AI from @Voxel51**
 
