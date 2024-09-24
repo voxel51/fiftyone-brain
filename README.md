@@ -5,8 +5,6 @@
 
 **Open Source AI from @Voxel51**
 
----
-
 <!-- prettier-ignore -->
 <a href="https://voxel51.com/fiftyone">FiftyOne Website</a> •
 <a href="https://voxel51.com/docs/fiftyone">FiftyOne Docs</a> •
