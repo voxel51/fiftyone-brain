@@ -3,7 +3,7 @@
 
 <img src="https://github.com/user-attachments/assets/17afdf93-289c-40f1-805c-06344f095cf6" height="55px">
 
-**Open Source AI from @Voxel51**
+**Open Source AI from [Voxel51](https://voxel51.com)**
 
 <!-- prettier-ignore -->
 <a href="https://voxel51.com/fiftyone">FiftyOne Website</a> •
@@ -26,26 +26,22 @@
 
 ---
 
-The open source AI/ML capabilities for the
-[FiftyOne](https://github.com/voxel51/fiftyone) ecosystem, implementing the
-AIML capabilities enabling users to automatically analyze and manipulate
-datasets and models in smart and intuitive ways. The FiftyOne Brain includes
-features like visual similarity search, query by text, finding unique and
-representative samples, finding media quality problems and annotation mistakes,
-and more.
+FiftyOne Brain contains the open source AI/ML capabilities for the
+[FiftyOne ecosystem](https://github.com/voxel51/fiftyone), enabling users to
+automatically analyze and manipulate their datasets and models. FiftyOne Brain
+includes features like visual similarity search, query by text, finding unique
+and representative samples, finding media quality problems and annotation
+mistakes, and more 🚀
 
-## Repository Layout
+## Documentation
 
--   `fiftyone/brain/` definition of the `fiftyone.brain` namespace
-
--   `requirements/` Python requirements for the project
-
--   `tests/` tests for the various components of the Brain
+Public documentation for the FiftyOne Brain is
+[available here](https://docs.voxel51.com/user_guide/brain.html).
 
 ## Installation
 
 The FiftyOne Brain is distributed via the `fiftyone-brain` package, and a
-suitable version is automatically included with every `fiftyone` install!
+suitable version is automatically included with every `fiftyone` install:
 
 ```shell
 pip install fiftyone
@@ -85,20 +81,15 @@ Check out the [contribution guide](CONTRIBUTING.md) to get started.
 pip uninstall fiftyone-brain
 ```
 
-## Documentation
+## Repository layout
 
-The main documentation for the FiftyOne Brain is available at
-[fiftyone.ai](https://docs.voxel51.com/user_guide_brain.html). This includes
-various types of AI/ML functionality like
-
--   Working with embeddings
--   Computing and working with visual similarity
--   Dataset and sample insights like uniqueness and hardness
--   Configuring and managing brain runs
+-   `fiftyone/brain/` definition of the `fiftyone.brain` namespace
+-   `requirements/` Python requirements for the project
+-   `tests/` tests for the various components of the Brain
 
 ## Citation
 
-If you use the FiftyOne Brain in your research, please cite the project.
+If you use the FiftyOne Brain in your research, please cite the project:
 
 ```bibtex
 @article{moore2020fiftyone,
