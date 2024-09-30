@@ -8,3 +8,4 @@ pre-commit==2.0.1
 pylint==2.3.1
 pytest==7.3.1
 twine>=3
+voxel51-eta[storage]
