@@ -522,7 +522,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
             )
 
         if k is None or k > self.config.max_k:
-            raise ValueError("Pincone requires k<=%s" % self.config.max_k)
+            raise ValueError("Pinecone requires k<=%s" % self.config.max_k)
 
         if aggregation not in (None, "mean"):
             raise ValueError("Unsupported aggregation '%s'" % aggregation)
