@@ -61,7 +61,11 @@ cd fiftyone-brain
 and run the install script:
 
 ```shell
+# Mac or Linux
 bash install.bash
+
+# Windows
+.\install.bat
 ```
 
 ### Developer installation
@@ -70,7 +74,11 @@ If you are a developer contributing to this repository, you should perform a
 developer installation using the `-d` flag of the install script:
 
 ```shell
+# Mac or Linux
 bash install.bash -d
+
+# Windows
+.\install.bat -d
 ```
 
 Check out the [contribution guide](CONTRIBUTING.md) to get started.
