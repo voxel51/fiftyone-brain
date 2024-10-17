@@ -93,9 +93,13 @@ class SklearnSimilarity(Similarity):
         config: an :class:`SklearnSimilarityConfig`
     """
 
-    def initialize(self, samples, brain_key):
+    def initialize(self, samples, brain_key, embeddings=None):
         return SklearnSimilarityIndex(
-            samples, self.config, brain_key, backend=self
+            samples,
+            self.config,
+            brain_key,
+            backend=self,
+            embeddings=embeddings,
         )
 
 
@@ -823,7 +827,6 @@ class NeighborsHelper(object):
         embeddings -= embeddings.mean(axis=0, keepdims=True)
 
         metric = self.metric
-
         if metric == "cosine":
             # Nearest neighbors does not directly support cosine distance, so
             # we approximate via euclidean distance on unit-norm embeddings
