@@ -128,10 +128,12 @@ def compute_uniqueness(
         progress=progress,
     )
 
-    similarity_method = config.backend.build()
-    similarity_index = similarity_method.initialize(
-        samples=samples, brain_key="", embeddings=embeddings
-    )
+    similarity_index = None
+    if config.backend:
+        similarity_method = config.backend.build()
+        similarity_index = similarity_method.initialize(
+            samples=samples, brain_key="", embeddings=embeddings
+        )
 
     logger.info("Computing uniqueness...")
     uniqueness = _compute_uniqueness(embeddings, similarity_index)
