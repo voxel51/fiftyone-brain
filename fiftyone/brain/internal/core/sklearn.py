@@ -93,13 +93,12 @@ class SklearnSimilarity(Similarity):
         config: an :class:`SklearnSimilarityConfig`
     """
 
-    def initialize(self, samples, brain_key, embeddings=None):
+    def initialize(self, samples, brain_key):
         return SklearnSimilarityIndex(
             samples,
             self.config,
             brain_key,
             backend=self,
-            embeddings=embeddings,
         )
 
 

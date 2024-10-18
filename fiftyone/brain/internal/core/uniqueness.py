@@ -132,8 +132,9 @@ def compute_uniqueness(
     if config.backend:
         similarity_method = config.backend.build()
         similarity_index = similarity_method.initialize(
-            samples=samples, brain_key="", embeddings=embeddings
+            samples=samples, brain_key=""
         )
+        similarity_index.add_to_index(embeddings, sample_ids)
 
     logger.info("Computing uniqueness...")
     uniqueness = _compute_uniqueness(embeddings, similarity_index)
