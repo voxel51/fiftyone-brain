@@ -184,6 +184,7 @@ def compute_uniqueness(
     num_workers=None,
     skip_failures=True,
     progress=None,
+    backend=None,
 ):
     """Adds a uniqueness field to each sample scoring how unique it is with
     respect to the rest of the samples.
@@ -248,6 +249,10 @@ def compute_uniqueness(
         progress (None): whether to render a progress bar (True/False), use the
             default value ``fiftyone.config.show_progress_bars`` (None), or a
             progress callback function to invoke instead
+        backend (None): the similarity backend to use. The supported values are
+            ``fiftyone.brain.brain_config.similarity_backends.keys()`` and the
+            default is
+            ``fiftyone.brain.brain_config.default_similarity_backend``
     """
     import fiftyone.brain.internal.core.uniqueness as fbu
 
@@ -264,6 +269,7 @@ def compute_uniqueness(
         num_workers,
         skip_failures,
         progress,
+        backend,
     )
 
 

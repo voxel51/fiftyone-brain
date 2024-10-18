@@ -5,6 +5,7 @@ Uniqueness methods.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+from copy import deepcopy
 import logging
 
 import numpy as np
@@ -13,6 +14,7 @@ import sklearn.neighbors as skn
 
 import eta.core.utils as etau
 
+import fiftyone.brain as fb
 import fiftyone.core.brain as fob
 import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
@@ -51,6 +53,7 @@ def compute_uniqueness(
     num_workers,
     skip_failures,
     progress,
+    backend=None,
 ):
     """See ``fiftyone/brain/__init__.py``."""
 
@@ -91,6 +94,7 @@ def compute_uniqueness(
 
     config = UniquenessConfig(
         uniqueness_field,
+        similarity_backend=backend,
         roi_field=roi_field,
         embeddings_field=embeddings_field,
         model=model,
@@ -124,8 +128,16 @@ def compute_uniqueness(
         progress=progress,
     )
 
+    similarity_index = None
+    if config.backend:
+        similarity_method = config.backend.build()
+        similarity_index = similarity_method.initialize(
+            samples=samples, brain_key=""
+        )
+        similarity_index.add_to_index(embeddings, sample_ids)
+
     logger.info("Computing uniqueness...")
-    uniqueness = _compute_uniqueness(embeddings)
+    uniqueness = _compute_uniqueness(embeddings, similarity_index)
 
     # Ensure field exists, even if `uniqueness` is empty
     samples._dataset.add_sample_field(uniqueness_field, fof.FloatField)
@@ -139,26 +151,30 @@ def compute_uniqueness(
     logger.info("Uniqueness computation complete")
 
 
-def _compute_uniqueness(embeddings, metric="euclidean"):
-    K = 3
-
-    num_embeddings = len(embeddings)
-    if num_embeddings <= K:
-        return [1] * num_embeddings
-    elif num_embeddings <= _MAX_PRECOMPUTE_DISTS:
-        embeddings = skm.pairwise_distances(embeddings, metric=metric)
-        metric = "precomputed"
-    else:
-        logger.info(
-            "Computing neighbors for %d embeddings; this may take awhile...",
-            num_embeddings,
+def _compute_uniqueness(
+    embeddings, similarity_index=None, metric="euclidean", n_neighbors=3
+):
+    if similarity_index:
+        _, dists_list = similarity_index._kneighbors(
+            query=embeddings, k=n_neighbors + 1, return_dists=True
         )
+        dists = np.array(dists_list)
+    else:
+        num_embeddings = len(embeddings)
+        if num_embeddings <= n_neighbors:
+            return [1] * num_embeddings
+        elif num_embeddings <= _MAX_PRECOMPUTE_DISTS:
+            embeddings = skm.pairwise_distances(embeddings, metric=metric)
+            metric = "precomputed"
+        else:
+            logger.info(
+                "Computing neighbors for %d embeddings; this may take awhile...",
+                num_embeddings,
+            )
+        # First column of dists and indices is self-distance
+        knns = skn.NearestNeighbors(metric=metric).fit(embeddings)
+        dists, _ = knns.kneighbors(embeddings, n_neighbors=n_neighbors + 1)
 
-    # First column of dists and indices is self-distance
-    knns = skn.NearestNeighbors(metric=metric).fit(embeddings)
-    dists, _ = knns.kneighbors(embeddings, n_neighbors=K + 1)
-
-    #
     # @todo experiment on which method for assessing uniqueness is best
     #
     # To get something going, for now, just take a weighted mean
@@ -179,6 +195,7 @@ class UniquenessConfig(fob.BrainMethodConfig):
     def __init__(
         self,
         uniqueness_field,
+        similarity_backend=None,
         roi_field=None,
         embeddings_field=None,
         model=None,
@@ -193,6 +210,28 @@ class UniquenessConfig(fob.BrainMethodConfig):
         self.embeddings_field = embeddings_field
         self.model = model
         self.model_kwargs = model_kwargs
+
+        # Similarity backend.
+        self.backend = None
+        if similarity_backend:
+            backends = fb.brain_config.similarity_backends
+            if similarity_backend not in backends:
+                raise ValueError(
+                    f"Unsupported backend {similarity_backend}. The available backends are {sorted(backends.keys())}"
+                )
+            backend_params = deepcopy(backends[similarity_backend])
+            config_cls = kwargs.pop("config_cls", None)
+            if config_cls is None:
+                config_cls = backend_params.pop("config_cls", None)
+            if config_cls is None:
+                raise ValueError(
+                    f"Similarity backend {similarity_backend} has no `config_cls`"
+                )
+            if etau.is_str(config_cls):
+                config_cls = etau.get_class(config_cls)
+            backend_params.update(**kwargs)
+            self.backend = config_cls(**backend_params)
+
         super().__init__(**kwargs)
 
     @property
