@@ -5,11 +5,13 @@ Finds leaks between splits.
 from copy import copy
 
 import fiftyone as fo
+from cv2 import cv2
 
 import fiftyone.core.brain as fob
 import fiftyone.brain.similarity as sim
 import fiftyone.brain.internal.core.sklearn as skl_sim
 import fiftyone.brain.internal.core.duplicates as dups
+import fiftyone.core.utils as fou
 
 
 def compute_leaky_splits(
@@ -23,101 +25,87 @@ def compute_leaky_splits(
     print("bar")
 
 
-### fancy general implementation. Not worth time currently.
-class LeakySplitsConfig(fob.BrainMethodConfig):
-    """Configuration for the leaky split BrainMethod
+_BASIC_METHODS = ["filepath", "image_hash", "neural"]
+
+### GENERAL
+
+
+class LeakySplitsConfigInterface(object):
+    """Configuration for Leaky Splits
 
     Args:
-        split_tags: list of str, corresponding to the tags of the splits
-        similarity_backend_config: :class:`fiftyone.core.brain.SimilarityConfig` and
-            :class:`fiftyone.core.brain.DuplicatesMixin`
-
-        Instead of sending an actual config instance it may be better to send kwargs
-        or something else. This can be implmented later.
+        split_views (None): list of views corresponding to different splits
+        split_field (None): field name that contains the split that the sample belongs to
+        split_tags (None): list of tags that correspond to different splits
+        method ()
     """
 
-    def __init__(self, split_tags, similarity_backend_config, **kwargs):
+    def __init__(
+        self, split_views=None, split_field=None, split_tags=None, **kwargs
+    ):
         self.split_tags = split_tags
-        self.similarity_backend_config = similarity_backend_config
+        self.split_field = split_field
+        self.split_tags = split_tags
+        super().__init__(**kwargs)
 
-        super().__init__()
+
+class LeakySplitIndexInterface(object):
+    def __init__(self) -> None:
+        pass
 
     @property
-    def type(self):
-        return "leaky splits"
+    def num_leaks(self):
+        return self.leaks.count
 
+    @property
+    def leaks(self):
+        """
+        Returns view with all potential leaks.
+        """
+        pass
 
-class LeakySplits(fob.BrainMethod):
-    """LeakySplits class for finding leaks between different different splits.
+    def leaks_by_sample(self, sample):
+        """
+        Return view with all leaks related to a certain sample.
+        """
+        pass
 
-    Args:
-        config: a :class:`LeakySplitConfig`
-    """
+    def remove_leaks(self, remove_from):
+        """Remove leaks from dataset
 
-    def _validate_run(self, samples, key, existing_info):
+        Args:
+            remove_from: tag/field value/view to remove from (e.g. remove the leak from 'test')
+        """
+        pass
 
-        # check enough tags
-        split_tags = self.config.split_tags
-
-        if len(split_tags) < 2:
-            raise ValueError(
-                "Please include at least two tags in least so that they can be compared!"
-            )
-
-        sample_tag_counts = samples.count_sample_tags()
-
-        # validate tags are in collection
-        for tag in split_tags:
-            if tag not in sample_tag_counts.keys():
-                raise ValueError(
-                    f"Given tag {tag} but it doesn't exist in collection, choose from: "
-                    f"{sample_tag_counts.keys()}"
-                )
-
-            # may be redudnant if tags are deleted if they have no use but keeping in
-            # just in case
-            if sample_tag_counts[tag] == 0:
-                raise ValueError(
-                    f"The tag {tag} has no samples! Make sure each tag has at least 1"
-                    " sample associated with it."
-                )
-
-
-class LeakySplitsIndex(fob.BrainResults):
-    """Class for storing LeakySplits data.
-
-    Args:
-    """
-
-    def __init__(self, samples, config, brain_key, backend=None):
-        super().__init__(samples, config, brain_key, backend=backend)
-
-        self._sim_config = config.similarity_backend_config
-        sim_instance = self._sim_config.build()
-        self._sim_backend_index = sim_instance.initialize(samples, brain_key)
-
-    def find_all_potential_leaks(self):
-        """Returns a view with samples that are most likely to be leaks"""
-        return self._sim_backend_index.view
-
-    def sort_by_leak_potential(
-        self,
-        query,
-        tags_of_interest,
-    ):
-        return self._sim_backend_index.view
+    def tag_leaks(self, tag="leak"):
+        """Tag leaks"""
+        for s in self.leaks.iter_samples():
+            s.tags.append(tag)
+            s.save()
 
 
 ###
 
-
-### ugly fast implemntation so that I can start testing interesting things.
-
-_BASIC_METHODS = ["exact", "neural"]
-
-
+### SKL BACKEND
 class LeakySplitsSKLConfig(skl_sim.SklearnSimilarityConfig):
-    def __init__(self, split_tags, method, **kwargs):
+    """Configuration for Leaky Splits with the SKLearn backend
+
+    Args:
+        split_views (None): list of views corresponding to different splits
+        split_field (None): field name that contains the split that the sample belongs to
+        split_tags (None): list of tags that correspond to different splits
+        method ('filepath'): method to determine leaks
+    """
+
+    def __init__(
+        self,
+        split_views=None,
+        split_field=None,
+        split_tags=None,
+        method="filepath",
+        **kwargs,
+    ):
         self.split_tags = split_tags
         self._method = method
         super().__init__(**kwargs)
@@ -139,7 +127,7 @@ class LeakySplitsSKLIndex(skl_sim.SklearnSimilarityIndex):
         super().__init__(samples, config, brain_key, **kwargs)
 
         self._hash_index = None
-        if self.config.method == "exact":
+        if self.config.method == "filepath":
             self._initialize_hash_index(samples)
 
     def _initialize_hash_index(self, samples):
@@ -166,7 +154,7 @@ class LeakySplitsSKLIndex(skl_sim.SklearnSimilarityIndex):
         return final
 
     def sort_by_leak_potential(self, sample, k=None, dist_field=None):
-        if self.config.method == "exact":
+        if self.config.method == "filepath":
             return self._sort_by_hash_leak(sample)
 
         # using neural method
@@ -192,6 +180,96 @@ class LeakySplitsSKLIndex(skl_sim.SklearnSimilarityIndex):
         tags_to_search = copy(self.config.split_tags)
         tags_to_search.remove(sample_split)
         return tags_to_search
+
+
+###
+
+### HASH BACKEND
+
+_HASH_METHODS = ["filepath", "image"]
+
+
+class LeakySplitsHashConfig(fob.BrainConfig, LeakySplitsConfigInterface):
+    def __init__(
+        self,
+        split_views=None,
+        split_field=None,
+        split_tags=None,
+        method="filepath",
+        **kwargs,
+    ):
+        self._method = method
+        LeakySplitsConfigInterface.__init__(
+            self, split_views=None, split_field=None, split_tags=None
+        )
+        fob.BrainConfig.__init__(self, **kwargs)
+
+    @property
+    def method(self):
+        return self._method
+
+
+class LeakySplitsHash(fob.BrainMethod):
+    def initialize(self, samples, brain_key):
+        return LeakySplitsHashIndex(
+            samples, self.config, brain_key, backend=self
+        )
+
+
+class LeakySplitsHashIndex(fob.BrainResults, LeakySplitIndexInterface):
+    """ """
+
+    def __init__(self, samples, config, brain_key, **kwargs):
+        fob.BrainResults.__init__(samples, config, brain_key, **kwargs)
+        LeakySplitIndexInterface.__init__(self)
+
+    @property
+    def _hash_function(self):
+        if self.config.method == "filepath":
+            return fou.compute_filehash
+
+        elif self.config.method == "image":
+            return LeakySplitsHashIndex._image_hash
+
+    @staticmethod
+    def _image_hash(image, hash_size=8):
+        """
+        Compute the dHash for the input image.
+
+        :param image: image filepath
+        :param hash_size: Size of the hash (default 8x8).
+        :return: The dHash value of the image as a 64-bit integer.
+        """
+
+        with open(image, "r"):
+            image = cv2.imread(image)
+
+        # Convert the image to grayscale
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        # Resize the image to (hash_size + 1, hash_size)
+        resized = cv2.resize(gray, (hash_size + 1, hash_size))
+
+        # Compute the differences between adjacent pixels
+        diff = resized[:, 1:] > resized[:, :-1]
+
+        # Convert the difference image to a binary hash
+        # hash_value = sum([2 ** i for (i, v) in enumerate(diff.flatten()) if v])
+
+        # Convert the difference image to a binary hash
+        binary_string = "".join(["1" if v else "0" for v in diff.flatten()])
+
+        # Convert the binary string to a hexadecimal string
+        hex_hash = f"{int(binary_string, 2):0{hash_size * hash_size // 4}x}"
+
+        return hex_hash
+
+    @property
+    def leaks(self):
+        return None
+
+    def leaks_by_sample(self, sample):
+        return None
 
 
 ###
