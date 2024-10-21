@@ -9,6 +9,7 @@ import fiftyone as fo
 import fiftyone.core.brain as fob
 import fiftyone.brain.similarity as sim
 import fiftyone.brain.internal.core.sklearn as skl_sim
+import fiftyone.brain.internal.core.duplicates as dups
 
 
 def compute_leaky_splits(
@@ -137,21 +138,60 @@ class LeakySplitsSKLIndex(skl_sim.SklearnSimilarityIndex):
     def __init__(self, samples, config, brain_key, **kwargs):
         super().__init__(samples, config, brain_key, **kwargs)
 
+        self._hash_index = None
+        if self.config.method == "exact":
+            self._initialize_hash_index(samples)
+
+    def _initialize_hash_index(self, samples):
+        neighbors_map = dups.compute_exact_duplicates(
+            samples, None, False, True
+        )
+        self._hash_index = neighbors_map
+
+    def _sort_by_hash_leak(self, sample):
+
+        conflicting_ids = []
+        for hash, ids in self._hash_index.items():
+            if sample["id"] in ids:
+                conflicting_ids = copy(ids)
+                break
+
+        sample_split = self._sample_split(sample)
+        tags_to_search = self._tags_to_search(sample_split)
+
+        conflicting_samples = self._dataset.select(conflicting_ids)
+
+        final = conflicting_samples.match_tags(tags_to_search)
+
+        return final
+
     def sort_by_leak_potential(self, sample, k=None, dist_field=None):
+        if self.config.method == "exact":
+            return self._sort_by_hash_leak(sample)
+
+        # using neural method
 
         # isolate view to search through
-        sample_split = set(self.config.split_tags) & set(sample.tags)
-        if len(sample_split) > 1:
-            raise ValueError("sample belongs to multiple splits.")
-        sample_split = sample_split.pop()
-
-        tags_to_search = copy(self.config.split_tags)
-        tags_to_search.remove(sample_split)
-
+        sample_split = self._sample_split(sample)
+        tags_to_search = self._tags_to_search(sample_split)
         self.use_view(self._dataset.match_tags(tags_to_search))
 
         # run similarity
         return self.sort_by_similarity(sample["id"], k, dist_field=dist_field)
+
+    def _sample_split(self, sample):
+        sample_split = set(self.config.split_tags) & set(sample.tags)
+        if len(sample_split) > 1:
+            raise ValueError("sample belongs to multiple splits.")
+        if len(sample_split) == 0:
+            raise ValueError(f"sample is not part of any split!")
+        sample_split = sample_split.pop()
+        return sample_split
+
+    def _tags_to_search(self, sample_split):
+        tags_to_search = copy(self.config.split_tags)
+        tags_to_search.remove(sample_split)
+        return tags_to_search
 
 
 ###
