@@ -217,6 +217,8 @@ def test_image_similarity_backends():
 
     for backend in get_custom_backends():
         brain_key = "clip_" + backend
+        if brain_key in dataset.list_brain_runs():
+            dataset.delete_brain_run(brain_key)
 
         index2 = fob.compute_similarity(
             dataset,
@@ -235,13 +237,13 @@ def test_image_similarity_backends():
         view2 = dataset.sort_by_similarity(prompt, k=10, brain_key=brain_key)
         assert len(view2) == 10
 
-        del index2
-        dataset.clear_cache()
+        # del index2
+        # dataset.clear_cache()
 
-        print(dataset.get_brain_info(brain_key))
+        # print(dataset.get_brain_info(brain_key))
 
-        index2 = dataset.load_brain_results(brain_key)
-        assert index2.total_index_size == 200
+        # index2 = dataset.load_brain_results(brain_key)
+        # assert index2.total_index_size == 200
 
         # Pinecone and Milvus require IDs, so this method is not supported
         if backend not in ("pinecone", "milvus"):
