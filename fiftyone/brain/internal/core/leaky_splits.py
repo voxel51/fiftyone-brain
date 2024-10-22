@@ -2,10 +2,13 @@
 Finds leaks between splits.
 """
 
+from collections import defaultdict
 from copy import copy
 
 import fiftyone as fo
-from cv2 import cv2
+
+# pylint: disable=no-member
+import cv2
 
 import fiftyone.core.brain as fob
 import fiftyone.brain.similarity as sim
@@ -37,13 +40,12 @@ class LeakySplitsConfigInterface(object):
         split_views (None): list of views corresponding to different splits
         split_field (None): field name that contains the split that the sample belongs to
         split_tags (None): list of tags that correspond to different splits
-        method ()
     """
 
     def __init__(
         self, split_views=None, split_field=None, split_tags=None, **kwargs
     ):
-        self.split_tags = split_tags
+        self.split_views = split_views
         self.split_field = split_field
         self.split_tags = split_tags
         super().__init__(**kwargs)
@@ -83,6 +85,39 @@ class LeakySplitIndexInterface(object):
         for s in self.leaks.iter_samples():
             s.tags.append(tag)
             s.save()
+
+
+def _to_views(samples, split_views=None, split_field=None, split_tags=None):
+    """Helper function so that we can always work with views"""
+
+    arithmetic_true = lambda x: int(x is not None)
+    num_given = (
+        arithmetic_true(split_views)
+        + arithmetic_true(split_field)
+        + arithmetic_true(split_tags)
+    )
+
+    if num_given == 0:
+        raise ValueError(f"One of the split arguments must be given.")
+    if num_given > 1:
+        raise ValueError(f"Only one of the split arguments must be given.")
+
+    if split_views:
+        return split_views
+
+    if split_field:
+        return _field_to_views(samples, split_field)
+
+    if split_tags:
+        return _tags_to_views(samples, split_tags)
+
+
+def _field_to_views(samples, field):
+    return
+
+
+def _tags_to_views(samples, field):
+    return
 
 
 ###
@@ -189,20 +224,28 @@ class LeakySplitsSKLIndex(skl_sim.SklearnSimilarityIndex):
 _HASH_METHODS = ["filepath", "image"]
 
 
-class LeakySplitsHashConfig(fob.BrainConfig, LeakySplitsConfigInterface):
+class LeakySplitsHashConfig(fob.BrainMethodConfig, LeakySplitsConfigInterface):
+    """
+
+    Args:
+        hash_field (None): string, field to write hashes into
+    """
+
     def __init__(
         self,
         split_views=None,
         split_field=None,
         split_tags=None,
         method="filepath",
+        hash_field=None,
         **kwargs,
     ):
         self._method = method
+        self.hash_field = hash_field
         LeakySplitsConfigInterface.__init__(
             self, split_views=None, split_field=None, split_tags=None
         )
-        fob.BrainConfig.__init__(self, **kwargs)
+        fob.BrainMethodConfig.__init__(self, **kwargs)
 
     @property
     def method(self):
@@ -219,9 +262,12 @@ class LeakySplitsHash(fob.BrainMethod):
 class LeakySplitsHashIndex(fob.BrainResults, LeakySplitIndexInterface):
     """ """
 
-    def __init__(self, samples, config, brain_key, **kwargs):
-        fob.BrainResults.__init__(samples, config, brain_key, **kwargs)
+    def __init__(self, samples, config, brain_key, backend):
+        fob.BrainResults.__init__(
+            self, samples, config, brain_key, backend=backend
+        )
         LeakySplitIndexInterface.__init__(self)
+        self._hash2ids = defaultdict(list)
 
     @property
     def _hash_function(self):
@@ -231,8 +277,16 @@ class LeakySplitsHashIndex(fob.BrainResults, LeakySplitIndexInterface):
         elif self.config.method == "image":
             return LeakySplitsHashIndex._image_hash
 
+    def _compute_hashes(self, samples):
+        for s in samples.iter_samples():
+            hash = str(self._hash_function(s["filepath"]))
+            self._hash2ids[hash].append(s["id"])
+            if self.config.hash_field:
+                s[self.config.hash_field] = hash
+                s.save()
+
     @staticmethod
-    def _image_hash(image, hash_size=8):
+    def _image_hash(image, hash_size=24):
         """
         Compute the dHash for the input image.
 
