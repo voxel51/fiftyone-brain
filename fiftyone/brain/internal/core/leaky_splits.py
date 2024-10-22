@@ -6,6 +6,7 @@ from collections import defaultdict
 from copy import copy
 
 import fiftyone as fo
+from fiftyone import ViewField as F
 
 # pylint: disable=no-member
 import cv2
@@ -113,11 +114,31 @@ def _to_views(samples, split_views=None, split_field=None, split_tags=None):
 
 
 def _field_to_views(samples, field):
-    return
+    field_values = samples.distinct(field)
+
+    if len(field_values) < 2:
+        raise ValueError(
+            f"Field {field} has less than 2 distinct values,"
+            f"can't be used to create splits"
+        )
+
+    views = []
+    for val in field_values:
+        view = samples.match(F(field) == val)
+        views.append(view)
+
+    return views
 
 
-def _tags_to_views(samples, field):
-    return
+def _tags_to_views(samples, tags):
+    if len(tags) < 2:
+        raise ValueError("Must provide at least two tags.")
+
+    views = []
+    for tag in tags:
+        view = samples.match_tags([tag])
+        views.append(view)
+    return views
 
 
 ###
@@ -243,7 +264,10 @@ class LeakySplitsHashConfig(fob.BrainMethodConfig, LeakySplitsConfigInterface):
         self._method = method
         self.hash_field = hash_field
         LeakySplitsConfigInterface.__init__(
-            self, split_views=None, split_field=None, split_tags=None
+            self,
+            split_views=split_views,
+            split_field=split_field,
+            split_tags=split_tags,
         )
         fob.BrainMethodConfig.__init__(self, **kwargs)
 
@@ -268,6 +292,12 @@ class LeakySplitsHashIndex(fob.BrainResults, LeakySplitIndexInterface):
         )
         LeakySplitIndexInterface.__init__(self)
         self._hash2ids = defaultdict(list)
+        self.split_views = _to_views(
+            samples,
+            self.config.split_views,
+            self.config.split_field,
+            self.config.split_tags,
+        )
 
     @property
     def _hash_function(self):
