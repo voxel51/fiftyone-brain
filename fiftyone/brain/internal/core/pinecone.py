@@ -32,7 +32,7 @@ class PineconeSimilarityConfig(SimilarityConfig):
     """Configuration for the Pinecone similarity backend.
 
     Args:
-        cloud ("aws"): Cloud where Pinecone index would be hosted.
+        cloud ("aws"): Cloud where Pinecone index would be hosted
         environment ("us-east-1"): a Pinecone environment to use
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
@@ -244,18 +244,17 @@ class PineconeSimilarityIndex(SimilarityIndex):
             if self.config.index_type in [None, "serverless"]:
                 from pinecone import ServerlessSpec
 
-                if not self._pinecone.has_index(self.config.index_name):
-                    self._pinecone.create_index(
-                        name=self.config.index_name,
-                        dimension=dimension,
-                        metric=self.config.metric
-                        if self.config.metric
-                        else "cosine",
-                        spec=ServerlessSpec(
-                            cloud=self.config.cloud,
-                            region=self.config.environment,
-                        ),
-                    )
+                self._pinecone.create_index(
+                    name=self.config.index_name,
+                    dimension=dimension,
+                    metric=self.config.metric
+                    if self.config.metric
+                    else "cosine",
+                    spec=ServerlessSpec(
+                        cloud=self.config.cloud,
+                        region=self.config.environment,
+                    ),
+                )
             elif self.config.index_type == "pod":
                 from pinecone import PodSpec
 
@@ -388,9 +387,8 @@ class PineconeSimilarityIndex(SimilarityIndex):
                 list(zip(_ids, _embeddings, _id_dicts)),
                 namespace=namespace,
             )
-        while not self._index.describe_index_stats()[
-            "total_vector_count"
-        ] >= len(embeddings):
+        index_stats = self._index.describe_index_stats
+        while not index_stats()["total_vector_count"] >= len(embeddings):
             time.sleep(1)
         if reload:
             self.reload()
@@ -428,7 +426,12 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
                 ids = existing_ids
 
+        index_stats = self._index.describe_index_stats
+        pre_deletion_count = index_stats()["total_vector_count"]
         self._index.delete(ids=ids)
+        post_deletion_count = pre_deletion_count - len(ids)
+        while not index_stats()["total_vector_count"] == post_deletion_count:
+            time.sleep(1)
 
         if reload:
             self.reload()
