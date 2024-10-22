@@ -15,6 +15,7 @@ import fiftyone.core.brain as fob
 import fiftyone.brain.similarity as sim
 import fiftyone.brain.internal.core.sklearn as skl_sim
 import fiftyone.brain.internal.core.duplicates as dups
+import fiftyone.brain.internal.core.utils as fbu
 import fiftyone.core.utils as fou
 
 
@@ -28,8 +29,6 @@ def compute_leaky_splits(
 ):
     print("bar")
 
-
-_BASIC_METHODS = ["filepath", "image_hash", "neural"]
 
 ### GENERAL
 
@@ -144,14 +143,15 @@ def _tags_to_views(samples, tags):
 ###
 
 ### SKL BACKEND
-class LeakySplitsSKLConfig(skl_sim.SklearnSimilarityConfig):
+class LeakySplitsSKLConfig(
+    skl_sim.SklearnSimilarityConfig, LeakySplitsConfigInterface
+):
     """Configuration for Leaky Splits with the SKLearn backend
 
     Args:
         split_views (None): list of views corresponding to different splits
         split_field (None): field name that contains the split that the sample belongs to
         split_tags (None): list of tags that correspond to different splits
-        method ('filepath'): method to determine leaks
     """
 
     def __init__(
@@ -159,16 +159,29 @@ class LeakySplitsSKLConfig(skl_sim.SklearnSimilarityConfig):
         split_views=None,
         split_field=None,
         split_tags=None,
-        method="filepath",
+        embeddings_field=None,
+        model=None,
+        patches_field=None,
+        supports_prompts=None,
+        metric="cosine",
         **kwargs,
     ):
-        self.split_tags = split_tags
-        self._method = method
-        super().__init__(**kwargs)
+        LeakySplitsConfigInterface.__init__(
+            self, split_views, split_field, split_tags
+        )
+        skl_sim.SklearnSimilarityConfig.__init__(
+            self,
+            embeddings_field=embeddings_field,
+            model=model,
+            patches_field=patches_field,
+            supports_prompts=supports_prompts,
+            metric=metric,
+            **kwargs,
+        )
 
     @property
     def method(self):
-        return self._method
+        return "Neural"
 
 
 class LeakySplitsSKL(skl_sim.SklearnSimilarity):
@@ -178,64 +191,35 @@ class LeakySplitsSKL(skl_sim.SklearnSimilarity):
         )
 
 
-class LeakySplitsSKLIndex(skl_sim.SklearnSimilarityIndex):
+class LeakySplitsSKLIndex(
+    skl_sim.SklearnSimilarityIndex, LeakySplitIndexInterface
+):
     def __init__(self, samples, config, brain_key, **kwargs):
-        super().__init__(samples, config, brain_key, **kwargs)
-
-        self._hash_index = None
-        if self.config.method == "filepath":
-            self._initialize_hash_index(samples)
-
-    def _initialize_hash_index(self, samples):
-        neighbors_map = dups.compute_exact_duplicates(
-            samples, None, False, True
+        skl_sim.SklearnSimilarityIndex.__init__(
+            self, samples=samples, config=config, brain_key=brain_key, **kwargs
         )
-        self._hash_index = neighbors_map
+        self.split_views = _to_views(
+            samples,
+            self.config.split_views,
+            self.config.split_field,
+            self.config.split_tags,
+        )
+        self._leak_threshold = 1
 
-    def _sort_by_hash_leak(self, sample):
+    def set_threshold(self, threshold):
+        self._leak_threshold = threshold
 
-        conflicting_ids = []
-        for hash, ids in self._hash_index.items():
-            if sample["id"] in ids:
-                conflicting_ids = copy(ids)
-                break
-
-        sample_split = self._sample_split(sample)
-        tags_to_search = self._tags_to_search(sample_split)
-
-        conflicting_samples = self._dataset.select(conflicting_ids)
-
-        final = conflicting_samples.match_tags(tags_to_search)
-
-        return final
-
-    def sort_by_leak_potential(self, sample, k=None, dist_field=None):
-        if self.config.method == "filepath":
-            return self._sort_by_hash_leak(sample)
-
-        # using neural method
-
-        # isolate view to search through
-        sample_split = self._sample_split(sample)
-        tags_to_search = self._tags_to_search(sample_split)
-        self.use_view(self._dataset.match_tags(tags_to_search))
-
-        # run similarity
-        return self.sort_by_similarity(sample["id"], k, dist_field=dist_field)
-
-    def _sample_split(self, sample):
-        sample_split = set(self.config.split_tags) & set(sample.tags)
-        if len(sample_split) > 1:
-            raise ValueError("sample belongs to multiple splits.")
-        if len(sample_split) == 0:
-            raise ValueError(f"sample is not part of any split!")
-        sample_split = sample_split.pop()
-        return sample_split
-
-    def _tags_to_search(self, sample_split):
-        tags_to_search = copy(self.config.split_tags)
-        tags_to_search.remove(sample_split)
-        return tags_to_search
+    @property
+    def leaks(self):
+        """
+        Returns view with all potential leaks.
+        """
+        embeddings, sample_ids, label_ids = self.compute_embeddings(
+            self._dataset
+        )
+        self.add_to_index(embeddings, sample_ids, label_ids)
+        self.find_duplicates(self._leak_threshold)
+        return self.duplicates_view()
 
 
 ###
