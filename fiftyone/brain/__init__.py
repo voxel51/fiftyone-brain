@@ -184,7 +184,8 @@ def compute_uniqueness(
     num_workers=None,
     skip_failures=True,
     progress=None,
-    backend=None,
+    similarity_backend=None,
+    similarity_index=None,
 ):
     """Adds a uniqueness field to each sample scoring how unique it is with
     respect to the rest of the samples.
@@ -269,7 +270,8 @@ def compute_uniqueness(
         num_workers,
         skip_failures,
         progress,
-        backend,
+        similarity_backend,
+        similarity_index,
     )
 
 

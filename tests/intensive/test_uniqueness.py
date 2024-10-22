@@ -84,6 +84,46 @@ def test_roi_uniqueness_missing():
     assert len(view) == 0
 
 
+def test_uniqueness_similarity_index():
+    dataset = foz.load_zoo_dataset(
+        "quickstart", dataset_name=fo.get_default_dataset_name()
+    )
+    dataset.delete_sample_field("uniqueness")
+
+    # Using pre-computed similarity index.
+    sklearn_index = fob.compute_similarity(
+        dataset, brain_key="sklearn_index", backend="sklearn"
+    )
+    fob.compute_uniqueness(dataset, similarity_index=sklearn_index)
+    assert dataset.has_field("uniqueness")
+
+    del sklearn_index
+    dataset.clear_cache()
+    dataset.delete_sample_field("uniqueness")
+
+    index = dataset.load_brain_results("sklearn_index")
+    fob.compute_uniqueness(dataset, similarity_index=index)
+    assert dataset.has_field("uniqueness")
+
+    # Computing similarity index based on backend.
+    dataset.delete_sample_field("uniqueness")
+    assert not dataset.has_field("uniqueness")
+
+    fob.compute_uniqueness(dataset, similarity_backend="sklearn")
+    assert dataset.has_field("uniqueness")
+
+    # Error when similarity_index and similarity_backend are both set.
+    try:
+        fob.compute_uniqueness(
+            dataset, similarity_index=index, similarity_backend="sklearn"
+        )
+    except IOError as e:
+        assert (
+            str(e)
+            == "At least one of (similarity_backend, similarity_index) values need to be None."
+        )
+
+
 def _run_uniqueness(roi_field=None, model=None, batch_size=None):
     dataset = foz.load_zoo_dataset(
         "quickstart", dataset_name=fo.get_default_dataset_name()

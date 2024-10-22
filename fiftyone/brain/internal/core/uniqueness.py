@@ -37,8 +37,6 @@ _ALLOWED_ROI_FIELD_TYPES = (
 _DEFAULT_MODEL = "simple-resnet-cifar10"
 _DEFAULT_BATCH_SIZE = 16
 
-_MAX_PRECOMPUTE_DISTS = 15000  # ~1.7GB to store distance matrix in-memory
-
 
 def compute_uniqueness(
     samples,
@@ -53,7 +51,8 @@ def compute_uniqueness(
     num_workers,
     skip_failures,
     progress,
-    backend=None,
+    similarity_backend=None,
+    similarity_index=None,
 ):
     """See ``fiftyone/brain/__init__.py``."""
 
@@ -68,6 +67,13 @@ def compute_uniqueness(
     # than, say, "representativeness" which would stress samples that are core
     # to dense clusters of related samples.
     #
+    if similarity_backend and similarity_index:
+        raise IOError(
+            "At least one of (similarity_backend, similarity_index) values need to be None."
+        )
+
+    if not (similarity_index or similarity_backend):
+        similarity_backend = fb.brain_config.default_similarity_backend
 
     fov.validate_image_collection(samples)
 
@@ -94,7 +100,7 @@ def compute_uniqueness(
 
     config = UniquenessConfig(
         uniqueness_field,
-        similarity_backend=backend,
+        similarity_backend=similarity_backend,
         roi_field=roi_field,
         embeddings_field=embeddings_field,
         model=model,
@@ -111,30 +117,35 @@ def compute_uniqueness(
     else:
         agg_fcn = None
 
-    embeddings, sample_ids, _ = fbu.get_embeddings(
-        samples,
-        model=model,
-        model_kwargs=model_kwargs,
-        patches_field=roi_field,
-        embeddings_field=embeddings_field,
-        embeddings=embeddings,
-        force_square=force_square,
-        alpha=alpha,
-        handle_missing="image",
-        agg_fcn=agg_fcn,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        skip_failures=skip_failures,
-        progress=progress,
-    )
-
-    similarity_index = None
-    if config.backend:
-        similarity_method = config.backend.build()
-        similarity_index = similarity_method.initialize(
-            samples=samples, brain_key=""
+    if similarity_index:
+        sample_ids = similarity_index.sample_ids
+        embeddings = np.array(
+            similarity_index.get_embeddings(sample_ids=sample_ids)[0]
+        )
+    elif config.similarity_method:
+        embeddings, sample_ids, _ = fbu.get_embeddings(
+            samples,
+            model=model,
+            model_kwargs=model_kwargs,
+            patches_field=roi_field,
+            embeddings_field=embeddings_field,
+            embeddings=embeddings,
+            force_square=force_square,
+            alpha=alpha,
+            handle_missing="image",
+            agg_fcn=agg_fcn,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            skip_failures=skip_failures,
+            progress=progress,
+        )
+        brain_method = config.similarity_method.build()
+        similarity_index = brain_method.initialize(
+            samples=samples, brain_key=f"{similarity_backend}_index"
         )
         similarity_index.add_to_index(embeddings, sample_ids)
+    else:
+        raise AssertionError("Similarity index not available.")
 
     logger.info("Computing uniqueness...")
     uniqueness = _compute_uniqueness(embeddings, similarity_index)
@@ -152,28 +163,12 @@ def compute_uniqueness(
 
 
 def _compute_uniqueness(
-    embeddings, similarity_index=None, metric="euclidean", n_neighbors=3
+    embeddings, similarity_index, metric="euclidean", n_neighbors=3
 ):
-    if similarity_index:
-        _, dists_list = similarity_index._kneighbors(
-            query=embeddings, k=n_neighbors + 1, return_dists=True
-        )
-        dists = np.array(dists_list)
-    else:
-        num_embeddings = len(embeddings)
-        if num_embeddings <= n_neighbors:
-            return [1] * num_embeddings
-        elif num_embeddings <= _MAX_PRECOMPUTE_DISTS:
-            embeddings = skm.pairwise_distances(embeddings, metric=metric)
-            metric = "precomputed"
-        else:
-            logger.info(
-                "Computing neighbors for %d embeddings; this may take awhile...",
-                num_embeddings,
-            )
-        # First column of dists and indices is self-distance
-        knns = skn.NearestNeighbors(metric=metric).fit(embeddings)
-        dists, _ = knns.kneighbors(embeddings, n_neighbors=n_neighbors + 1)
+    _, dists_list = similarity_index._kneighbors(
+        query=embeddings, k=n_neighbors + 1, return_dists=True
+    )
+    dists = np.array(dists_list)
 
     # @todo experiment on which method for assessing uniqueness is best
     #
@@ -195,11 +190,11 @@ class UniquenessConfig(fob.BrainMethodConfig):
     def __init__(
         self,
         uniqueness_field,
-        similarity_backend=None,
         roi_field=None,
         embeddings_field=None,
         model=None,
         model_kwargs=None,
+        similarity_backend=None,
         **kwargs,
     ):
         if model is not None and not etau.is_str(model):
@@ -212,7 +207,7 @@ class UniquenessConfig(fob.BrainMethodConfig):
         self.model_kwargs = model_kwargs
 
         # Similarity backend.
-        self.backend = None
+        self.similarity_method = None
         if similarity_backend:
             backends = fb.brain_config.similarity_backends
             if similarity_backend not in backends:
@@ -230,7 +225,7 @@ class UniquenessConfig(fob.BrainMethodConfig):
             if etau.is_str(config_cls):
                 config_cls = etau.get_class(config_cls)
             backend_params.update(**kwargs)
-            self.backend = config_cls(**backend_params)
+            self.similarity_method = config_cls(**backend_params)
 
         super().__init__(**kwargs)
 
