@@ -341,7 +341,7 @@ class LeakySplitsHashIndex(fob.BrainResults, LeakySplitIndexInterface):
             if len(id_list) > 1:
                 leak_ids = leak_ids + id_list
 
-        return self._dataset.select(leak_ids)
+        return self._dataset.select(leak_ids, ordered=True)
 
     def leaks_by_sample(self, sample):
         id = None
