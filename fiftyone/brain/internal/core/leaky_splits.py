@@ -298,6 +298,8 @@ class LeakySplitsHashIndex(fob.BrainResults, LeakySplitIndexInterface):
             self.config.split_field,
             self.config.split_tags,
         )
+        self._dataset = samples._dataset
+        self._compute_hashes(samples)
 
     @property
     def _hash_function(self):
@@ -350,10 +352,22 @@ class LeakySplitsHashIndex(fob.BrainResults, LeakySplitIndexInterface):
 
     @property
     def leaks(self):
-        return None
+        leak_ids = []
+        for id_list in self._hash2ids.values():
+            if len(id_list) > 1:
+                leak_ids = leak_ids + id_list
+
+        return self._dataset.select(leak_ids)
 
     def leaks_by_sample(self, sample):
-        return None
+        id = None
+        if isinstance(sample, str):
+            id = sample
+        else:
+            id = sample["id"]
+        for id_list in self._hash2ids.values():
+            if id in id_list:
+                return self._dataset.select(id_list)
 
 
 ###
