@@ -250,10 +250,11 @@ def compute_uniqueness(
         progress (None): whether to render a progress bar (True/False), use the
             default value ``fiftyone.config.show_progress_bars`` (None), or a
             progress callback function to invoke instead
-        backend (None): the similarity backend to use. The supported values are
+        similarity_backend (None): the similarity backend to use. The supported values are
             ``fiftyone.brain.brain_config.similarity_backends.keys()`` and the
-            default is
-            ``fiftyone.brain.brain_config.default_similarity_backend``
+            default is ``fiftyone.brain.brain_config.default_similarity_backend``
+        similarity_index (None): the similarity index to use. This can be computed using
+            fob.compute_similarity
     """
     import fiftyone.brain.internal.core.uniqueness as fbu
 
