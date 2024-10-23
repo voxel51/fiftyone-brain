@@ -164,8 +164,6 @@ def test_image_similarity_backends():
 
     # sklearn backend
     ###########################################################################
-    if "clip_sklearn" in dataset.list_brain_runs():
-        dataset.delete_brain_run("clip_sklearn")
 
     index1 = fob.compute_similarity(
         dataset,
@@ -219,8 +217,6 @@ def test_image_similarity_backends():
 
     for backend in get_custom_backends():
         brain_key = "clip_" + backend
-        if brain_key in dataset.list_brain_runs():
-            dataset.delete_brain_run(brain_key)
 
         index2 = fob.compute_similarity(
             dataset,
@@ -240,12 +236,12 @@ def test_image_similarity_backends():
         assert len(view2) == 10
 
         del index2
+        dataset.clear_cache()
 
         print(dataset.get_brain_info(brain_key))
 
         index2 = dataset.load_brain_results(brain_key)
         assert index2.total_index_size == 200
-        dataset.clear_cache()
 
         # Pinecone and Milvus require IDs, so this method is not supported
         if backend not in ("pinecone", "milvus"):
@@ -283,8 +279,6 @@ def test_patch_similarity_backends():
 
     # sklearn backend
     ###########################################################################
-    if "gt_clip_sklearn" in dataset.list_brain_runs():
-        dataset.delete_brain_run("gt_clip_sklearn")
 
     index1 = fob.compute_similarity(
         dataset,
@@ -344,8 +338,6 @@ def test_patch_similarity_backends():
 
     for backend in get_custom_backends():
         brain_key = "gt_clip_" + backend
-        if brain_key in dataset.list_brain_runs():
-            dataset.delete_brain_run(brain_key)
 
         index2 = fob.compute_similarity(
             dataset,
@@ -366,12 +358,12 @@ def test_patch_similarity_backends():
         assert len(view2) == 10
 
         del index2
+        dataset.clear_cache()
 
         print(dataset.get_brain_info(brain_key))
 
         index2 = dataset.load_brain_results(brain_key)
         assert index2.total_index_size == 1232
-        dataset.clear_cache()
 
         # Pinecone and Milvus require IDs, so this method is not supported
         if backend not in ("pinecone", "milvus"):
@@ -503,11 +495,6 @@ def test_images_missing():
 
 def test_images_embeddings():
     dataset = foz.load_zoo_dataset("quickstart", max_samples=10)
-    brain_keys = ["img_sim1", "img_sim2", "img_sim3", "img_sim4"]
-    for brain_key in brain_keys:
-        if brain_key in dataset.list_brain_runs():
-            dataset.delete_brain_run(brain_key)
-
     model = foz.load_zoo_model("clip-vit-base32-torch")
     n = len(dataset)
 
@@ -516,7 +503,7 @@ def test_images_embeddings():
         dataset,
         embeddings="embeddings",
         model="clip-vit-base32-torch",
-        brain_key=brain_keys[0],
+        brain_key="img_sim1",
         backend="sklearn",
     )
     assert index1.total_index_size == n
@@ -529,7 +516,7 @@ def test_images_embeddings():
         dataset,
         embeddings="embeddings2",
         model="clip-vit-base32-torch",
-        brain_key=brain_keys[1],
+        brain_key="img_sim2",
         backend="sklearn",
     )
     assert index2.total_index_size == n
@@ -540,7 +527,7 @@ def test_images_embeddings():
     index3 = fob.compute_similarity(
         dataset,
         model="clip-vit-base32-torch",
-        brain_key=brain_keys[2],
+        brain_key="img_sim3",
         backend="sklearn",
     )
     assert index3.total_index_size == n
@@ -551,7 +538,7 @@ def test_images_embeddings():
     index4 = fob.compute_similarity(
         dataset,
         embeddings="embeddings4",
-        brain_key=brain_keys[3],
+        brain_key="img_sim4",
         backend="sklearn",
     )
     embeddings = np.random.randn(n, 512)
@@ -644,18 +631,13 @@ def test_patches_embeddings():
     model = foz.load_zoo_model("clip-vit-base32-torch")
     n = dataset.count("ground_truth.detections")
 
-    brain_keys = ["gt_sim1", "gt_sim2", "gt_sim3", "gt_sim4"]
-    for brain_key in brain_keys:
-        if brain_key in dataset.list_brain_runs():
-            dataset.delete_brain_run(brain_key)
-
     # Embeddings are computed on-the-fly and stored on dataset
     index1 = fob.compute_similarity(
         dataset,
         patches_field="ground_truth",
         embeddings="embeddings",
         model="clip-vit-base32-torch",
-        brain_key=brain_keys[0],
+        brain_key="gt_sim1",
         backend="sklearn",
     )
     assert index1.total_index_size == n
@@ -671,7 +653,7 @@ def test_patches_embeddings():
         patches_field="ground_truth",
         embeddings="embeddings2",
         model="clip-vit-base32-torch",
-        brain_key=brain_keys[1],
+        brain_key="gt_sim2",
         backend="sklearn",
     )
     assert index2.total_index_size == n
@@ -683,7 +665,7 @@ def test_patches_embeddings():
         dataset,
         patches_field="ground_truth",
         model="clip-vit-base32-torch",
-        brain_key=brain_keys[2],
+        brain_key="gt_sim3",
         backend="sklearn",
     )
     assert index3.total_index_size == n
@@ -695,7 +677,7 @@ def test_patches_embeddings():
         dataset,
         patches_field="ground_truth",
         embeddings="embeddings4",
-        brain_key=brain_keys[3],
+        brain_key="gt_sim4",
         backend="sklearn",
     )
     embeddings = np.random.randn(n, 512)
