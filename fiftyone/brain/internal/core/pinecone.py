@@ -18,6 +18,7 @@ from fiftyone.brain.similarity import (
     SimilarityIndex,
 )
 import fiftyone.brain.internal.core.utils as fbu
+import time
 
 pinecone = fou.lazy_import("pinecone")
 
@@ -52,8 +53,9 @@ class PineconeSimilarityConfig(SimilarityConfig):
         pods (None): an optional number of pods when creating a new index
         pod_type (None): an optional pod type when creating a new index
         api_key (None): a Pinecone API key to use
-        environment (None): a Pinecone environment to use
         project_name (None): a Pinecone project to use
+        cloud (None): Cloud where Pinecone index would be hosted
+        environment (None): a Pinecone environment to use
     """
 
     def __init__(
@@ -71,8 +73,9 @@ class PineconeSimilarityConfig(SimilarityConfig):
         pods=None,
         pod_type=None,
         api_key=None,
-        environment=None,
         project_name=None,
+        cloud=None,
+        environment=None,
         **kwargs,
     ):
         if metric is not None and metric not in _SUPPORTED_METRICS:
@@ -100,6 +103,7 @@ class PineconeSimilarityConfig(SimilarityConfig):
 
         # store privately so these aren't serialized
         self._api_key = api_key
+        self._cloud = cloud
         self._environment = environment
         self._project_name = project_name
 
@@ -118,6 +122,10 @@ class PineconeSimilarityConfig(SimilarityConfig):
     @property
     def environment(self):
         return self._environment
+
+    @property
+    def cloud(self):
+        return self._cloud
 
     @environment.setter
     def environment(self, value):
@@ -183,17 +191,29 @@ class PineconeSimilarityIndex(SimilarityIndex):
     def __init__(self, samples, config, brain_key, backend=None):
         super().__init__(samples, config, brain_key, backend=backend)
         self._index = None
+        self._pinecone = None
         self._initialize()
 
     def _initialize(self):
-        pinecone.init(
-            api_key=self.config.api_key,
-            environment=self.config.environment,
-            project_name=self.config.project_name,
-        )
+        try:
+            pinecone.init(
+                api_key=self.config.api_key,
+                environment=self.config.environment,
+                project_name=self.config.project_name,
+            )
+        except AttributeError as e:
+            from pinecone import Pinecone
+
+            self._pinecone = Pinecone(
+                api_key=self.config.api_key,
+            )
 
         try:
-            index_names = pinecone.list_indexes()
+            index_names = (
+                self._pinecone.list_indexes()
+                if self._pinecone
+                else pinecone.list_indexes()
+            )
         except Exception as e:
             raise ValueError(
                 "Failed to connect to Pinecone backend at environment '%s'. "
@@ -208,7 +228,16 @@ class PineconeSimilarityIndex(SimilarityIndex):
             self.config.index_name = index_name
             self.save_config()
 
-        if self.config.index_name in index_names:
+        if self._pinecone:
+            exists = any(
+                d["name"] == self.config.index_name for d in index_names
+            )
+            index = (
+                self._pinecone.Index(self.config.index_name)
+                if exists
+                else None
+            )
+        elif self.config.index_name in index_names:
             index = pinecone.Index(self.config.index_name)
         else:
             index = None
@@ -216,23 +245,60 @@ class PineconeSimilarityIndex(SimilarityIndex):
         self._index = index
 
     def _create_index(self, dimension):
-        kwargs = dict(
-            index_type=self.config.index_type,
-            metric=self.config.metric,
-            replicas=self.config.replicas,
-            shards=self.config.shards,
-            pods=self.config.pods,
-            pod_type=self.config.pod_type,
-        )
-        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        if self._pinecone:
+            metric = self.config.metric if self.config.metric else "cosine"
+            if self.config.index_type in [None, "serverless"]:
+                from pinecone import ServerlessSpec
 
-        pinecone.create_index(
-            self.config.index_name,
-            dimension=dimension,
-            **kwargs,
-        )
+                self._pinecone.create_index(
+                    name=self.config.index_name,
+                    dimension=dimension,
+                    metric=metric,
+                    spec=ServerlessSpec(
+                        cloud=self.config.cloud,
+                        region=self.config.environment,
+                    ),
+                )
+            elif self.config.index_type == "pod":
+                from pinecone import PodSpec
 
-        self._index = pinecone.Index(self.config.index_name)
+                pod_type = (
+                    self.config.pod_type if self.config.pod_type else "p1.x1"
+                )
+                pods = self.config.pods if self.config.pods else 1
+                replicas = self.config.replicas if self.config.replicas else 1
+                shards = self.config.shards if self.config.shards else 1
+                self._pinecone.create_index(
+                    name=self.config.index_name,
+                    dimension=dimension,
+                    metric=self.config.metric
+                    if self.config.metric
+                    else "cosine",
+                    spec=PodSpec(
+                        environment=self.config.environment,
+                        pod_type=pod_type,
+                        pods=pods,
+                        replicas=replicas,
+                        shards=shards,
+                    ),
+                )
+            self._index = self._pinecone.Index(self.config.index_name)
+        else:
+            kwargs = dict(
+                index_type=self.config.index_type,
+                metric=self.config.metric,
+                replicas=self.config.replicas,
+                shards=self.config.shards,
+                pods=self.config.pods,
+                pod_type=self.config.pod_type,
+            )
+            kwargs = {k: v for k, v in kwargs.items() if v is not None}
+            pinecone.create_index(
+                self.config.index_name,
+                dimension=dimension,
+                **kwargs,
+            )
+            self._index = pinecone.Index(self.config.index_name)
 
     @property
     def index(self):
@@ -243,8 +309,28 @@ class PineconeSimilarityIndex(SimilarityIndex):
     def total_index_size(self):
         if self._index is None:
             return 0
-
         return self._index.describe_index_stats()["total_vector_count"]
+
+    @property
+    def ready(self):
+        if self._pinecone:
+            return self._pinecone.describe_index(
+                self.config.index_name
+            ).status["ready"]
+        return pinecone.describe_index(self.config.index_name).status["ready"]
+
+    def verify_total_index_size(self, expected_size, timeout=10, interval=1):
+        elapsed_time = 0
+        while (
+            not self.total_index_size == expected_size
+            and elapsed_time < timeout
+        ):
+            time.sleep(interval)
+            elapsed_time += interval
+        if elapsed_time >= timeout:
+            return False
+        else:
+            return self.total_index_size == expected_size
 
     def add_to_index(
         self,
@@ -322,7 +408,6 @@ class PineconeSimilarityIndex(SimilarityIndex):
                 list(zip(_ids, _embeddings, _id_dicts)),
                 namespace=namespace,
             )
-
         if reload:
             self.reload()
 
@@ -424,7 +509,10 @@ class PineconeSimilarityIndex(SimilarityIndex):
         return embeddings, sample_ids, label_ids
 
     def cleanup(self):
-        pinecone.delete_index(self.config.index_name)
+        if self._pinecone:
+            self._pinecone.delete_index(self.config.index_name)
+        else:
+            pinecone.delete_index(self.config.index_name)
         self._index = None
 
     def _get_existing_ids(self, ids, batch_size=1000):

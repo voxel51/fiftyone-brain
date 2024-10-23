@@ -159,7 +159,9 @@ def test_brain_config():
 
 def test_image_similarity_backends():
     dataset = foz.load_zoo_dataset(
-        "quickstart", dataset_name="quickstart-test-similarity-image"
+        "quickstart",
+        dataset_name="quickstart-test-similarity-image",
+        drop_existing_dataset=True,
     )
 
     # sklearn backend
@@ -228,6 +230,8 @@ def test_image_similarity_backends():
         )
 
         index2.add_to_index(embeddings, sample_ids)
+        if backend == "pinecone":
+            assert index2.verify_total_index_size(expected_size=200)
         assert index2.total_index_size == 200
         assert index2.index_size == 200
         assert index2.missing_size is None
@@ -274,7 +278,9 @@ def test_image_similarity_backends():
 
 def test_patch_similarity_backends():
     dataset = foz.load_zoo_dataset(
-        "quickstart", dataset_name="quickstart-test-similarity-patch"
+        "quickstart",
+        dataset_name="quickstart-test-similarity-patch",
+        drop_existing_dataset=True,
     )
 
     # sklearn backend
@@ -350,6 +356,8 @@ def test_patch_similarity_backends():
         )
 
         index2.add_to_index(embeddings, sample_ids, label_ids=label_ids)
+        if backend == "pinecone":
+            assert index2.verify_total_index_size(expected_size=1232)
         assert index2.total_index_size == 1232
         assert index2.index_size == 1232
         assert index2.missing_size is None
@@ -494,7 +502,9 @@ def test_images_missing():
 
 
 def test_images_embeddings():
-    dataset = foz.load_zoo_dataset("quickstart", max_samples=10)
+    dataset = foz.load_zoo_dataset(
+        "quickstart", max_samples=10, drop_existing_dataset=True
+    )
     model = foz.load_zoo_model("clip-vit-base32-torch")
     n = len(dataset)
 
@@ -627,7 +637,9 @@ def test_patches_missing():
 
 
 def test_patches_embeddings():
-    dataset = foz.load_zoo_dataset("quickstart", max_samples=10)
+    dataset = foz.load_zoo_dataset(
+        "quickstart", max_samples=10, drop_existing_dataset=True
+    )
     model = foz.load_zoo_model("clip-vit-base32-torch")
     n = dataset.count("ground_truth.detections")
 
