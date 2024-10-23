@@ -250,16 +250,15 @@ class PineconeSimilarityIndex(SimilarityIndex):
             if self.config.index_type in [None, "serverless"]:
                 from pinecone import ServerlessSpec
 
-                if not self._pinecone.has_index(self.config.index_name):
-                    self._pinecone.create_index(
-                        name=self.config.index_name,
-                        dimension=dimension,
-                        metric=metric,
-                        spec=ServerlessSpec(
-                            cloud=self.config.cloud,
-                            region=self.config.environment,
-                        ),
-                    )
+                self._pinecone.create_index(
+                    name=self.config.index_name,
+                    dimension=dimension,
+                    metric=metric,
+                    spec=ServerlessSpec(
+                        cloud=self.config.cloud,
+                        region=self.config.environment,
+                    ),
+                )
             elif self.config.index_type == "pod":
                 from pinecone import PodSpec
 
@@ -445,12 +444,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
                 ids = existing_ids
 
-        index_stats = self._index.describe_index_stats
-        pre_deletion_count = index_stats()["total_vector_count"]
         self._index.delete(ids=ids)
-        post_deletion_count = pre_deletion_count - len(ids)
-        while not index_stats()["total_vector_count"] == post_deletion_count:
-            time.sleep(1)
 
         if reload:
             self.reload()
