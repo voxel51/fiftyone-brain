@@ -252,7 +252,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
                 cloud = self.config.cloud if self.config.cloud else "aws"
                 environment = (
-                    self.config.cloud
+                    self.config.environment
                     if self.config.environment
                     else "us-east-1"
                 )
@@ -289,10 +289,6 @@ class PineconeSimilarityIndex(SimilarityIndex):
                         shards=shards,
                     ),
                 )
-            while not self._pinecone.describe_index(
-                self.config.index_name
-            ).status["ready"]:
-                time.sleep(1)
             self._index = self._pinecone.Index(self.config.index_name)
         else:
             kwargs = dict(
@@ -321,6 +317,27 @@ class PineconeSimilarityIndex(SimilarityIndex):
         if self._index is None:
             return 0
         return self._index.describe_index_stats()["total_vector_count"]
+
+    @property
+    def ready(self):
+        if self._pinecone:
+            return self._pinecone.describe_index(
+                self.config.index_name
+            ).status["ready"]
+        return pinecone.describe_index(self.config.index_name).status["ready"]
+
+    def verify_total_index_size(self, expected_size, timeout=10, interval=1):
+        elapsed_time = 0
+        while (
+            not self.total_index_size == expected_size
+            and elapsed_time < timeout
+        ):
+            time.sleep(interval)
+            elapsed_time += interval
+        if elapsed_time >= timeout:
+            return False
+        else:
+            return self.total_index_size == expected_size
 
     def add_to_index(
         self,
@@ -398,9 +415,6 @@ class PineconeSimilarityIndex(SimilarityIndex):
                 list(zip(_ids, _embeddings, _id_dicts)),
                 namespace=namespace,
             )
-        index_stats = self._index.describe_index_stats
-        while not index_stats()["total_vector_count"] >= len(embeddings):
-            time.sleep(1)
         if reload:
             self.reload()
 
