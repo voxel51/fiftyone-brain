@@ -165,6 +165,10 @@ def compute_uniqueness(
 def _compute_uniqueness(
     embeddings, similarity_index, metric="euclidean", n_neighbors=3
 ):
+    num_embeddings = len(embeddings)
+    if num_embeddings <= n_neighbors:
+        return [1] * num_embeddings
+
     _, dists_list = similarity_index._kneighbors(
         query=embeddings, k=n_neighbors + 1, return_dists=True
     )
