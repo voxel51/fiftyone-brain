@@ -205,6 +205,7 @@ class LeakySplitsSKLIndex(
             self.config.split_tags,
         )
         self._leak_threshold = 1
+        self._cached_leaks_view = None
 
     def set_threshold(self, threshold):
         self._leak_threshold = threshold
@@ -214,6 +215,10 @@ class LeakySplitsSKLIndex(
         """
         Returns view with all potential leaks.
         """
+
+        if self._cached_leaks_view:
+            return self._cached_leaks_view
+
         embeddings, sample_ids, label_ids = self.compute_embeddings(
             self._dataset
         )
