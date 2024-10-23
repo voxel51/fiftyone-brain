@@ -250,20 +250,14 @@ class PineconeSimilarityIndex(SimilarityIndex):
             if self.config.index_type in [None, "serverless"]:
                 from pinecone import ServerlessSpec
 
-                cloud = self.config.cloud if self.config.cloud else "aws"
-                environment = (
-                    self.config.environment
-                    if self.config.environment
-                    else "us-east-1"
-                )
                 if not self._pinecone.has_index(self.config.index_name):
                     self._pinecone.create_index(
                         name=self.config.index_name,
                         dimension=dimension,
                         metric=metric,
                         spec=ServerlessSpec(
-                            cloud=cloud,
-                            region=environment,
+                            cloud=self.config.cloud,
+                            region=self.config.environment,
                         ),
                     )
             elif self.config.index_type == "pod":
