@@ -32,8 +32,6 @@ class PineconeSimilarityConfig(SimilarityConfig):
     """Configuration for the Pinecone similarity backend.
 
     Args:
-        cloud ("aws"): Cloud where Pinecone index would be hosted
-        environment ("us-east-1"): a Pinecone environment to use
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
@@ -56,12 +54,12 @@ class PineconeSimilarityConfig(SimilarityConfig):
         pod_type (None): an optional pod type when creating a new index
         api_key (None): a Pinecone API key to use
         project_name (None): a Pinecone project to use
+        cloud (None): Cloud where Pinecone index would be hosted
+        environment (None): a Pinecone environment to use
     """
 
     def __init__(
         self,
-        cloud="aws",
-        environment="us-east-1",
         embeddings_field=None,
         model=None,
         patches_field=None,
@@ -76,6 +74,8 @@ class PineconeSimilarityConfig(SimilarityConfig):
         pod_type=None,
         api_key=None,
         project_name=None,
+        cloud=None,
+        environment=None,
         **kwargs,
     ):
         if metric is not None and metric not in _SUPPORTED_METRICS:
@@ -228,12 +228,17 @@ class PineconeSimilarityIndex(SimilarityIndex):
             self.config.index_name = index_name
             self.save_config()
 
-        if self.config.index_name in index_names:
+        if self._pinecone:
+            exists = any(
+                d["name"] == self.config.index_name for d in index_names
+            )
             index = (
                 self._pinecone.Index(self.config.index_name)
-                if self._pinecone
-                else pinecone.Index(self.config.index_name)
+                if exists
+                else None
             )
+        elif self.config.index_name in index_names:
+            index = pinecone.Index(self.config.index_name)
         else:
             index = None
 
@@ -241,20 +246,26 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
     def _create_index(self, dimension):
         if self._pinecone:
+            metric = self.config.metric if self.config.metric else "cosine"
             if self.config.index_type in [None, "serverless"]:
                 from pinecone import ServerlessSpec
 
-                self._pinecone.create_index(
-                    name=self.config.index_name,
-                    dimension=dimension,
-                    metric=self.config.metric
-                    if self.config.metric
-                    else "cosine",
-                    spec=ServerlessSpec(
-                        cloud=self.config.cloud,
-                        region=self.config.environment,
-                    ),
+                cloud = self.config.cloud if self.config.cloud else "aws"
+                environment = (
+                    self.config.cloud
+                    if self.config.environment
+                    else "us-east-1"
                 )
+                if not self._pinecone.has_index(self.config.index_name):
+                    self._pinecone.create_index(
+                        name=self.config.index_name,
+                        dimension=dimension,
+                        metric=metric,
+                        spec=ServerlessSpec(
+                            cloud=cloud,
+                            region=environment,
+                        ),
+                    )
             elif self.config.index_type == "pod":
                 from pinecone import PodSpec
 
