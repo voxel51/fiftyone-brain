@@ -224,7 +224,8 @@ class LeakySplitsSKLIndex(
         )
         self.add_to_index(embeddings, sample_ids, label_ids)
         self.find_duplicates(self._leak_threshold)
-        return self.duplicates_view()
+        self._cached_leaks_view = self.duplicates_view()
+        return self._cached_leaks_view
 
 
 ###
