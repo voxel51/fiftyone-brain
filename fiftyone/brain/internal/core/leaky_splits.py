@@ -208,7 +208,6 @@ class LeakySplitsSKLIndex(
             self.config.split_tags,
         )
         self._leak_threshold = 1
-        self._cached_leaks_view = None
 
     def set_threshold(self, threshold):
         """Set threshold for leak computation"""
@@ -220,13 +219,11 @@ class LeakySplitsSKLIndex(
         Returns view with all potential leaks.
         """
 
-        if self._cached_leaks_view:
-            return self._cached_leaks_view
-
-        embeddings, sample_ids, label_ids = self.compute_embeddings(
-            self._dataset
-        )
-        self.add_to_index(embeddings, sample_ids, label_ids)
+        if not self.total_index_size == len(self._dataset):
+            embeddings, sample_ids, label_ids = self.compute_embeddings(
+                self._dataset
+            )
+            self.add_to_index(embeddings, sample_ids, label_ids)
         self.find_duplicates(self._leak_threshold)
         self._cached_leaks_view = self.duplicates_view()
         return self._cached_leaks_view
