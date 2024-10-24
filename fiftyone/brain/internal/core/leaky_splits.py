@@ -52,25 +52,26 @@ class LeakySplitsConfigInterface(object):
 
 
 class LeakySplitIndexInterface(object):
+    """Interface for the index. To expose it, implement the property `leaks`.
+    It shoud return a view of all leaks in the dataset.
+    """
+
     def __init__(self) -> None:
         pass
 
     @property
     def num_leaks(self):
+        """Returns the number of leaks found."""
         return self.leaks.count
 
     @property
     def leaks(self):
-        """
-        Returns view with all potential leaks.
-        """
-        pass
+        """Returns view with all potential leaks."""
+        raise NotImplementedError("Subclass must implement method.")
 
     def leaks_by_sample(self, sample):
-        """
-        Return view with all leaks related to a certain sample.
-        """
-        pass
+        """Return view with all leaks related to a certain sample."""
+        raise NotImplementedError("Subclass must implement method.")
 
     def remove_leaks(self, remove_from):
         """Remove leaks from dataset
@@ -152,6 +153,8 @@ class LeakySplitsSKLConfig(
         split_views (None): list of views corresponding to different splits
         split_field (None): field name that contains the split that the sample belongs to
         split_tags (None): list of tags that correspond to different splits
+
+        For the rest of the arguments, see :class:`SklearnSimilarityConfig`
     """
 
     def __init__(
@@ -208,6 +211,7 @@ class LeakySplitsSKLIndex(
         self._cached_leaks_view = None
 
     def set_threshold(self, threshold):
+        """Set threshold for leak computation"""
         self._leak_threshold = threshold
 
     @property
@@ -237,7 +241,6 @@ _HASH_METHODS = ["filepath", "image"]
 
 class LeakySplitsHashConfig(fob.BrainMethodConfig, LeakySplitsConfigInterface):
     """
-
     Args:
         hash_field (None): string, field to write hashes into
     """
