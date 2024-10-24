@@ -253,8 +253,8 @@ def compute_uniqueness(
         similarity_backend (None): the similarity backend to use. The supported values are
             ``fiftyone.brain.brain_config.similarity_backends.keys()`` and the
             default is ``fiftyone.brain.brain_config.default_similarity_backend``
-        similarity_index (None): the similarity index to use. This can be computed using
-            fob.compute_similarity
+        similarity_index (None): the similarity index to use. This can be set to
+            ``fiftyone.brain.similarity.SimilarityIndex`` instance or a brain_key string to load the similarity index via samples.load_brain_results
     """
     import fiftyone.brain.internal.core.uniqueness as fbu
 
