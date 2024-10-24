@@ -166,13 +166,16 @@ def compute_uniqueness(
 
 
 def _compute_uniqueness(sample_ids, similarity_index, n_neighbors=3):
-    num_embeddings = len(sample_ids)
-    if num_embeddings <= n_neighbors:
-        return [1] * num_embeddings
+    num_samples = len(sample_ids)
+    if num_samples <= n_neighbors:
+        return [1] * num_samples
 
-    _, dists_list = similarity_index._kneighbors(
-        query=sample_ids, k=n_neighbors + 1, return_dists=True
-    )
+    dists_list = []
+    for sample_id in sample_ids:
+        _, dist = similarity_index._kneighbors(
+            query=sample_id, k=n_neighbors + 1, return_dists=True
+        )
+        dists_list.append(dist)
     dists = np.array(dists_list)
 
     # @todo experiment on which method for assessing uniqueness is best
