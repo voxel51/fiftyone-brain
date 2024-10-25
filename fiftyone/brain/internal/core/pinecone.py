@@ -221,54 +221,41 @@ class PineconeSimilarityIndex(SimilarityIndex):
         )
 
     def _create_index(self, dimension):
-        if self._pinecone:
-            metric = self.config.metric if self.config.metric else "eucledian"
-            if self.config.index_type in [None, "serverless"]:
-                self._pinecone.create_index(
-                    name=self.config.index_name,
-                    dimension=dimension,
-                    metric=metric,
-                    spec=ServerlessSpec(
-                        cloud=self.config.cloud,
-                        region=self.config.environment,
-                    ),
-                )
-            elif self.config.index_type == "pod":
-                pod_type = (
-                    self.config.pod_type if self.config.pod_type else "p1.x1"
-                )
-                pods = self.config.pods if self.config.pods else 1
-                replicas = self.config.replicas if self.config.replicas else 1
-                shards = self.config.shards if self.config.shards else 1
-                self._pinecone.create_index(
-                    name=self.config.index_name,
-                    dimension=dimension,
-                    metric=metric,
-                    spec=PodSpec(
-                        environment=self.config.environment,
-                        pod_type=pod_type,
-                        pods=pods,
-                        replicas=replicas,
-                        shards=shards,
-                    ),
-                )
-            self._index = self._pinecone.Index(self.config.index_name)
-        else:
-            kwargs = dict(
-                index_type=self.config.index_type,
-                metric=self.config.metric,
-                replicas=self.config.replicas,
-                shards=self.config.shards,
-                pods=self.config.pods,
-                pod_type=self.config.pod_type,
-            )
-            kwargs = {k: v for k, v in kwargs.items() if v is not None}
-            pinecone.create_index(
-                self.config.index_name,
+        metric = self.config.metric if self.config.metric else "eucledian"
+        if self.config.index_type in [None, "serverless"]:
+            self._pinecone.create_index(
+                name=self.config.index_name,
                 dimension=dimension,
-                **kwargs,
+                metric=metric,
+                spec=ServerlessSpec(
+                    cloud=self.config.cloud,
+                    region=self.config.environment,
+                ),
             )
-            self._index = pinecone.Index(self.config.index_name)
+        elif self.config.index_type == "pod":
+            pod_type = (
+                self.config.pod_type if self.config.pod_type else "p1.x1"
+            )
+            pods = self.config.pods if self.config.pods else 1
+            replicas = self.config.replicas if self.config.replicas else 1
+            shards = self.config.shards if self.config.shards else 1
+            self._pinecone.create_index(
+                name=self.config.index_name,
+                dimension=dimension,
+                metric=metric,
+                spec=PodSpec(
+                    environment=self.config.environment,
+                    pod_type=pod_type,
+                    pods=pods,
+                    replicas=replicas,
+                    shards=shards,
+                ),
+            )
+        else:
+            raise TypeError(
+                f"{pod_type} is invalid. Choose from None, 'serverless' or 'pod'."
+            )
+        self._index = self._pinecone.Index(self.config.index_name)
 
     @property
     def index(self):
@@ -283,11 +270,9 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
     @property
     def ready(self):
-        if self._pinecone:
-            return self._pinecone.describe_index(
-                self.config.index_name
-            ).status["ready"]
-        return pinecone.describe_index(self.config.index_name).status["ready"]
+        return self._pinecone.describe_index(self.config.index_name).status[
+            "ready"
+        ]
 
     def add_to_index(
         self,
@@ -466,10 +451,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
         return embeddings, sample_ids, label_ids
 
     def cleanup(self):
-        if self._pinecone:
-            self._pinecone.delete_index(self.config.index_name)
-        else:
-            pinecone.delete_index(self.config.index_name)
+        self._pinecone.delete_index(self.config.index_name)
         self._index = None
 
     def _get_existing_ids(self, ids, batch_size=1000):
