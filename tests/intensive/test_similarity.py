@@ -91,7 +91,7 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
 import random
 import os
 import unittest
-
+import time
 import numpy as np
 
 import fiftyone as fo
@@ -231,7 +231,7 @@ def test_image_similarity_backends():
 
         index2.add_to_index(embeddings, sample_ids)
         if backend == "pinecone":
-            assert index2.verify_total_index_size(expected_size=200)
+            assert _verify_total_index_size(index=index2, expected_size=200)
         assert index2.total_index_size == 200
         assert index2.index_size == 200
         assert index2.missing_size is None
@@ -357,7 +357,7 @@ def test_patch_similarity_backends():
 
         index2.add_to_index(embeddings, sample_ids, label_ids=label_ids)
         if backend == "pinecone":
-            assert index2.verify_total_index_size(expected_size=1232)
+            assert _verify_total_index_size(index=index2, expected_size=1232)
         assert index2.total_index_size == 1232
         assert index2.index_size == 1232
         assert index2.missing_size is None
@@ -764,6 +764,23 @@ def _make_patches_dataset(name):
     )
 
     return dataset
+
+
+def _verify_total_index_size(index, expected_size, timeout=10, interval=1):
+    elapsed_time = 0
+    if interval > timeout:
+        raise AssertionError(
+            f"Time interval {interval} should be less than timeout {timeout}."
+        )
+    while (
+        not index.total_index_size == expected_size and elapsed_time < timeout
+    ):
+        time.sleep(interval)
+        elapsed_time += interval
+    if elapsed_time >= timeout:
+        return False
+    else:
+        return index.total_index_size == expected_size
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ from fiftyone.brain.similarity import (
     SimilarityIndex,
 )
 import fiftyone.brain.internal.core.utils as fbu
-import time
+from pinecone import Pinecone, ServerlessSpec, PodSpec
 
 pinecone = fou.lazy_import("pinecone")
 
@@ -170,7 +170,7 @@ class PineconeSimilarity(Similarity):
         fou.ensure_package("pinecone-client")
 
     def ensure_usage_requirements(self):
-        fou.ensure_package("pinecone-client")
+        fou.ensure_package("pinecone-client>=3.2")
 
     def initialize(self, samples, brain_key):
         return PineconeSimilarityIndex(
@@ -195,25 +195,12 @@ class PineconeSimilarityIndex(SimilarityIndex):
         self._initialize()
 
     def _initialize(self):
-        try:
-            pinecone.init(
-                api_key=self.config.api_key,
-                environment=self.config.environment,
-                project_name=self.config.project_name,
-            )
-        except AttributeError as e:
-            from pinecone import Pinecone
-
-            self._pinecone = Pinecone(
-                api_key=self.config.api_key,
-            )
+        self._pinecone = Pinecone(
+            api_key=self.config.api_key,
+        )
 
         try:
-            index_names = (
-                self._pinecone.list_indexes()
-                if self._pinecone
-                else pinecone.list_indexes()
-            )
+            index_names = self._pinecone.list_indexes()
         except Exception as e:
             raise ValueError(
                 "Failed to connect to Pinecone backend at environment '%s'. "
@@ -228,28 +215,15 @@ class PineconeSimilarityIndex(SimilarityIndex):
             self.config.index_name = index_name
             self.save_config()
 
-        if self._pinecone:
-            exists = any(
-                d["name"] == self.config.index_name for d in index_names
-            )
-            index = (
-                self._pinecone.Index(self.config.index_name)
-                if exists
-                else None
-            )
-        elif self.config.index_name in index_names:
-            index = pinecone.Index(self.config.index_name)
-        else:
-            index = None
-
-        self._index = index
+        exists = any(d["name"] == self.config.index_name for d in index_names)
+        self._index = (
+            self._pinecone.Index(self.config.index_name) if exists else None
+        )
 
     def _create_index(self, dimension):
         if self._pinecone:
-            metric = self.config.metric if self.config.metric else "cosine"
+            metric = self.config.metric if self.config.metric else "eucledian"
             if self.config.index_type in [None, "serverless"]:
-                from pinecone import ServerlessSpec
-
                 self._pinecone.create_index(
                     name=self.config.index_name,
                     dimension=dimension,
@@ -260,8 +234,6 @@ class PineconeSimilarityIndex(SimilarityIndex):
                     ),
                 )
             elif self.config.index_type == "pod":
-                from pinecone import PodSpec
-
                 pod_type = (
                     self.config.pod_type if self.config.pod_type else "p1.x1"
                 )
@@ -271,9 +243,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
                 self._pinecone.create_index(
                     name=self.config.index_name,
                     dimension=dimension,
-                    metric=self.config.metric
-                    if self.config.metric
-                    else "cosine",
+                    metric=metric,
                     spec=PodSpec(
                         environment=self.config.environment,
                         pod_type=pod_type,
@@ -318,19 +288,6 @@ class PineconeSimilarityIndex(SimilarityIndex):
                 self.config.index_name
             ).status["ready"]
         return pinecone.describe_index(self.config.index_name).status["ready"]
-
-    def verify_total_index_size(self, expected_size, timeout=10, interval=1):
-        elapsed_time = 0
-        while (
-            not self.total_index_size == expected_size
-            and elapsed_time < timeout
-        ):
-            time.sleep(interval)
-            elapsed_time += interval
-        if elapsed_time >= timeout:
-            return False
-        else:
-            return self.total_index_size == expected_size
 
     def add_to_index(
         self,
