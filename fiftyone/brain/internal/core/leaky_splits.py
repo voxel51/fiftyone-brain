@@ -87,6 +87,14 @@ class LeakySplitIndexInterface(object):
             s.tags.append(tag)
             s.save()
 
+    def _id2split(self, sample_id, split_views):
+
+        for i, split_view in enumerate(split_views):
+            if len(split_view.select(sample_id)) > 0:
+                return i
+
+        return -1
+
 
 def _to_views(samples, split_views=None, split_field=None, split_tags=None):
     """Helper function so that we can always work with views"""
@@ -225,8 +233,26 @@ class LeakySplitsSKLIndex(
             )
             self.add_to_index(embeddings, sample_ids, label_ids)
         self.find_duplicates(self._leak_threshold)
-        self._cached_leaks_view = self.duplicates_view()
-        return self._cached_leaks_view
+        duplicates = self.duplicates_view()
+
+        to_remove = []
+        for sample_id, neighbors in self.neighbors_map.items():
+            remove_sample = True
+            sample_split = self._id2split(sample_id, self.split_views)
+            for n in neighbors:
+                if (
+                    n[1] < self._leak_threshold
+                    and not self._id2split(n[1], self.split_views)
+                    == sample_split
+                ):
+                    remove_sample = False
+
+            if remove_sample:
+                to_remove.append(sample_id)
+
+        duplicates = duplicates.exclude(to_remove)
+
+        return duplicates
 
 
 ###
