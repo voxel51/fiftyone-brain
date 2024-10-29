@@ -221,7 +221,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
         )
 
     def _create_index(self, dimension):
-        metric = self.config.metric if self.config.metric else "eucledian"
+        metric = self.config.metric if self.config.metric else "euclidean"
         if self.config.index_type in [None, "serverless"]:
             self._pinecone.create_index(
                 name=self.config.index_name,

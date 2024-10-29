@@ -230,8 +230,7 @@ def test_image_similarity_backends():
         )
 
         index2.add_to_index(embeddings, sample_ids)
-        if backend == "pinecone":
-            assert _verify_total_index_size(index=index2, expected_size=200)
+        assert _verify_total_index_size(index=index2, expected_size=200)
         assert index2.total_index_size == 200
         assert index2.index_size == 200
         assert index2.missing_size is None
@@ -356,8 +355,7 @@ def test_patch_similarity_backends():
         )
 
         index2.add_to_index(embeddings, sample_ids, label_ids=label_ids)
-        if backend == "pinecone":
-            assert _verify_total_index_size(index=index2, expected_size=1232)
+        assert _verify_total_index_size(index=index2, expected_size=1232)
         assert index2.total_index_size == 1232
         assert index2.index_size == 1232
         assert index2.missing_size is None
