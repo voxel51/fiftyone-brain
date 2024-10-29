@@ -90,7 +90,7 @@ class LeakySplitIndexInterface(object):
     def _id2split(self, sample_id, split_views):
 
         for i, split_view in enumerate(split_views):
-            if len(split_view.select(sample_id)) > 0:
+            if len(split_view.select([sample_id])) > 0:
                 return i
 
         return -1
@@ -240,12 +240,14 @@ class LeakySplitsSKLIndex(
             remove_sample = True
             sample_split = self._id2split(sample_id, self.split_views)
             for n in neighbors:
-                if (
-                    n[1] < self._leak_threshold
-                    and not self._id2split(n[0], self.split_views)
-                    == sample_split
+                if not (
+                    self._id2split(n[0], self.split_views) == sample_split
                 ):
                     remove_sample = False
+                    if sample_split == 0:
+                        neighbor_sample = self._dataset.select([n[0]]).first()
+                        neighbor_sample.tags.append(f"leak with {sample_id}")
+                        neighbor_sample.save()
 
             if remove_sample:
                 to_remove.append(sample_id)
