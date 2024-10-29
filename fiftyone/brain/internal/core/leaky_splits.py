@@ -242,7 +242,7 @@ class LeakySplitsSKLIndex(
             for n in neighbors:
                 if (
                     n[1] < self._leak_threshold
-                    and not self._id2split(n[1], self.split_views)
+                    and not self._id2split(n[0], self.split_views)
                     == sample_split
                 ):
                     remove_sample = False
