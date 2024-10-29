@@ -6,6 +6,8 @@ Uniqueness methods.
 |
 """
 from copy import deepcopy
+from tqdm import tqdm
+
 import logging
 
 import numpy as np
@@ -171,7 +173,9 @@ def _compute_uniqueness(sample_ids, similarity_index, n_neighbors=3):
         return [1] * num_samples
 
     dists_list = []
-    for sample_id in sample_ids:
+    if similarity_index.config.method != "sklearn":
+        logger.info("This computation may take a while.")
+    for sample_id in tqdm(sample_ids):
         _, dist = similarity_index._kneighbors(
             query=sample_id, k=n_neighbors + 1, return_dists=True
         )
