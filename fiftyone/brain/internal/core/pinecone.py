@@ -18,7 +18,6 @@ from fiftyone.brain.similarity import (
     SimilarityIndex,
 )
 import fiftyone.brain.internal.core.utils as fbu
-from pinecone import Pinecone, ServerlessSpec, PodSpec
 
 pinecone = fou.lazy_import("pinecone")
 
@@ -195,7 +194,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
         self._initialize()
 
     def _initialize(self):
-        self._pinecone = Pinecone(
+        self._pinecone = pinecone.Pinecone(
             api_key=self.config.api_key,
         )
 
@@ -227,7 +226,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
                 name=self.config.index_name,
                 dimension=dimension,
                 metric=metric,
-                spec=ServerlessSpec(
+                spec=pinecone.ServerlessSpec(
                     cloud=self.config.cloud,
                     region=self.config.environment,
                 ),
@@ -243,7 +242,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
                 name=self.config.index_name,
                 dimension=dimension,
                 metric=metric,
-                spec=PodSpec(
+                spec=pinecone.PodSpec(
                     environment=self.config.environment,
                     pod_type=pod_type,
                     pods=pods,
