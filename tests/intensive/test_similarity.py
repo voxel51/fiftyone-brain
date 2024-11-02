@@ -60,8 +60,10 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
     {
         "similarity_backends": {
             "pinecone": {
-                "environment": "us-east-1-aws",
-                "api_key": "XXXXXXXX"
+                "api_key": "XXXXXXXX",
+                "cloud": "aws",
+                "region": "us-east-1",
+                "environment": "us-east-1-aws"
             },
             "qdrant": {
                 "url": "http://localhost:6333"
@@ -90,8 +92,9 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
 """
 import random
 import os
-import unittest
 import time
+import unittest
+
 import numpy as np
 
 import fiftyone as fo
@@ -131,8 +134,12 @@ def test_brain_config():
 
         if backend == "pinecone":
             assert "pinecone" in similarity_backends
-            assert "api_key" in similarity_backends["pinecone"]
-            assert "environment" in similarity_backends["pinecone"]
+
+            # this isn't mandatory
+            # assert "api_key" in similarity_backends["pinecone"]
+            # assert "cloud" in similarity_backends["pinecone"]
+            # assert "region" in similarity_backends["pinecone"]
+            # assert "environment" in similarity_backends["pinecone"]
 
         if backend == "milvus":
             assert "milvus" in similarity_backends
@@ -766,19 +773,11 @@ def _make_patches_dataset(name):
 
 def _verify_total_index_size(index, expected_size, timeout=10, interval=1):
     elapsed_time = 0
-    if interval > timeout:
-        raise AssertionError(
-            f"Time interval {interval} should be less than timeout {timeout}."
-        )
-    while (
-        not index.total_index_size == expected_size and elapsed_time < timeout
-    ):
+    while index.total_index_size != expected_size and elapsed_time < timeout:
         time.sleep(interval)
         elapsed_time += interval
-    if elapsed_time >= timeout:
-        return False
-    else:
-        return index.total_index_size == expected_size
+
+    return index.total_index_size == expected_size
 
 
 if __name__ == "__main__":

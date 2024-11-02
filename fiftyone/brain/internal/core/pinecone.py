@@ -40,21 +40,27 @@ class PineconeSimilarityConfig(SimilarityConfig):
         supports_prompts (None): whether this run supports prompt queries
         index_name (None): the name of a Pinecone index to use or create. If
             none is provided, a new index will be created
-        index_type (None): the index type to use when creating a new index
+        index_type (None): the index type to use when creating a new index.
+            The supported values are ``["serverless", "pod"]`` and the default
+            is ``"serverless"``
         namespace (None): a namespace under which to store vectors added to the
             index
         metric (None): the embedding distance metric to use when creating a
             new index. Supported values are
             ``("cosine", "dotproduct", "euclidean")``
         replicas (None): an optional number of replicas when creating a new
+            pod-based index
+        shards (None): an optional number of shards when creating a new
+            pod-based index
+        pods (None): an optional number of pods when creating a new pod-based
             index
-        shards (None): an optional number of shards when creating a new index
-        pods (None): an optional number of pods when creating a new index
-        pod_type (None): an optional pod type when creating a new index
+        pod_type (None): an optional pod type when creating a new pod-based
+            index
         api_key (None): a Pinecone API key to use
-        project_name (None): a Pinecone project to use
-        cloud (None): Cloud where Pinecone index would be hosted
-        environment (None): a Pinecone environment to use
+        cloud (None): a cloud to use when creating serverless indexes
+        region (None): a region to use when creating serverless indexes
+        environment (None): an environment to use when creating pod-based
+            indexes
     """
 
     def __init__(
@@ -72,8 +78,8 @@ class PineconeSimilarityConfig(SimilarityConfig):
         pods=None,
         pod_type=None,
         api_key=None,
-        project_name=None,
         cloud=None,
+        region=None,
         environment=None,
         **kwargs,
     ):
@@ -103,8 +109,8 @@ class PineconeSimilarityConfig(SimilarityConfig):
         # store privately so these aren't serialized
         self._api_key = api_key
         self._cloud = cloud
+        self._region = region
         self._environment = environment
-        self._project_name = project_name
 
     @property
     def method(self):
@@ -119,24 +125,28 @@ class PineconeSimilarityConfig(SimilarityConfig):
         self._api_key = value
 
     @property
-    def environment(self):
-        return self._environment
-
-    @property
     def cloud(self):
         return self._cloud
+
+    @cloud.setter
+    def cloud(self, value):
+        self._cloud = value
+
+    @property
+    def region(self):
+        return self._region
+
+    @region.setter
+    def region(self, value):
+        self._region = value
+
+    @property
+    def environment(self):
+        return self._environment
 
     @environment.setter
     def environment(self, value):
         self._environment = value
-
-    @property
-    def project_name(self):
-        return self._project_name
-
-    @project_name.setter
-    def project_name(self, value):
-        self._project_name = value
 
     @property
     def max_k(self):
@@ -151,10 +161,13 @@ class PineconeSimilarityConfig(SimilarityConfig):
         return ("mean",)
 
     def load_credentials(
-        self, api_key=None, environment=None, project_name=None
+        self, api_key=None, cloud=None, region=None, environment=None
     ):
         self._load_parameters(
-            api_key=api_key, environment=environment, project_name=project_name
+            api_key=api_key,
+            cloud=cloud,
+            region=region,
+            environment=environment,
         )
 
 
@@ -189,22 +202,20 @@ class PineconeSimilarityIndex(SimilarityIndex):
 
     def __init__(self, samples, config, brain_key, backend=None):
         super().__init__(samples, config, brain_key, backend=backend)
-        self._index = None
         self._pinecone = None
+        self._index = None
         self._initialize()
 
     def _initialize(self):
-        self._pinecone = pinecone.Pinecone(
-            api_key=self.config.api_key,
-        )
+        self._pinecone = pinecone.Pinecone(api_key=self.config.api_key)
 
         try:
-            index_names = self._pinecone.list_indexes()
+            index_names = [d["name"] for d in self._pinecone.list_indexes()]
         except Exception as e:
             raise ValueError(
-                "Failed to connect to Pinecone backend at environment '%s'. "
+                "Failed to connect to Pinecone backend. "
                 "Refer to https://docs.voxel51.com/integrations/pinecone.html "
-                "for more information" % self.config.environment
+                "for more information"
             ) from e
 
         if self.config.index_name is None:
@@ -214,46 +225,44 @@ class PineconeSimilarityIndex(SimilarityIndex):
             self.config.index_name = index_name
             self.save_config()
 
-        exists = any(d["name"] == self.config.index_name for d in index_names)
-        self._index = (
-            self._pinecone.Index(self.config.index_name) if exists else None
-        )
+        if self.config.index_name in index_names:
+            index = self._pinecone.Index(self.config.index_name)
+        else:
+            index = None
+
+        self._index = index
 
     def _create_index(self, dimension):
-        metric = self.config.metric if self.config.metric else "euclidean"
-        if self.config.index_type in [None, "serverless"]:
-            self._pinecone.create_index(
-                name=self.config.index_name,
-                dimension=dimension,
-                metric=metric,
-                spec=pinecone.ServerlessSpec(
-                    cloud=self.config.cloud,
-                    region=self.config.environment,
-                ),
+        index_type = self.config.index_type or "serverless"
+
+        if index_type == "serverless":
+            spec = pinecone.ServerlessSpec(
+                self.config.cloud,
+                self.config.region,
             )
-        elif self.config.index_type == "pod":
-            pod_type = (
-                self.config.pod_type if self.config.pod_type else "p1.x1"
+        elif index_type == "pod":
+            kwargs = dict(
+                pod_type=self.config.pod_type,
+                pods=self.config.pods,
+                replicas=self.config.replicas,
+                shards=self.config.shards,
             )
-            pods = self.config.pods if self.config.pods else 1
-            replicas = self.config.replicas if self.config.replicas else 1
-            shards = self.config.shards if self.config.shards else 1
-            self._pinecone.create_index(
-                name=self.config.index_name,
-                dimension=dimension,
-                metric=metric,
-                spec=pinecone.PodSpec(
-                    environment=self.config.environment,
-                    pod_type=pod_type,
-                    pods=pods,
-                    replicas=replicas,
-                    shards=shards,
-                ),
-            )
+            kwargs = {k: v for k, v in kwargs.items() if v is not None}
+            spec = pinecone.PodSpec(self.config.environment, **kwargs)
         else:
             raise TypeError(
-                f"{pod_type} is invalid. Choose from None, 'serverless' or 'pod'."
+                f"Invalid index_type='{index_type}'. The supported values are "
+                "['serverless', 'pod']"
             )
+
+        metric = self.config.metric or "cosine"
+        self._pinecone.create_index(
+            name=self.config.index_name,
+            dimension=dimension,
+            metric=metric,
+            spec=spec,
+        )
+
         self._index = self._pinecone.Index(self.config.index_name)
 
     @property
@@ -265,6 +274,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
     def total_index_size(self):
         if self._index is None:
             return 0
+
         return self._index.describe_index_stats()["total_vector_count"]
 
     @property
