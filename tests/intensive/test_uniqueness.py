@@ -90,41 +90,37 @@ def test_uniqueness_similarity_index():
     )
     dataset.delete_sample_field("uniqueness")
 
-    # Using pre-computed similarity index.
-    sklearn_index = fob.compute_similarity(
+    # Full similarity index
+
+    similarity_index = fob.compute_similarity(
         dataset, brain_key="sklearn_index", backend="sklearn"
     )
-    fob.compute_uniqueness(dataset, similarity_index=sklearn_index)
+
+    fob.compute_uniqueness(dataset, similarity_index=similarity_index)
+
     assert dataset.has_field("uniqueness")
 
-    del sklearn_index
-    dataset.clear_cache()
-    dataset.delete_sample_field("uniqueness")
-
-    index = dataset.load_brain_results("sklearn_index")
-    fob.compute_uniqueness(dataset, similarity_index=index)
-    assert dataset.has_field("uniqueness")
-
-    del index
     dataset.clear_cache()
     dataset.delete_sample_field("uniqueness")
 
     fob.compute_uniqueness(dataset, similarity_index="sklearn_index")
+
     assert dataset.has_field("uniqueness")
 
-    # Computing similarity index based on backend.
-    dataset.delete_sample_field("uniqueness")
-    assert not dataset.has_field("uniqueness")
+    # Partial similarity index
 
-    fob.compute_uniqueness(dataset, similarity_backend="sklearn")
-    assert dataset.has_field("uniqueness")
+    view = dataset.take(100, seed=51)
+    similarity_index2 = fob.compute_similarity(
+        view, brain_key="sklearn_index2", backend="sklearn"
+    )
 
     fob.compute_uniqueness(
         dataset,
-        similarity_backend="sklearn",
-        similarity_index="my_sklearn_index",
+        uniqueness_field="uniqueness2",
+        similarity_index="sklearn_index2",
     )
-    assert dataset.has_field("uniqueness")
+
+    assert len(dataset.exists("uniqueness2")) == len(view)
 
 
 def _run_uniqueness(roi_field=None, model=None, batch_size=None):

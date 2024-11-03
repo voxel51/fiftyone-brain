@@ -42,6 +42,7 @@ def compute_representativeness(
     method,
     roi_field,
     embeddings,
+    similarity_index,
     model,
     model_kwargs,
     force_square,
@@ -80,7 +81,15 @@ def compute_representativeness(
         embeddings_field = None
         embeddings_exist = None
 
-    if model is None and embeddings is None and not embeddings_exist:
+    if etau.is_str(similarity_index):
+        similarity_index = samples.load_brain_results(similarity_index)
+
+    if (
+        model is None
+        and embeddings is None
+        and similarity_index is None
+        and not embeddings_exist
+    ):
         model = fbm.load_model(_DEFAULT_MODEL)
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
@@ -90,6 +99,7 @@ def compute_representativeness(
         method=method,
         roi_field=roi_field,
         embeddings_field=embeddings_field,
+        similarity_index=similarity_index,
         model=model,
         model_kwargs=model_kwargs,
     )
@@ -111,6 +121,7 @@ def compute_representativeness(
         patches_field=roi_field,
         embeddings_field=embeddings_field,
         embeddings=embeddings,
+        similarity_index=similarity_index,
         force_square=force_square,
         alpha=alpha,
         handle_missing="image",
@@ -253,10 +264,14 @@ class RepresentativenessConfig(fob.BrainMethodConfig):
         method=None,
         roi_field=None,
         embeddings_field=None,
+        similarity_index=None,
         model=None,
         model_kwargs=None,
         **kwargs,
     ):
+        if similarity_index is not None and not etau.is_str(similarity_index):
+            similarity_index = similarity_index.key
+
         if model is not None and not etau.is_str(model):
             model = etau.get_class_name(model)
 
@@ -264,6 +279,7 @@ class RepresentativenessConfig(fob.BrainMethodConfig):
         self._method = method
         self.roi_field = roi_field
         self.embeddings_field = embeddings_field
+        self.similarity_index = similarity_index
         self.model = model
         self.model_kwargs = model_kwargs
         super().__init__(**kwargs)
