@@ -60,8 +60,10 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
     {
         "similarity_backends": {
             "pinecone": {
-                "environment": "us-east-1-aws",
-                "api_key": "XXXXXXXX"
+                "api_key": "XXXXXXXX",
+                "cloud": "aws",
+                "region": "us-east-1",
+                "environment": "us-east-1-aws"
             },
             "qdrant": {
                 "url": "http://localhost:6333"
@@ -90,6 +92,7 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
 """
 import random
 import os
+import time
 import unittest
 
 import numpy as np
@@ -131,8 +134,12 @@ def test_brain_config():
 
         if backend == "pinecone":
             assert "pinecone" in similarity_backends
-            assert "api_key" in similarity_backends["pinecone"]
-            assert "environment" in similarity_backends["pinecone"]
+
+            # this isn't mandatory
+            # assert "api_key" in similarity_backends["pinecone"]
+            # assert "cloud" in similarity_backends["pinecone"]
+            # assert "region" in similarity_backends["pinecone"]
+            # assert "environment" in similarity_backends["pinecone"]
 
         if backend == "milvus":
             assert "milvus" in similarity_backends
@@ -159,7 +166,9 @@ def test_brain_config():
 
 def test_image_similarity_backends():
     dataset = foz.load_zoo_dataset(
-        "quickstart", dataset_name="quickstart-test-similarity-image"
+        "quickstart",
+        dataset_name="quickstart-test-similarity-image",
+        drop_existing_dataset=True,
     )
 
     # sklearn backend
@@ -228,6 +237,7 @@ def test_image_similarity_backends():
         )
 
         index2.add_to_index(embeddings, sample_ids)
+        assert _verify_total_index_size(index=index2, expected_size=200)
         assert index2.total_index_size == 200
         assert index2.index_size == 200
         assert index2.missing_size is None
@@ -274,7 +284,9 @@ def test_image_similarity_backends():
 
 def test_patch_similarity_backends():
     dataset = foz.load_zoo_dataset(
-        "quickstart", dataset_name="quickstart-test-similarity-patch"
+        "quickstart",
+        dataset_name="quickstart-test-similarity-patch",
+        drop_existing_dataset=True,
     )
 
     # sklearn backend
@@ -350,6 +362,7 @@ def test_patch_similarity_backends():
         )
 
         index2.add_to_index(embeddings, sample_ids, label_ids=label_ids)
+        assert _verify_total_index_size(index=index2, expected_size=1232)
         assert index2.total_index_size == 1232
         assert index2.index_size == 1232
         assert index2.missing_size is None
@@ -494,7 +507,9 @@ def test_images_missing():
 
 
 def test_images_embeddings():
-    dataset = foz.load_zoo_dataset("quickstart", max_samples=10)
+    dataset = foz.load_zoo_dataset(
+        "quickstart", max_samples=10, drop_existing_dataset=True
+    )
     model = foz.load_zoo_model("clip-vit-base32-torch")
     n = len(dataset)
 
@@ -627,7 +642,9 @@ def test_patches_missing():
 
 
 def test_patches_embeddings():
-    dataset = foz.load_zoo_dataset("quickstart", max_samples=10)
+    dataset = foz.load_zoo_dataset(
+        "quickstart", max_samples=10, drop_existing_dataset=True
+    )
     model = foz.load_zoo_model("clip-vit-base32-torch")
     n = dataset.count("ground_truth.detections")
 
@@ -752,6 +769,15 @@ def _make_patches_dataset(name):
     )
 
     return dataset
+
+
+def _verify_total_index_size(index, expected_size, timeout=10, interval=1):
+    elapsed_time = 0
+    while index.total_index_size != expected_size and elapsed_time < timeout:
+        time.sleep(interval)
+        elapsed_time += interval
+
+    return index.total_index_size == expected_size
 
 
 if __name__ == "__main__":
