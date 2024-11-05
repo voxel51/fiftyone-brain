@@ -134,13 +134,8 @@ class LeakySplitIndexInterface(object):
         """Return view with all leaks related to a certain sample."""
         raise NotImplementedError("Subclass must implement method.")
 
-    def remove_leaks(self, remove_from):
-        """Remove leaks from dataset
-
-        Args:
-            remove_from: tag/field value/view to remove from (e.g. remove the leak from 'test')
-        """
-        pass
+    def view_without_leaks(self, view):
+        return view.exclude([s["id"] for s in self.leaks])
 
     def tag_leaks(self, tag="leak"):
         """Tag leaks"""
