@@ -95,6 +95,19 @@ def compute_uniqueness(
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
 
+    config = UniquenessConfig(
+        uniqueness_field,
+        roi_field=roi_field,
+        embeddings_field=embeddings_field,
+        similarity_index=similarity_index,
+        model=model,
+        model_kwargs=model_kwargs,
+    )
+    brain_key = uniqueness_field
+    brain_method = config.build()
+    brain_method.ensure_requirements()
+    brain_method.register_run(samples, brain_key, cleanup=False)
+
     if roi_field is not None:
         # @todo experiment with mean(), max(), abs().max(), etc
         agg_fcn = lambda e: np.mean(e, axis=0)
@@ -124,19 +137,6 @@ def compute_uniqueness(
             samples, backend="sklearn", embeddings=False
         )
         similarity_index.add_to_index(embeddings, sample_ids)
-
-    config = UniquenessConfig(
-        uniqueness_field,
-        roi_field=roi_field,
-        embeddings_field=embeddings_field,
-        similarity_index=similarity_index,
-        model=model,
-        model_kwargs=model_kwargs,
-    )
-    brain_key = uniqueness_field
-    brain_method = config.build()
-    brain_method.ensure_requirements()
-    brain_method.register_run(samples, brain_key, cleanup=False)
 
     logger.info("Computing uniqueness...")
     uniqueness = _compute_uniqueness(
