@@ -95,10 +95,7 @@ class SklearnSimilarity(Similarity):
 
     def initialize(self, samples, brain_key):
         return SklearnSimilarityIndex(
-            samples,
-            self.config,
-            brain_key,
-            backend=self,
+            samples, self.config, brain_key, backend=self
         )
 
 
@@ -826,6 +823,7 @@ class NeighborsHelper(object):
         embeddings -= embeddings.mean(axis=0, keepdims=True)
 
         metric = self.metric
+
         if metric == "cosine":
             # Nearest neighbors does not directly support cosine distance, so
             # we approximate via euclidean distance on unit-norm embeddings

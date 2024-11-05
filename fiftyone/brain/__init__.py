@@ -176,6 +176,7 @@ def compute_uniqueness(
     uniqueness_field="uniqueness",
     roi_field=None,
     embeddings=None,
+    similarity_index=None,
     model=None,
     model_kwargs=None,
     force_square=False,
@@ -184,8 +185,6 @@ def compute_uniqueness(
     num_workers=None,
     skip_failures=True,
     progress=None,
-    similarity_backend=None,
-    similarity_index=None,
 ):
     """Adds a uniqueness field to each sample scoring how unique it is with
     respect to the rest of the samples.
@@ -193,8 +192,8 @@ def compute_uniqueness(
     This function only uses the pixel data and can therefore process labeled or
     unlabeled samples.
 
-    If no ``embeddings`` or ``model`` is provided, a default model is used to
-    generate embeddings.
+    If no ``embeddings``, ``similarity_index``, or ``model`` is provided, a
+    default model is used to generate embeddings.
 
     .. note::
 
@@ -223,6 +222,9 @@ def compute_uniqueness(
             when working with patch embeddings, you can provide either the
             fully-qualified path to the patch embeddings or just the name of
             the label attribute in ``roi_field``
+        similarity_index (None): a
+            :class:`fiftyone.brain.similarity.SimilarityIndex` or the brain key
+            of a similarity index to use to load pre-computed embeddings
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/models.html>`_
@@ -250,11 +252,6 @@ def compute_uniqueness(
         progress (None): whether to render a progress bar (True/False), use the
             default value ``fiftyone.config.show_progress_bars`` (None), or a
             progress callback function to invoke instead
-        similarity_backend (None): the similarity backend to use. The supported values are
-            ``fiftyone.brain.brain_config.similarity_backends.keys()`` and the
-            default is ``fiftyone.brain.brain_config.default_similarity_backend``
-        similarity_index (None): the similarity index to use. This can be set to
-            ``fiftyone.brain.similarity.SimilarityIndex`` instance or a brain_key string to load the similarity index via samples.load_brain_results
     """
     import fiftyone.brain.internal.core.uniqueness as fbu
 
@@ -263,6 +260,7 @@ def compute_uniqueness(
         uniqueness_field,
         roi_field,
         embeddings,
+        similarity_index,
         model,
         model_kwargs,
         force_square,
@@ -271,8 +269,6 @@ def compute_uniqueness(
         num_workers,
         skip_failures,
         progress,
-        similarity_backend,
-        similarity_index,
     )
 
 
@@ -282,6 +278,7 @@ def compute_representativeness(
     method="cluster-center",
     roi_field=None,
     embeddings=None,
+    similarity_index=None,
     model=None,
     model_kwargs=None,
     force_square=False,
@@ -297,8 +294,8 @@ def compute_representativeness(
     This function only uses the pixel data and can therefore process labeled or
     unlabeled samples.
 
-    If no ``embeddings`` or ``model`` is provided, a default model is used to
-    generate embeddings.
+    If no ``embeddings``, ``similarity_index``, or ``model`` is provided, a
+    default model is used to generate embeddings.
 
     .. note::
 
@@ -334,6 +331,9 @@ def compute_representativeness(
             when working with patch embeddings, you can provide either the
             fully-qualified path to the patch embeddings or just the name of
             the label attribute in ``roi_field``
+        similarity_index (None): a
+            :class:`fiftyone.brain.similarity.SimilarityIndex` or the brain key
+            of a similarity index to use to load pre-computed embeddings
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/models.html>`_
@@ -370,6 +370,7 @@ def compute_representativeness(
         method,
         roi_field,
         embeddings,
+        similarity_index,
         model,
         model_kwargs,
         force_square,
@@ -389,6 +390,7 @@ def compute_visualization(
     brain_key=None,
     num_dims=2,
     method=None,
+    similarity_index=None,
     model=None,
     model_kwargs=None,
     force_square=False,
@@ -407,12 +409,8 @@ def compute_visualization(
     method of the returned
     :class:`fiftyone.brain.visualization.VisualizationResults` object.
 
-    If no ``embeddings`` or ``model`` is provided, the following default model
-    is used to generate embeddings::
-
-        import fiftyone.zoo as foz
-
-        model = foz.load_zoo_model("mobilenet-v2-imagenet-torch")
+    If no ``embeddings``, ``similarity_index``, or ``model`` is provided, a
+    default model is used to generate embeddings.
 
     You can use the ``method`` parameter to select the dimensionality reduction
     method to use, and you can optionally customize the method by passing
@@ -447,8 +445,6 @@ def compute_visualization(
                 to ``num_patches x num_embedding_dims`` arrays of patch
                 embeddings
             -   the name of a dataset field containing the embeddings to use
-            -   a :class:`fiftyone.brain.similarity.SimilarityIndex` from which
-                to retrieve embeddings for all samples/patches in ``samples``
 
             If a ``model`` is provided, this argument specifies the name of a
             field in which to store the computed embeddings. In either case,
@@ -480,6 +476,9 @@ def compute_visualization(
             ``fiftyone.brain.brain_config.visualization_methods.keys()`` and
             the default is
             ``fiftyone.brain.brain_config.default_visualization_method``
+        similarity_index (None): a
+            :class:`fiftyone.brain.similarity.SimilarityIndex` or the brain key
+            of a similarity index to use to load pre-computed embeddings
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
@@ -524,6 +523,7 @@ def compute_visualization(
         brain_key,
         num_dims,
         method,
+        similarity_index,
         model,
         model_kwargs,
         force_square,
@@ -581,12 +581,8 @@ def compute_similarity(
         Query the index to select a subset of examples of a specified size that
         are maximally unique with respect to each other
 
-    If no ``embeddings`` or ``model`` is provided, the following default model
-    is used to generate embeddings::
-
-        import fiftyone.zoo as foz
-
-        model = foz.load_zoo_model("mobilenet-v2-imagenet-torch")
+    If no ``embeddings`` or ``model`` is provided, a default model is used to
+    generate embeddings.
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`

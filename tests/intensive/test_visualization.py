@@ -242,6 +242,41 @@ def test_points():
     dataset.delete()
 
 
+def test_similarity_index():
+    dataset = foz.load_zoo_dataset(
+        "quickstart", dataset_name=fo.get_default_dataset_name()
+    )
+
+    # Full similarity index
+
+    similarity_index = fob.compute_similarity(
+        dataset, brain_key="sklearn_index", backend="sklearn"
+    )
+
+    results = fob.compute_visualization(
+        dataset,
+        brain_key="img_viz",
+        similarity_index=similarity_index,
+    )
+
+    assert len(results.points) == len(dataset)
+
+    # Partial similarity index
+
+    view = dataset.take(100, seed=51)
+    similarity_index2 = fob.compute_similarity(
+        view, brain_key="sklearn_index2", backend="sklearn"
+    )
+
+    results2 = fob.compute_visualization(
+        dataset,
+        brain_key="img_viz2",
+        similarity_index="sklearn_index2",
+    )
+
+    assert len(results2.points) == len(view)
+
+
 def _load_images_dataset():
     name = "test-visualization-images"
 
