@@ -11,23 +11,84 @@ from fiftyone import ViewField as F
 # pylint: disable=no-member
 import cv2
 
+import eta.core.utils as etau
+
 import fiftyone.core.brain as fob
 import fiftyone.brain.similarity as sim
 import fiftyone.brain.internal.core.sklearn as skl_sim
 import fiftyone.brain.internal.core.duplicates as dups
 import fiftyone.brain.internal.core.utils as fbu
 import fiftyone.core.utils as fou
+import fiftyone.core.validation as fov
+import fiftyone.zoo as foz
+
+fbu = fou.lazy_import("fiftyone.brain.internal.core.utils")
+
+_DEFAULT_MODEL = "clip-vit-base32-torch"
+_DEFAULT_BATCH_SIZE = None
 
 
 def compute_leaky_splits(
     samples,
-    split_tags,
-    method="similarity",
-    similarity_backend=None,
-    similarity_backend_kwargs=None,
+    brain_key,
+    split_views=None,
+    split_field=None,
+    split_tags=None,
+    threshold=0.2,
+    embeddings_field=None,
+    model=None,
+    model_kwargs=None,
+    patches_field=None,
+    supports_prompts=None,
+    metric="cosine",
+    batch_size=None,
     **kwargs,
 ):
-    print("bar")
+
+    fov.validate_collection(samples)
+
+    embeddings_exist = False
+    if embeddings_field is not None and model is None:
+        embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
+            samples,
+            embeddings_field,
+            patches_field=patches_field,
+        )
+
+    if model is None and not embeddings_exist:
+        model = _DEFAULT_MODEL
+        if batch_size is None:
+            batch_size = _DEFAULT_BATCH_SIZE
+
+    config = LeakySplitsSKLConfig(
+        split_views=split_views,
+        split_field=split_field,
+        split_tags=split_tags,
+        embeddings_field=embeddings_field,
+        model=model,
+        model_kwargs=model_kwargs,
+        patches_field=patches_field,
+        supports_prompts=supports_prompts,
+        metric=metric,
+        **kwargs,
+    )
+    brain_method = LeakySplitsSKL(config)
+    brain_method.ensure_requirements()
+
+    if brain_key is not None:
+        # Don't allow overwriting an existing run with same key, since we
+        # need the existing run in order to perform workflows like
+        # automatically cleaning up the backend's index
+        brain_method.register_run(samples, brain_key, overwrite=False)
+
+    results = brain_method.initialize(samples, brain_key)
+
+    results.set_threshold(threshold)
+    leaks = results.leaks
+
+    brain_method.save_run_results(samples, brain_key, results)
+
+    return results
 
 
 ### GENERAL
