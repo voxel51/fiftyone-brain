@@ -84,6 +84,45 @@ def test_roi_uniqueness_missing():
     assert len(view) == 0
 
 
+def test_uniqueness_similarity_index():
+    dataset = foz.load_zoo_dataset(
+        "quickstart", dataset_name=fo.get_default_dataset_name()
+    )
+    dataset.delete_sample_field("uniqueness")
+
+    # Full similarity index
+
+    similarity_index = fob.compute_similarity(
+        dataset, brain_key="sklearn_index", backend="sklearn"
+    )
+
+    fob.compute_uniqueness(dataset, similarity_index=similarity_index)
+
+    assert dataset.has_field("uniqueness")
+
+    dataset.clear_cache()
+    dataset.delete_sample_field("uniqueness")
+
+    fob.compute_uniqueness(dataset, similarity_index="sklearn_index")
+
+    assert dataset.has_field("uniqueness")
+
+    # Partial similarity index
+
+    view = dataset.take(100, seed=51)
+    similarity_index2 = fob.compute_similarity(
+        view, brain_key="sklearn_index2", backend="sklearn"
+    )
+
+    fob.compute_uniqueness(
+        dataset,
+        uniqueness_field="uniqueness2",
+        similarity_index="sklearn_index2",
+    )
+
+    assert len(dataset.exists("uniqueness2")) == len(view)
+
+
 def _run_uniqueness(roi_field=None, model=None, batch_size=None):
     dataset = foz.load_zoo_dataset(
         "quickstart", dataset_name=fo.get_default_dataset_name()

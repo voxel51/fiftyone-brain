@@ -41,6 +41,7 @@ def compute_visualization(
     brain_key,
     num_dims,
     method,
+    similarity_index,
     model,
     model_kwargs,
     force_square,
@@ -78,10 +79,14 @@ def compute_visualization(
         embeddings_field = None
         embeddings_exist = None
 
+    if etau.is_str(similarity_index):
+        similarity_index = samples.load_brain_results(similarity_index)
+
     if (
         model is None
         and points is None
         and embeddings is None
+        and similarity_index is None
         and not embeddings_exist
     ):
         model = _DEFAULT_MODEL
@@ -91,6 +96,7 @@ def compute_visualization(
     config = _parse_config(
         method,
         embeddings_field=embeddings_field,
+        similarity_index=similarity_index,
         model=model,
         model_kwargs=model_kwargs,
         patches_field=patches_field,
@@ -112,6 +118,7 @@ def compute_visualization(
             patches_field=patches_field,
             embeddings_field=embeddings_field,
             embeddings=embeddings,
+            similarity_index=similarity_index,
             force_square=force_square,
             alpha=alpha,
             batch_size=batch_size,
@@ -586,6 +593,8 @@ class VisualizationConfig(fob.BrainMethodConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
+        similarity_index (None): the similarity index containing the
+            embeddings, if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
         model_kwargs (None): a dictionary of optional keyword arguments to pass
@@ -598,16 +607,21 @@ class VisualizationConfig(fob.BrainMethodConfig):
     def __init__(
         self,
         embeddings_field=None,
+        similarity_index=None,
         model=None,
         model_kwargs=None,
         patches_field=None,
         num_dims=2,
         **kwargs,
     ):
+        if similarity_index is not None and not etau.is_str(similarity_index):
+            similarity_index = similarity_index.key
+
         if model is not None and not etau.is_str(model):
             model = None
 
         self.embeddings_field = embeddings_field
+        self.similarity_index = similarity_index
         self.model = model
         self.model_kwargs = model_kwargs
         self.patches_field = patches_field
@@ -641,6 +655,8 @@ class UMAPVisualizationConfig(VisualizationConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
+        similarity_index (None): the similarity index containing the
+            embeddings, if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
         model_kwargs (None): a dictionary of optional keyword arguments to pass
@@ -667,6 +683,7 @@ class UMAPVisualizationConfig(VisualizationConfig):
     def __init__(
         self,
         embeddings_field=None,
+        similarity_index=None,
         model=None,
         model_kwargs=None,
         patches_field=None,
@@ -680,6 +697,7 @@ class UMAPVisualizationConfig(VisualizationConfig):
     ):
         super().__init__(
             embeddings_field=embeddings_field,
+            similarity_index=similarity_index,
             model=model,
             model_kwargs=model_kwargs,
             patches_field=patches_field,
@@ -731,6 +749,8 @@ class TSNEVisualizationConfig(VisualizationConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
+        similarity_index (None): the similarity index containing the
+            embeddings, if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
         model_kwargs (None): a dictionary of optional keyword arguments to pass
@@ -768,6 +788,7 @@ class TSNEVisualizationConfig(VisualizationConfig):
     def __init__(
         self,
         embeddings_field=None,
+        similarity_index=None,
         model=None,
         model_kwargs=None,
         patches_field=None,
@@ -784,6 +805,7 @@ class TSNEVisualizationConfig(VisualizationConfig):
     ):
         super().__init__(
             embeddings_field=embeddings_field,
+            similarity_index=similarity_index,
             model=model,
             model_kwargs=model_kwargs,
             patches_field=patches_field,
@@ -841,6 +863,8 @@ class PCAVisualizationConfig(VisualizationConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
+        similarity_index (None): the similarity index containing the
+            embeddings, if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
             zoo model that was used to compute embeddings, if known
         model_kwargs (None): a dictionary of optional keyword arguments to pass
@@ -856,6 +880,7 @@ class PCAVisualizationConfig(VisualizationConfig):
     def __init__(
         self,
         embeddings_field=None,
+        similarity_index=None,
         model=None,
         model_kwargs=None,
         patches_field=None,
@@ -866,6 +891,7 @@ class PCAVisualizationConfig(VisualizationConfig):
     ):
         super().__init__(
             embeddings_field=embeddings_field,
+            similarity_index=similarity_index,
             model=model,
             model_kwargs=model_kwargs,
             patches_field=patches_field,
