@@ -334,27 +334,30 @@ class SimilarityIndex(fob.BrainResults):
         super().__init__(samples, config, brain_key, backend=backend)
 
         self._model = None
+        self._last_view = None
+        self._last_lazy = None
+        self._last_views = []
         self._curr_view = None
+        self._curr_view_allow_missing = None
+        self._curr_view_warn_missing = None
         self._curr_sample_ids = None
         self._curr_label_ids = None
         self._curr_keep_inds = None
         self._curr_missing_size = None
-        self._last_view = None
-        self._last_views = []
 
-        self.use_view(samples)
+        self.use_view(samples, lazy=True)
 
     def __enter__(self):
-        self._last_views.append(self._last_view)
+        self._last_views.append((self._last_view, self._last_lazy))
         return self
 
     def __exit__(self, *args):
         try:
-            last_view = self._last_views.pop()
+            last_view, last_lazy = self._last_views.pop()
         except:
-            last_view = self._samples
+            last_view, last_lazy = self._samples, True
 
-        self.use_view(last_view)
+        self.use_view(last_view, lazy=last_lazy)
 
     @property
     def config(self):
@@ -416,6 +419,7 @@ class SimilarityIndex(fob.BrainResults):
         If :meth:`use_view` has been called, this may be a subset of the full
         index.
         """
+        self._apply_view_if_necessary()
         return self._curr_sample_ids
 
     @property
@@ -426,6 +430,7 @@ class SimilarityIndex(fob.BrainResults):
         If :meth:`use_view` has been called, this may be a subset of the full
         index.
         """
+        self._apply_view_if_necessary()
         return self._curr_label_ids
 
     @property
@@ -433,6 +438,7 @@ class SimilarityIndex(fob.BrainResults):
         """The indices of :meth:`current_sample_ids` in :meth:`sample_ids`, or
         ``None`` if not supported or if the full index is currently being used.
         """
+        self._apply_view_if_necessary()
         return self._curr_keep_inds
 
     @property
@@ -442,6 +448,7 @@ class SimilarityIndex(fob.BrainResults):
         If :meth:`use_view` has been called to restrict the index, this
         property will reflect the size of the active index.
         """
+        self._apply_view_if_necessary()
         return len(self._curr_sample_ids)
 
     @property
@@ -453,6 +460,7 @@ class SimilarityIndex(fob.BrainResults):
         and it will be ``None`` if no data points are missing or when the
         backend does not support it.
         """
+        self._apply_view_if_necessary()
         return self._curr_missing_size
 
     def add_to_index(
@@ -541,7 +549,13 @@ class SimilarityIndex(fob.BrainResults):
         """
         raise NotImplementedError("subclass must implement get_embeddings()")
 
-    def use_view(self, samples, allow_missing=True, warn_missing=False):
+    def use_view(
+        self,
+        samples,
+        allow_missing=True,
+        warn_missing=False,
+        lazy=False,
+    ):
         """Restricts the index to the provided view.
 
         Subsequent calls to methods on this instance will only contain results
@@ -581,17 +595,37 @@ class SimilarityIndex(fob.BrainResults):
             warn_missing (False): whether to log a warning if the provided
                 collection contains data points that this index does not
                 contain
+            lazy (False): whether to lazily reinitialze the index for the
+                provided view only when necessary
 
         Returns:
             self
         """
+        self._last_view = self._curr_view
+        self._last_lazy = lazy
+
+        self._curr_view = samples
+        self._curr_view_allow_missing = allow_missing
+        self._curr_view_warn_missing = warn_missing
+
+        if lazy:
+            self._curr_sample_ids = None
+            self._curr_label_ids = None
+            self._curr_keep_inds = None
+            self._curr_missing_size = None
+        else:
+            self._apply_view()
+
+        return self
+
+    def _apply_view(self):
         sample_ids, label_ids, keep_inds, good_inds = fbu.filter_ids(
-            samples,
+            self._curr_view,
             self.sample_ids,
             self.label_ids,
             patches_field=self.config.patches_field,
-            allow_missing=allow_missing,
-            warn_missing=warn_missing,
+            allow_missing=self._curr_view_allow_missing,
+            warn_missing=self._curr_view_warn_missing,
         )
 
         if good_inds is not None:
@@ -599,14 +633,14 @@ class SimilarityIndex(fob.BrainResults):
         else:
             missing_size = None
 
-        self._last_view = self._curr_view
-        self._curr_view = samples
         self._curr_sample_ids = sample_ids
         self._curr_label_ids = label_ids
         self._curr_keep_inds = keep_inds
         self._curr_missing_size = missing_size
 
-        return self
+    def _apply_view_if_necessary(self):
+        if self._curr_sample_ids is None:
+            self._apply_view()
 
     def clear_view(self):
         """Clears the view set by :meth:`use_view`, if any.
