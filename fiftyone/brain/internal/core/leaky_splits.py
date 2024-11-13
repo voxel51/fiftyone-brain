@@ -98,7 +98,7 @@ def compute_leaky_splits(
             :class:`fiftyone.brain.SklearnSimilarityIndex` class
 
     Returns:
-        a :class:`fiftyone.brain.internal.core.leaky_splits.LeakySplitsSKLIndex`
+        a :class:`fiftyone.brain.internal.core.leaky_splits.LeakySplitsSKLIndex`, a :class:`fiftyone.core.view.DatasetView`
     """
 
     fov.validate_collection(samples)
