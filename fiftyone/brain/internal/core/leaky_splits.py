@@ -39,11 +39,67 @@ def compute_leaky_splits(
     model=None,
     model_kwargs=None,
     patches_field=None,
-    supports_prompts=None,
     metric="cosine",
-    batch_size=None,
     **kwargs,
 ):
+    """Uses embeddings to index the samples or their patches so that you can
+    find leaks.
+
+    Calling this method only creates the index. You can then call the methods
+    exposed on the retuned object to perform the following operations:
+
+    -   :meth:`leaks <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndexInterface.leaks>`:
+        Returns a view of all leaks in the dataset.
+
+    -   :meth:`view_without_leaks <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndexInterface.view_without_leaks>`:
+        Returns a subset of the given view without any leaks.
+
+    -   :meth:`tag_leaks <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndexInterface.tag_leaks>`:
+        Tags leaks in the dataset as leaks.
+
+
+    Args:
+        samples: a :class:`fiftyone.core.collections.SampleCollection`
+        split_views (None): a list of :class:`fiftyone.core.view.DatasetView`
+            corresponding to different splits in the datset. Only one of
+            `split_views`, `split_field`, and `splits_tags` need to be used.
+        split_field (None): a string name of a field that holds the split of the sample.
+            Each unique value in the field will be treated as a split.
+            Only one of `split_views`, `split_field`, and `splits_tags` need to be used.
+        split_tags (None): a list of strings, tags corresponding to differents splits.
+            Only one of `split_views`, `split_field`, and `splits_tags` need to be used.
+        threshold (0.2): The threshold to run the algorithm with. Values between
+            0.1 - 0.25 tend to give good results.
+        patches_field (None): a sample field defining the image patches in each
+            sample that have been/will be embedded. Must be of type
+            :class:`fiftyone.core.labels.Detection`,
+            :class:`fiftyone.core.labels.Detections`,
+            :class:`fiftyone.core.labels.Polyline`, or
+            :class:`fiftyone.core.labels.Polylines`
+        embeddings_field (None): field for embeddings to feed the index. This argument's
+            behavior depends on whether a ``model`` is provided, as described
+            below.
+
+            If no ``model`` is provided, this argument specifies the field of pre-computed
+            embeddings to use:
+
+            If a ``model`` is provided, this argument specifies where to store
+            the model's embeddings:
+        brain_key (None): a brain key under which to store the results of this
+            method
+        model (None): a :class:`fiftyone.core.models.Model` or the name of a
+            model from the
+            `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
+            to use, or that was already used, to generate embeddings. The model
+            must expose embeddings (``model.has_embeddings = True``)
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
+        **kwargs: keyword arguments for the
+            :class:`fiftyone.brain.SklearnSimilarityIndex` class
+
+    Returns:
+        a :class:`fiftyone.brain.internal.core.leaky_splits.LeakySplitsSKLIndex`
+    """
 
     fov.validate_collection(samples)
 
@@ -55,11 +111,6 @@ def compute_leaky_splits(
             patches_field=patches_field,
         )
 
-    if model is None and not embeddings_exist:
-        model = _DEFAULT_MODEL
-        if batch_size is None:
-            batch_size = _DEFAULT_BATCH_SIZE
-
     config = LeakySplitsSKLConfig(
         split_views=split_views,
         split_field=split_field,
@@ -68,7 +119,6 @@ def compute_leaky_splits(
         model=model,
         model_kwargs=model_kwargs,
         patches_field=patches_field,
-        supports_prompts=supports_prompts,
         metric=metric,
         **kwargs,
     )
@@ -88,7 +138,7 @@ def compute_leaky_splits(
 
     brain_method.save_run_results(samples, brain_key, results)
 
-    return results
+    return results, leaks
 
 
 ### GENERAL
@@ -230,7 +280,6 @@ class LeakySplitsSKLConfig(
         model=None,
         model_kwargs=None,
         patches_field=None,
-        supports_prompts=None,
         metric="cosine",
         **kwargs,
     ):
@@ -243,7 +292,6 @@ class LeakySplitsSKLConfig(
             model=model,
             model_kwargs=model_kwargs,
             patches_field=patches_field,
-            supports_prompts=supports_prompts,
             metric=metric,
             **kwargs,
         )
