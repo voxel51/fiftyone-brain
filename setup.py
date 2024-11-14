@@ -10,14 +10,7 @@ import os
 from setuptools import setup
 
 
-with open("PYPI_README.md", "r") as fh:
-    long_description = fh.read()
-
-with open("LICENSE", "r") as fh:
-    long_description += "\n## License\n\n" + fh.read()
-
-
-VERSION = "0.17.0"
+VERSION = "0.18.0"
 
 
 def get_version():
@@ -33,6 +26,10 @@ def get_version():
     return VERSION
 
 
+with open("README.md", "r") as fh:
+    long_description = fh.read()
+
+
 setup(
     name="fiftyone-brain",
     version=get_version(),
@@ -40,7 +37,7 @@ setup(
     author="Voxel51, Inc.",
     author_email="info@voxel51.com",
     url="https://github.com/voxel51/fiftyone-brain",
-    license="Freeware (Custom)",
+    license="Apache",
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=["fiftyone.brain"],
@@ -50,7 +47,7 @@ setup(
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
         "Intended Audience :: Science/Research",
-        "License :: Freeware",
+        "License :: OSI Approved :: Apache Software License",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
         "Topic :: Scientific/Engineering :: Image Processing",
         "Topic :: Scientific/Engineering :: Image Recognition",
@@ -60,11 +57,10 @@ setup(
         "Operating System :: POSIX :: Linux",
         "Operating System :: Microsoft :: Windows",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
     ],
     scripts=[],
-    python_requires=">=3.8",
+    python_requires=">=3.9",
 )

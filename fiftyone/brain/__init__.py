@@ -235,9 +235,9 @@ def compute_uniqueness(
             before extracting them, in ``[-1, inf)``. If provided, the length
             and width of the box are expanded (or contracted, when
             ``alpha < 0``) by ``(100 * alpha)%``. For example, set
-            ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
-            to contract the boxes by 10%. Only applicable when a ``model`` and
-            ``roi_field`` are specified
+            ``alpha = 0.1`` to expand the boxes by 10%, and set
+            ``alpha = -0.1`` to contract the boxes by 10%. Only applicable when
+            a ``model`` and ``roi_field`` are specified
         batch_size (None): a batch size to use when computing embeddings. Only
             applicable when a ``model`` is provided
         num_workers (None): the number of workers to use when loading images.
@@ -339,9 +339,9 @@ def compute_representativeness(
             before extracting them, in ``[-1, inf)``. If provided, the length
             and width of the box are expanded (or contracted, when
             ``alpha < 0``) by ``(100 * alpha)%``. For example, set
-            ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
-            to contract the boxes by 10%. Only applicable when a ``model`` and
-            ``roi_field`` are specified
+            ``alpha = 0.1`` to expand the boxes by 10%, and set
+            ``alpha = -0.1`` to contract the boxes by 10%. Only applicable when
+            a ``model`` and ``roi_field`` are specified
         batch_size (None): a batch size to use when computing embeddings. Only
             applicable when a ``model`` is provided
         num_workers (None): the number of workers to use when loading images.
@@ -485,9 +485,9 @@ def compute_visualization(
             before extracting them, in ``[-1, inf)``. If provided, the length
             and width of the box are expanded (or contracted, when
             ``alpha < 0``) by ``(100 * alpha)%``. For example, set
-            ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
-            to contract the boxes by 10%. Only applicable when a ``model`` and
-            ``patches_field`` are specified
+            ``alpha = 0.1`` to expand the boxes by 10%, and set
+            ``alpha = -0.1`` to contract the boxes by 10%. Only applicable when
+            a ``model`` and ``patches_field`` are specified
         batch_size (None): an optional batch size to use when computing
             embeddings. Only applicable when a ``model`` is provided
         num_workers (None): the number of workers to use when loading images.
@@ -626,9 +626,9 @@ def compute_similarity(
             before extracting them, in ``[-1, inf)``. If provided, the length
             and width of the box are expanded (or contracted, when
             ``alpha < 0``) by ``(100 * alpha)%``. For example, set
-            ``alpha = 1.1`` to expand the boxes by 10%, and set ``alpha = 0.9``
-            to contract the boxes by 10%. Only applicable when a ``model`` and
-            ``patches_field`` are specified
+            ``alpha = 0.1`` to expand the boxes by 10%, and set
+            ``alpha = -0.1`` to contract the boxes by 10%. Only applicable when
+            a ``model`` and ``patches_field`` are specified
         batch_size (None): an optional batch size to use when computing
             embeddings. Only applicable when a ``model`` is provided
         num_workers (None): the number of workers to use when loading images.
