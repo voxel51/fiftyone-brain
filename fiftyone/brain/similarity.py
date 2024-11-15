@@ -642,22 +642,30 @@ class SimilarityIndex(fob.BrainResults):
         if self._curr_sample_ids is None:
             self._apply_view()
 
-    def clear_view(self):
+    def clear_view(self, lazy=False):
         """Clears the view set by :meth:`use_view`, if any.
 
         Subsequent operations will be performed on the full index.
-        """
-        self.use_view(self._samples)
 
-    def reload(self):
+        Args:
+            lazy (False): whether to lazily reinitialze the index only when
+                necessary
+        """
+        self.use_view(self._samples, lazy=lazy)
+
+    def reload(self, lazy=False):
         """Reloads the index for the current view.
 
         Subclasses may override this method, but by default this method simply
         passes the current :meth:`view` back into :meth:`use_view`, which
         updates the index's current ID set based on any changes to the view
         since the index was last loaded.
+
+        Args:
+            lazy (False): whether to lazily reinitialze the index only when
+                necessary
         """
-        self.use_view(self._curr_view)
+        self.use_view(self._curr_view, lazy=lazy)
 
     def cleanup(self):
         """Deletes the similarity index from the backend."""
