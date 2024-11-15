@@ -507,8 +507,12 @@ class MongoDBSimilarityIndex(SimilarityIndex):
 
         dataset = self._dataset
 
-        ids = []
+        sample_ids = []
+        label_ids = None
+        # if self.config.patches_field is not None:
+        #     label_ids = []
         dists = []
+
         for q in query:
             search = {
                 "index": self.config.index_name,
@@ -530,6 +534,8 @@ class MongoDBSimilarityIndex(SimilarityIndex):
                 search["filter"] = {name_field: {"$eq": group_slice}}
 
             project = {"_id": 1}
+            # if self.config.patches_field is not None:
+            #     project["_sample_id"] = 1
             if return_dists:
                 project["score"] = {"$meta": "vectorSearchScore"}
 
@@ -539,19 +545,24 @@ class MongoDBSimilarityIndex(SimilarityIndex):
                 dataset._aggregate(pipeline=pipeline, manual_group_select=True)
             )
 
-            ids.append([str(m["_id"]) for m in matches])
+            sample_ids.append([str(m["_id"]) for m in matches])
+            # if self.config.patches_field is not None:
+            #     sample_ids.append([str(m["_sample_id"]) for m in matches])
+            #     label_ids.append([str(m["_id"]) for m in matches])
             if return_dists:
                 dists.append([m["score"] for m in matches])
 
         if single_query:
-            ids = ids[0]
+            sample_ids = sample_ids[0]
+            if label_ids is not None:
+                label_ids = label_ids[0]
             if return_dists:
                 dists = dists[0]
 
         if return_dists:
-            return ids, dists
+            return sample_ids, label_ids, dists
 
-        return ids
+        return sample_ids, label_ids
 
     def _parse_neighbors_query(self, query):
         if etau.is_str(query):
