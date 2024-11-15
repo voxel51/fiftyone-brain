@@ -549,6 +549,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             # if self.config.patches_field is not None:
             #     sample_ids.append([str(m["_sample_id"]) for m in matches])
             #     label_ids.append([str(m["_id"]) for m in matches])
+
             if return_dists:
                 dists.append([m["score"] for m in matches])
 
