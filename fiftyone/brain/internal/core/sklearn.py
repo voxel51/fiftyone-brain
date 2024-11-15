@@ -323,7 +323,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
 
         return embeddings, sample_ids, label_ids
 
-    def reload(self):
+    def reload(self, lazy=False):
         if self.config.embeddings_field is not None:
             embeddings, sample_ids, label_ids = self._parse_data(
                 self._dataset, self.config
@@ -336,7 +336,7 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
             self._curr_ids_to_inds = None
             self._neighbors_helper = None
 
-        super().reload()
+        super().reload(lazy=lazy)
 
     def cleanup(self):
         pass
