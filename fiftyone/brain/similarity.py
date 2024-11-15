@@ -744,16 +744,17 @@ class SimilarityIndex(fob.BrainResults):
         )
 
         if dist_field is not None:
-            ids, dists = self._kneighbors(**kwargs)
+            sample_ids, label_ids, dists = self._kneighbors(**kwargs)
         else:
-            ids = self._kneighbors(**kwargs)
+            sample_ids, label_ids = self._kneighbors(**kwargs)
 
-        if not selecting_samples:
-            label_ids = ids
-
-            _ids = set(ids)
-            bools = np.array([_id in _ids for _id in self.current_label_ids])
-            sample_ids = self.current_sample_ids[bools]
+        if selecting_samples:
+            if patches_field is not None:
+                ids = label_ids
+            else:
+                ids = sample_ids
+        else:
+            ids = label_ids
 
         # Store query distances
         if dist_field is not None:
@@ -868,7 +869,7 @@ class SimilarityIndex(fob.BrainResults):
                 -   an embedding or ``num_queries x num_dim`` array of
                     embeddings for which to return neighbors
                 -   Some backends may also support ``None``, in which case the
-                    neighbors for all points in the current :meth:`view are
+                    neighbors for all points in the current :meth:`view` are
                     returned
 
             k (None): the number of neighbors to return. Some backends may
@@ -885,23 +886,31 @@ class SimilarityIndex(fob.BrainResults):
         Returns:
             the query result, in one of the following formats:
 
-                -   an ``(ids, dists)`` tuple, when ``return_dists`` is True
-                -   ``ids``, when ``return_dists`` is False
+                -   a ``(sample_ids, label_ids, dists)`` tuple, when
+                    ``return_dists`` is True
+                -   a ``(sample_ids, label_ids)`` tuple, when ``return_dists``
+                    is False
 
-            In the above, ``ids`` contains the IDs of the nearest neighbors, in
-            one of the following formats:
+            In the above, ``sample_ids`` and ``label_ids`` (if applicable)
+            contain the IDs of the nearest neighbors, in one of the following
+            formats:
 
                 -   a list of nearest neighbor IDs, when a single query ID or
                     vector is provided, **or** when an ``aggregation`` is
                     provided
                 -   a list of lists of nearest neighbor IDs, when multiple
                     query IDs/vectors and no ``aggregation`` is provided
+
+            and ``dists`` contains the corresponding query-neighbor distances
+            for each result.
+
+            If the backend supports full index queries (``query=None``), then
+            ``inds`` are returned rather than ``(sample_ids, label_ids)``, in
+            the following format:
+
                 -   a list of arrays of the **integer indexes** (not IDs) of
                     nearest neighbor points for every vector in the index, when
                     no query is provided
-
-            and ``dists`` contains the corresponding query-neighbor distances
-            for each result in ``ids``
         """
         raise NotImplementedError("subclass must implement _kneighbors()")
 
@@ -1094,7 +1103,7 @@ class DuplicatesMixin(object):
                 -   an embedding or ``num_queries x num_dim`` array of
                     embeddings for which to return neighbors
                 -   ``None``, in which case the neighbors for all points in the
-                    current :meth:`view are returned
+                    current :meth:`view` are returned
 
             thresh (None): the distance threshold to use
             return_dists (False): whether to return query-neighbor distances
@@ -1102,22 +1111,31 @@ class DuplicatesMixin(object):
         Returns:
             the query result, in one of the following formats:
 
-                -   an ``(ids, dists)`` tuple, when ``return_dists`` is True
-                -   ``ids``, when ``return_dists`` is False
+                -   a ``(sample_ids, label_ids, dists)`` tuple, when
+                    ``return_dists`` is True
+                -   a ``(sample_ids, label_ids)`` tuple, when ``return_dists``
+                    is False
 
-            In the above, ``ids`` contains the IDs of the nearest neighbors, in
-            one of the following formats:
+            In the above, ``sample_ids`` and ``label_ids`` (if applicable)
+            contain the IDs of the nearest neighbors, in one of the following
+            formats:
 
                 -   a list of nearest neighbor IDs, when a single query ID or
-                    vector is provided
+                    vector is provided, **or** when an ``aggregation`` is
+                    provided
                 -   a list of lists of nearest neighbor IDs, when multiple
-                    query IDs/vectors is provided
+                    query IDs/vectors and no ``aggregation`` is provided
+
+            and ``dists`` contains the corresponding query-neighbor distances
+            for each result.
+
+            If the backend supports full index queries (``query=None``), then
+            ``inds`` are returned rather than ``(sample_ids, label_ids)``, in
+            the following format:
+
                 -   a list of arrays of the **integer indexes** (not IDs) of
                     nearest neighbor points for every vector in the index, when
                     no query is provided
-
-            and ``dists`` contains the corresponding query-neighbor distances
-            for each result in ``ids``
         """
         raise NotImplementedError(
             "subclass must implement _radius_neighbors()"
