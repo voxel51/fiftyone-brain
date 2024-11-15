@@ -508,18 +508,18 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         if k is not None:
             inds = inds[:k]
 
-        if self.config.patches_field is not None:
-            ids = self.current_label_ids
-        else:
-            ids = self.current_sample_ids
+        sample_ids = list(self.current_sample_ids[inds])
 
-        ids = list(ids[inds])
+        if self.config.patches_field is not None:
+            label_ids = list(self.current_label_ids[inds])
+        else:
+            label_ids = None
 
         if return_dists:
             dists = list(dists[inds])
-            return ids, dists
+            return sample_ids, label_ids, dists
 
-        return ids
+        return sample_ids, label_ids
 
     def _parse_neighbors_query(self, query):
         # Full index
@@ -633,6 +633,8 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
             label_ids = [[curr_label_ids[i] for i in _inds] for _inds in inds]
             if single_query:
                 label_ids = label_ids[0]
+        else:
+            label_ids = None
 
         if return_dists:
             dists = [list(d) for d in dists]
