@@ -608,7 +608,9 @@ class QdrantSimilarityIndex(SimilarityIndex):
 
             if self.config.patches_field is not None:
                 sample_ids.append(
-                    self._to_fiftyone_ids([r.sample_id for r in results])
+                    self._to_fiftyone_ids(
+                        [r.payload["sample_id"] for r in results]
+                    )
                 )
                 label_ids.append(
                     self._to_fiftyone_ids([r.id for r in results])
