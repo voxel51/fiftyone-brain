@@ -38,11 +38,10 @@ def compute_leaky_splits(
     embeddings_field=None,
     model=None,
     model_kwargs=None,
-    patches_field=None,
     metric="cosine",
     **kwargs,
 ):
-    """Uses embeddings to index the samples or their patches so that you can
+    """Uses embeddings to index the samples so that you can
     find leaks.
 
     Calling this method only creates the index. You can then call the methods
@@ -70,12 +69,6 @@ def compute_leaky_splits(
             Only one of `split_views`, `split_field`, and `splits_tags` need to be used.
         threshold (0.2): The threshold to run the algorithm with. Values between
             0.1 - 0.25 tend to give good results.
-        patches_field (None): a sample field defining the image patches in each
-            sample that have been/will be embedded. Must be of type
-            :class:`fiftyone.core.labels.Detection`,
-            :class:`fiftyone.core.labels.Detections`,
-            :class:`fiftyone.core.labels.Polyline`, or
-            :class:`fiftyone.core.labels.Polylines`
         embeddings_field (None): field for embeddings to feed the index. This argument's
             behavior depends on whether a ``model`` is provided, as described
             below.
@@ -108,7 +101,6 @@ def compute_leaky_splits(
         embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
             samples,
             embeddings_field,
-            patches_field=patches_field,
         )
 
     config = LeakySplitsSKLConfig(
@@ -118,7 +110,6 @@ def compute_leaky_splits(
         embeddings_field=embeddings_field,
         model=model,
         model_kwargs=model_kwargs,
-        patches_field=patches_field,
         metric=metric,
         **kwargs,
     )
@@ -279,7 +270,6 @@ class LeakySplitsSKLConfig(
         embeddings_field=None,
         model=None,
         model_kwargs=None,
-        patches_field=None,
         metric="cosine",
         **kwargs,
     ):
@@ -291,7 +281,6 @@ class LeakySplitsSKLConfig(
             embeddings_field=embeddings_field,
             model=model,
             model_kwargs=model_kwargs,
-            patches_field=patches_field,
             metric=metric,
             **kwargs,
         )
