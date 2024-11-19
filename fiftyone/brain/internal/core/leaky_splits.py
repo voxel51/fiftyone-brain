@@ -17,7 +17,6 @@ import fiftyone.core.brain as fob
 import fiftyone.brain.similarity as sim
 import fiftyone.brain.internal.core.sklearn as skl_sim
 import fiftyone.brain.internal.core.duplicates as dups
-import fiftyone.brain.internal.core.utils as fbu
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 import fiftyone.zoo as foz
@@ -242,7 +241,19 @@ def _tags_to_views(samples, tags):
     views = []
     for tag in tags:
         view = samples.match_tags([tag])
+        if len(view) < 1:  # no samples in tag
+            raise ValueError(
+                f"One of the tags provided, '{tag}', has no samples. Make sure every tag has at least one sample."
+            )
         views.append(view)
+
+    for i, v in enumerate(views):
+        other_tags = [t for j, t in enumerate(tags) if not i == j]
+        if len(v.match_tags(other_tags)) > 0:
+            raise ValueError(
+                f"One or more samples have more than one of the tags provided! Every sample should have at most one of the tags provided."
+            )
+
     return views
 
 
