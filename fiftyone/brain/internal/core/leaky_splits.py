@@ -30,15 +30,17 @@ _DEFAULT_BATCH_SIZE = None
 
 def compute_leaky_splits(
     samples,
-    brain_key,
+    brain_key=None,
     split_views=None,
     split_field=None,
     split_tags=None,
     threshold=0.2,
+    similarity_brain_key=None,
     embeddings_field=None,
     model=None,
     model_kwargs=None,
-    metric="cosine",
+    similarity_backend=None,
+    similarity_config_dict=None,
     **kwargs,
 ):
     """Uses embeddings to index the samples so that you can
@@ -96,24 +98,19 @@ def compute_leaky_splits(
 
     fov.validate_collection(samples)
 
-    embeddings_exist = False
-    if embeddings_field is not None and model is None:
-        embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
-            samples,
-            embeddings_field,
-        )
-
-    config = LeakySplitsSKLConfig(
-        split_views=split_views,
-        split_field=split_field,
-        split_tags=split_tags,
-        embeddings_field=embeddings_field,
-        model=model,
-        model_kwargs=model_kwargs,
-        metric=metric,
+    config = LeakySplitsConfig(
+        split_views,
+        split_field,
+        split_tags,
+        similarity_brain_key,
+        embeddings_field,
+        model,
+        model_kwargs,
+        similarity_backend,
+        similarity_config_dict,
         **kwargs,
     )
-    brain_method = LeakySplitsSKL(config)
+    brain_method = config.build()
     brain_method.ensure_requirements()
 
     if brain_key is not None:
@@ -123,11 +120,15 @@ def compute_leaky_splits(
         brain_method.register_run(samples, brain_key, overwrite=False)
 
     results = brain_method.initialize(samples, brain_key)
-
     results.set_threshold(threshold)
     leaks = results.leaks
 
-    brain_method.save_run_results(samples, brain_key, results)
+    if brain_key is not None:
+        brain_method.save_run_results(samples, brain_key, results)
+    if results._save_similarity_index:
+        results.similarity_method.save_run_results(
+            samples, similarity_brain_key, results.similarity_index
+        )
 
     return results, leaks
 
@@ -166,7 +167,7 @@ class LeakySplitsConfig(fob.BrainMethodConfig):
 
     @property
     def method(self):
-        raise f"Similarity"
+        return "Similarity"
 
 
 class LeakySplits(fob.BrainMethod):
@@ -190,19 +191,22 @@ class LeakySplitsIndex(fob.BrainResults):
         self._leaks = None
 
         # similarity index setup
-        self.similarity_index = None
+        self._similarity_index = None
         self._save_similarity_index = False
+        index_found = False
         if self.config.similarity_brain_key is not None:
             # Load similarity brain run if it exists
             if (
                 self.config.similarity_brain_key
                 in self.samples._dataset.list_brain_runs()
             ):
-                self.similarity_index = (
+                self._similarity_index = (
                     self.samples._dataset.load_brain_results(
                         self.config.similarity_brain_key, load_view=True
                     )
                 )
+                if self._similarity_index is not None:
+                    index_found = True
                 # check if brain run view lines up with samples provided
                 similarity_view = self.samples._dataset.load_brain_view(
                     self.config.similarity_brain_key
@@ -214,12 +218,11 @@ class LeakySplitsIndex(fob.BrainResults):
                         "Provided similarity run doesn't include all samples given. "
                         "Please rerun the similarity with all of the wanted samples."
                     )
-
-            # no brain run found, going to create a new one, earmark to save
-            self._save_similarity_index = True
+            else:
+                self._save_similarity_index = True
 
         # create new similarity index
-        else:
+        if not index_found:
             sim_conf_dict_aux = {
                 "name": self.config.similarity_backend,
                 "embeddings_field": self.config.embeddings_field,
@@ -234,18 +237,22 @@ class LeakySplitsIndex(fob.BrainResults):
                 }
 
             similarity_config_object = sim._parse_config(**sim_conf_dict_aux)
-            self.similarity_method = similarity_config_object.build()
-            self.similarity_method.ensure_requirements()
+            self._similarity_method = similarity_config_object.build()
+            self._similarity_method.ensure_requirements()
 
             if self._save_similarity_index:
-                self.similarity_method.register_run(
+                self._similarity_method.register_run(
                     samples,
                     self.config.similarity_brain_key,
                 )
 
-            self.similarity_index = self.similarity_method.initialize(
+            self._similarity_index = self._similarity_method.initialize(
                 samples, self.config.similarity_brain_key
             )
+
+    def set_threshold(self, threshold):
+        """Set threshold for leak computation"""
+        self._leak_threshold = threshold
 
     @property
     def leaks(self):
@@ -258,24 +265,24 @@ class LeakySplitsIndex(fob.BrainResults):
             return self._leaks
 
         # populate index if it doesn't have some samples
-        if not self.similarity_index.total_index_size == len(self.samples):
+        if not self._similarity_index.total_index_size == len(self.samples):
             (
                 embeddings,
                 sample_ids,
                 label_ids,
-            ) = self.similarity_index.compute_embeddings(self.samples)
-            self.similarity_index.add_to_index(
+            ) = self._similarity_index.compute_embeddings(self.samples)
+            self._similarity_index.add_to_index(
                 embeddings, sample_ids, label_ids
             )
-        self.similarity_index.find_duplicates(self._leak_threshold)
-        duplicates = self.similarity_index.duplicates_view()
+        self._similarity_index.find_duplicates(self._leak_threshold)
+        duplicates = self._similarity_index.duplicates_view()
 
         # filter duplicates to just those with neighbors in different splits
         to_keep = []
         for (
             sample_id,
             neighbors,
-        ) in self.similarity_index.neighbors_map.items():
+        ) in self._similarity_index.neighbors_map.items():
             keep_sample = False
             sample_split = self._id2split(sample_id, self.split_views)
             leaks = []
@@ -319,7 +326,7 @@ class LeakySplitsIndex(fob.BrainResults):
 
         sample_id = sample if isinstance(sample, str) else sample["id"]
 
-        neighbors = self.similarity_index.neighbors_map[sample_id]
+        neighbors = self._similarity_index.neighbors_map[sample_id]
         sample_split = self._id2split(sample_id, self.split_views)
         neighbors_ids = [
             n[0]
