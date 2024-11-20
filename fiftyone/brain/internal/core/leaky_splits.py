@@ -13,6 +13,7 @@ import cv2
 
 import eta.core.utils as etau
 
+import fiftyone as fo
 import fiftyone.core.brain as fob
 import fiftyone.brain.similarity as sim
 import fiftyone.brain.internal.core.sklearn as skl_sim
@@ -132,6 +133,213 @@ def compute_leaky_splits(
 
 
 ### GENERAL
+
+
+class LeakySplitsConfig(fob.BrainMethodConfig):
+    def __init__(
+        self,
+        split_views=None,
+        split_field=None,
+        split_tags=None,
+        similarity_brain_key=None,
+        embeddings_field=None,
+        model=None,
+        model_kwargs=None,
+        similarity_backend=None,
+        similarity_config_dict=None,
+        **kwargs,
+    ):
+        self.split_views = split_views
+        self.split_field = split_field
+        self.split_tags = split_tags
+        self.similarity_brain_key = similarity_brain_key
+        self.embeddings_field = embeddings_field
+        self.model = model
+        self.model_kwargs = model_kwargs
+        self.similarity_backend = similarity_backend
+        self.similarity_config_dict = similarity_config_dict
+        super().__init__(**kwargs)
+
+    @property
+    def type(self):
+        return "Data Leakage"
+
+    @property
+    def method(self):
+        raise f"Similarity"
+
+
+class LeakySplits(fob.BrainMethod):
+    def initialize(self, samples, brain_key=None):
+        return LeakySplitsIndex(samples, self.config, brain_key)
+
+
+class LeakySplitsIndex(fob.BrainResults):
+    def __init__(self, samples, config, brain_key):
+        super().__init__(samples, config, brain_key)
+
+        # process arguments to work only with views
+        self.split_views = _to_views(
+            samples,
+            self.config.split_views,
+            self.config.split_field,
+            self.config.split_tags,
+        )
+        self._leak_threshold = 0.2
+        self._last_computed_threshold = None
+        self._leaks = None
+
+        # similarity index setup
+        self.similarity_index = None
+        self._save_similarity_index = False
+        if self.config.similarity_brain_key is not None:
+            # Load similarity brain run if it exists
+            if self.config.similarity_brain_key in fo.list_brain_runs():
+                self.similarity_index = fo.load_brain_results(
+                    self.config.similarity_brain_key, load_view=True
+                )
+                # check if brain run view lines up with samples provided
+                similarity_view = fo.load_brain_view(
+                    self.config.similarity_brain_key
+                )
+                if not set(samples.values("id")) == set(
+                    similarity_view.values("id")
+                ):
+                    raise ValueError(
+                        "Provided similarity run doesn't include all samples given. "
+                        "Please rerun the similarity with all of the wanted samples."
+                    )
+
+            # no brain run found, going to create a new one, earmark to save
+            self._save_similarity_index = True
+
+        # create new similarity index
+        else:
+            sim_conf_dict_aux = {
+                "name": self.config.similarity_backend,
+                "embeddings_field": self.config.embeddings_field,
+                "model": self.config.model,
+                "model_kwargs": self.config.model_kwargs,
+            }
+            if self.config.similarity_config_dict is not None:
+                # values from args over config dict
+                sim_conf_dict_aux = {
+                    **self.config.similarity_config_dict,
+                    **sim_conf_dict_aux,
+                }
+
+            similarity_config_object = sim._parse_config(**sim_conf_dict_aux)
+            self.similarity_method = similarity_config_object.build()
+            self.similarity_method.ensure_requirements()
+
+            if self._save_similarity_index:
+                self.similarity_method.register_run(
+                    samples,
+                    self.config.similarity_brain_key,
+                )
+
+            self.similarity_index = self.similarity_method.initialize(
+                samples, self.config.similarity_brain_key
+            )
+
+    @property
+    def leaks(self):
+        """
+        Returns view with all potential leaks.
+        """
+
+        # access cache if possible
+        if self._last_computed_threshold == self._leak_threshold:
+            return self._leaks
+
+        # populate index if it doesn't have some samples
+        if not self.similarity_index.total_index_size == len(self.samples):
+            (
+                embeddings,
+                sample_ids,
+                label_ids,
+            ) = self.similarity_index.compute_embeddings(self.samples)
+            self.similarity_index.add_to_index(
+                embeddings, sample_ids, label_ids
+            )
+        self.similarity_index.find_duplicates(self._leak_threshold)
+        duplicates = self.similarity_index.duplicates_view()
+
+        # filter duplicates to just those with neighbors in different splits
+        to_keep = []
+        for (
+            sample_id,
+            neighbors,
+        ) in self.similarity_index.neighbors_map.items():
+            keep_sample = False
+            sample_split = self._id2split(sample_id, self.split_views)
+            leaks = []
+            for n in neighbors:
+                if not (
+                    self._id2split(n[0], self.split_views) == sample_split
+                ):
+                    # at least one of the neighbors is from a different split
+                    # we keep this one
+                    keep_sample = True
+                    leaks.append(n[0])
+
+            if keep_sample:
+                to_keep.append(sample_id)
+                # remove all other samples because they are all from the same split
+                to_keep = to_keep + leaks
+
+        duplicates = duplicates.select(to_keep)
+
+        # cache to avoid recomputation
+        self._last_computed_threshold = self._leak_threshold
+        self._leaks = duplicates
+
+        return duplicates
+
+    @property
+    def num_leaks(self):
+        """Returns the number of leaks found."""
+        return self.leaks.count
+
+    def leaks_by_sample(self, sample):
+        """Return view with all leaks related to a certain sample.
+
+        Args:
+            sample: sample object or sample id
+
+        """
+        # compute leaks if it hasn't happend yet
+        if not self._leak_threshold == self._last_computed_threshold:
+            leaks = self.leaks
+
+        sample_id = sample if isinstance(sample, str) else sample["id"]
+
+        neighbors = self.similarity_index.neighbors_map[sample_id]
+        sample_split = self._id2split(sample_id, self.split_views)
+        neighbors_ids = [
+            n[0]
+            for n in neighbors
+            if not self._id2split(n[0], self.split_views) == sample_split
+        ]
+
+        return self.samples.select([sample_id] + neighbors_ids)
+
+    def view_without_leaks(self, view):
+        return view.exclude(self.leaks.values("id"))
+
+    def tag_leaks(self, tag="leak"):
+        """Tag leaks"""
+        for s in self.leaks.iter_samples():
+            s.tags.append(tag)
+            s.save()
+
+    def _id2split(self, sample_id, split_views):
+
+        for i, split_view in enumerate(split_views):
+            if len(split_view.select([sample_id])) > 0:
+                return i
+
+        return -1
 
 
 class LeakySplitsConfigInterface(object):
