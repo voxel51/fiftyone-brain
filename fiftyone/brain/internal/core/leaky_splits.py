@@ -275,7 +275,10 @@ class LeakySplitsIndex(fob.BrainResults):
             self._similarity_index.add_to_index(
                 embeddings, sample_ids, label_ids
             )
-        self._similarity_index.find_duplicates(self._leak_threshold)
+
+        # check if duplicates already computed in the index
+        if not self._similarity_index.thresh == self._leak_threshold:
+            self._similarity_index.find_duplicates(self._leak_threshold)
         duplicates = self._similarity_index.duplicates_view()
 
         # filter duplicates to just those with neighbors in different splits
