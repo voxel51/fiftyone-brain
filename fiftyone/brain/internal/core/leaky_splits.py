@@ -126,7 +126,7 @@ def compute_leaky_splits(
     if brain_key is not None:
         brain_method.save_run_results(samples, brain_key, results)
     if results._save_similarity_index:
-        results.similarity_method.save_run_results(
+        results._similarity_method.save_run_results(
             samples, similarity_brain_key, results.similarity_index
         )
 
