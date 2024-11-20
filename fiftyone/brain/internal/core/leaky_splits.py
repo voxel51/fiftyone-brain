@@ -127,7 +127,7 @@ def compute_leaky_splits(
         brain_method.save_run_results(samples, brain_key, results)
     if results._save_similarity_index:
         results._similarity_method.save_run_results(
-            samples, similarity_brain_key, results.similarity_index
+            samples, similarity_brain_key, results._similarity_index
         )
 
     return results, leaks
@@ -208,6 +208,7 @@ class LeakySplitsIndex(fob.BrainResults):
                 if self._similarity_index is not None:
                     index_found = True
                 # check if brain run view lines up with samples provided
+                # TODO: Brian says there is a better way of doing this, need to think of how
                 similarity_view = self.samples._dataset.load_brain_view(
                     self.config.similarity_brain_key
                 )
@@ -352,6 +353,9 @@ class LeakySplitsIndex(fob.BrainResults):
                 return i
 
         return -1
+
+    def cleanup(self):
+        self._similarity_index.cleanup()
 
 
 class LeakySplitsConfigInterface(object):
