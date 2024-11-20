@@ -186,6 +186,7 @@ class LeakySplitsIndex(fob.BrainResults):
             self.config.split_field,
             self.config.split_tags,
         )
+        self.id2split = self._id2splitConstructor()
         self._leak_threshold = 0.2
         self._last_computed_threshold = None
         self._leaks = None
@@ -288,12 +289,10 @@ class LeakySplitsIndex(fob.BrainResults):
             neighbors,
         ) in self._similarity_index.neighbors_map.items():
             keep_sample = False
-            sample_split = self._id2split(sample_id, self.split_views)
+            sample_split = self.id2split[sample_id]
             leaks = []
             for n in neighbors:
-                if not (
-                    self._id2split(n[0], self.split_views) == sample_split
-                ):
+                if not (self.id2split[n[0]] == sample_split):
                     # at least one of the neighbors is from a different split
                     # we keep this one
                     keep_sample = True
@@ -331,11 +330,9 @@ class LeakySplitsIndex(fob.BrainResults):
         sample_id = sample if isinstance(sample, str) else sample["id"]
 
         neighbors = self._similarity_index.neighbors_map[sample_id]
-        sample_split = self._id2split(sample_id, self.split_views)
+        sample_split = self.id2split[sample_id]
         neighbors_ids = [
-            n[0]
-            for n in neighbors
-            if not self._id2split(n[0], self.split_views) == sample_split
+            n[0] for n in neighbors if not self._id2split[n[0]] == sample_split
         ]
 
         return self.samples.select([sample_id] + neighbors_ids)
@@ -349,16 +346,18 @@ class LeakySplitsIndex(fob.BrainResults):
             s.tags.append(tag)
             s.save()
 
-    def _id2split(self, sample_id, split_views):
+    def _id2splitConstructor(self):
 
-        # TODO: make this a union-find thing so we have an efficient check
-        # for being in the same split
+        # do this once at the beggining of the run
+        # has O(n) memory cost but memory is cheap compared to
+        # doing a couple of `in` operations per sample every run
+        # I want that sweet sweet O(1) lookup
+        id2split = {}
+        for split_name, split_view in self.split_views.items():
+            sample_ids = split_view.values("id")
+            id2split.update({sid: split_name for sid in sample_ids})
 
-        for i, (split_name, split_view) in enumerate(split_views.items()):
-            if sample_id in split_view:
-                return split_name
-
-        return -1
+        return id2split
 
     def cleanup(self):
         self._similarity_index.cleanup()
