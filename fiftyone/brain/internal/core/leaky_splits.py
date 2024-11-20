@@ -351,9 +351,12 @@ class LeakySplitsIndex(fob.BrainResults):
 
     def _id2split(self, sample_id, split_views):
 
-        for i, split_view in enumerate(split_views):
-            if len(split_view.select([sample_id])) > 0:
-                return i
+        # TODO: make this a union-find thing so we have an efficient check
+        # for being in the same split
+
+        for i, (split_name, split_view) in enumerate(split_views.items()):
+            if sample_id in split_view:
+                return split_name
 
         return -1
 
@@ -453,10 +456,10 @@ def _field_to_views(samples, field):
             f"can't be used to create splits"
         )
 
-    views = []
+    views = {}
     for val in field_values:
         view = samples.match(F(field) == val)
-        views.append(view)
+        views[val] = view
 
     return views
 
@@ -465,14 +468,14 @@ def _tags_to_views(samples, tags):
     if len(tags) < 2:
         raise ValueError("Must provide at least two tags.")
 
-    views = []
+    views = {}
     for tag in tags:
         view = samples.match_tags([tag])
         if len(view) < 1:  # no samples in tag
             raise ValueError(
                 f"One of the tags provided, '{tag}', has no samples. Make sure every tag has at least one sample."
             )
-        views.append(view)
+        views[tag] = view
 
     for i, v in enumerate(views):
         other_tags = [t for j, t in enumerate(tags) if not i == j]
