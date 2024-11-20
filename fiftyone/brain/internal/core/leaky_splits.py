@@ -194,12 +194,17 @@ class LeakySplitsIndex(fob.BrainResults):
         self._save_similarity_index = False
         if self.config.similarity_brain_key is not None:
             # Load similarity brain run if it exists
-            if self.config.similarity_brain_key in fo.list_brain_runs():
-                self.similarity_index = fo.load_brain_results(
-                    self.config.similarity_brain_key, load_view=True
+            if (
+                self.config.similarity_brain_key
+                in self.samples._dataset.list_brain_runs()
+            ):
+                self.similarity_index = (
+                    self.samples._dataset.load_brain_results(
+                        self.config.similarity_brain_key, load_view=True
+                    )
                 )
                 # check if brain run view lines up with samples provided
-                similarity_view = fo.load_brain_view(
+                similarity_view = self.samples._dataset.load_brain_view(
                     self.config.similarity_brain_key
                 )
                 if not set(samples.values("id")) == set(
