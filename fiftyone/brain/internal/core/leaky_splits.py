@@ -61,6 +61,8 @@ def compute_leaky_splits(
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
+        brain_key (None): a brain key under which to store the results of this
+            method. If no brain key is provided the results will not be saved.
         split_views (None): a list of :class:`fiftyone.core.view.DatasetView`
             corresponding to different splits in the datset. Only one of
             `split_views`, `split_field`, and `splits_tags` need to be used.
@@ -71,17 +73,17 @@ def compute_leaky_splits(
             Only one of `split_views`, `split_field`, and `splits_tags` need to be used.
         threshold (0.2): The threshold to run the algorithm with. Values between
             0.1 - 0.25 tend to give good results.
+        similarity_brain_key (None): a brain key for the similarity index
+            If the brain key exists already, it will load up the similarity index corresponding to it
+            If the brain key does not exist already, a new similarity index will be created
+            and the results will be saved under this name
         embeddings_field (None): field for embeddings to feed the index. This argument's
             behavior depends on whether a ``model`` is provided, as described
             below.
-
             If no ``model`` is provided, this argument specifies the field of pre-computed
-            embeddings to use:
-
+            embeddings to use
             If a ``model`` is provided, this argument specifies where to store
-            the model's embeddings:
-        brain_key (None): a brain key under which to store the results of this
-            method
+            the model's embeddings
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
@@ -89,11 +91,16 @@ def compute_leaky_splits(
             must expose embeddings (``model.has_embeddings = True``)
         model_kwargs (None): a dictionary of optional keyword arguments to pass
             to the model's ``Config`` when a model name is provided
-        **kwargs: keyword arguments for the
-            :class:`fiftyone.brain.SklearnSimilarityIndex` class
+        similarity_backend: string, the similarity backend to use. The supported values are
+            ``fiftyone.brain.brain_config.similarity_backends.keys()`` and the
+            default is
+            ``fiftyone.brain.brain_config.default_similarity_backend``
+        similarity_config_dict: dict, used to build the similarity backend. Arguments take
+            precedence over the values in the dict (e.g. model)
 
     Returns:
-        a :class:`fiftyone.brain.internal.core.leaky_splits.LeakySplitsSKLIndex`, a :class:`fiftyone.core.view.DatasetView`
+        a :class:`fiftyone.brain.internal.core.leaky_splits.LeakySplitsSKLIndex`,
+        a :class:`fiftyone.core.view.DatasetView`
     """
 
     fov.validate_collection(samples)
