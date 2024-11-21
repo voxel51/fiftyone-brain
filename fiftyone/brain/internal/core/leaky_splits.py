@@ -69,6 +69,13 @@ def compute_leaky_splits(
         brain_method.register_run(samples, brain_key, overwrite=False)
 
     results = brain_method.initialize(samples, brain_key)
+
+    if results._save_similarity_index:
+        results._similarity_method.register_run(
+            samples,
+            results.config.similarity_brain_key,
+        )
+
     results.set_threshold(threshold)
     leaks = results.leaks
 
@@ -190,12 +197,6 @@ class LeakySplitsIndex(fob.BrainResults):
             similarity_config_object = sim._parse_config(**sim_conf_dict_aux)
             self._similarity_method = similarity_config_object.build()
             self._similarity_method.ensure_requirements()
-
-            if self._save_similarity_index:
-                self._similarity_method.register_run(
-                    samples,
-                    self.config.similarity_brain_key,
-                )
 
             self._similarity_index = self._similarity_method.initialize(
                 samples, self.config.similarity_brain_key
