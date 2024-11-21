@@ -167,7 +167,7 @@ class LeakySplitsIndex(fob.BrainResults):
 
         # create new similarity index
         if not index_found:
-            sim_conf_dict_aux = {
+            sim_conf_dict_kwargs = {
                 "name": self.config.similarity_backend,
                 "embeddings_field": self.config.embeddings_field,
                 "model": self.config.model,
@@ -175,12 +175,14 @@ class LeakySplitsIndex(fob.BrainResults):
             }
             if self.config.similarity_config_dict is not None:
                 # values from args over config dict
-                sim_conf_dict_aux = {
+                sim_conf_dict_kwargs = {
                     **self.config.similarity_config_dict,
-                    **sim_conf_dict_aux,
+                    **sim_conf_dict_kwargs,
                 }
 
-            similarity_config_object = sim._parse_config(**sim_conf_dict_aux)
+            similarity_config_object = sim._parse_config(
+                **sim_conf_dict_kwargs
+            )
             self._similarity_method = similarity_config_object.build()
             self._similarity_method.ensure_requirements()
 
