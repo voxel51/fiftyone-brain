@@ -2,25 +2,13 @@
 Finds leaks between splits.
 """
 
-from collections import defaultdict
 from copy import copy
 
-import fiftyone as fo
 from fiftyone import ViewField as F
-
-# pylint: disable=no-member
-import cv2
-
-import eta.core.utils as etau
-
-import fiftyone as fo
 import fiftyone.core.brain as fob
 import fiftyone.brain.similarity as sim
-import fiftyone.brain.internal.core.sklearn as skl_sim
-import fiftyone.brain.internal.core.duplicates as dups
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
-import fiftyone.zoo as foz
 
 fbu = fou.lazy_import("fiftyone.brain.internal.core.utils")
 
@@ -282,7 +270,7 @@ class LeakySplitsIndex(fob.BrainResults):
         neighbors = self._similarity_index.neighbors_map[sample_id]
         sample_split = self.id2split[sample_id]
         neighbors_ids = [
-            n[0] for n in neighbors if not self._id2split[n[0]] == sample_split
+            n[0] for n in neighbors if not self.id2split[n[0]] == sample_split
         ]
 
         return self.samples.select([sample_id] + neighbors_ids)
