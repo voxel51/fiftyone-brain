@@ -725,13 +725,16 @@ def compute_leaky_splits(
     Calling this method only creates the index. You can then call the methods
     exposed on the returned object to perform the following operations:
 
-    -   :meth:`leaks <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndexInterface.leaks>`:
+    -   :meth:`leaks <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndex.leaks>`:
         Returns a view of all leaks in the dataset.
 
-    -   :meth:`view_without_leaks <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndexInterface.view_without_leaks>`:
+    -   :meth:`no_leaks_view <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndex.no_leaks_view>`:
         Returns a subset of the given view without any leaks.
 
-    -   :meth:`tag_leaks <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndexInterface.tag_leaks>`:
+    -   :meth:`leaks_for_sample <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndex.leaks_for_sample>`:
+        Returns a view with leaks corresponding to the given sample.
+
+    -   :meth:`tag_leaks <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndex.tag_leaks>`:
         Tags leaks in the dataset as leaks.
 
 
