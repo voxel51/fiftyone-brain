@@ -107,7 +107,7 @@ class LeakySplitsConfig(fob.BrainMethodConfig):
 
     @property
     def type(self):
-        return "Data Leakage"
+        return "leakage"
 
     @property
     def method(self):
