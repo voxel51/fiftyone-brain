@@ -291,7 +291,7 @@ class LeakySplitsIndex(fob.BrainResults):
 
         return self.samples.select([sample_id] + neighbors_ids)
 
-    def view_without_leaks(self, view):
+    def no_leaks_view(self, view):
         return view.exclude(self.leaks.values("id"))
 
     def tag_leaks(self, tag="leak"):
