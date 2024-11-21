@@ -312,64 +312,6 @@ class LeakySplitsIndex(fob.BrainResults):
         self._similarity_index.cleanup()
 
 
-class LeakySplitsConfigInterface(object):
-    """Configuration for Leaky Splits
-
-    Args:
-        split_views (None): list of views corresponding to different splits
-        split_field (None): field name that contains the split that the sample belongs to
-        split_tags (None): list of tags that correspond to different splits
-    """
-
-    def __init__(
-        self, split_views=None, split_field=None, split_tags=None, **kwargs
-    ):
-        self.split_views = split_views
-        self.split_field = split_field
-        self.split_tags = split_tags
-        super().__init__(**kwargs)
-
-
-class LeakySplitIndexInterface(object):
-    """Interface for the index. To expose it, implement the property `leaks`.
-    It shoud return a view of all leaks in the dataset.
-    """
-
-    def __init__(self) -> None:
-        pass
-
-    @property
-    def num_leaks(self):
-        """Returns the number of leaks found."""
-        return self.leaks.count
-
-    @property
-    def leaks(self):
-        """Returns view with all potential leaks."""
-        raise NotImplementedError("Subclass must implement method.")
-
-    def leaks_by_sample(self, sample):
-        """Return view with all leaks related to a certain sample."""
-        raise NotImplementedError("Subclass must implement method.")
-
-    def view_without_leaks(self, view):
-        return view.exclude([s["id"] for s in self.leaks])
-
-    def tag_leaks(self, tag="leak"):
-        """Tag leaks"""
-        for s in self.leaks.iter_samples():
-            s.tags.append(tag)
-            s.save()
-
-    def _id2split(self, sample_id, split_views):
-
-        for i, split_view in enumerate(split_views):
-            if len(split_view.select([sample_id])) > 0:
-                return i
-
-        return -1
-
-
 def _to_views(samples, split_views=None, split_field=None, split_tags=None):
     """Helper function so that we can always work with views"""
 
