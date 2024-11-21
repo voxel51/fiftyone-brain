@@ -111,7 +111,7 @@ class LeakySplitsConfig(fob.BrainMethodConfig):
 
     @property
     def method(self):
-        return "Similarity"
+        return "similarity"
 
 
 class LeakySplits(fob.BrainMethod):
