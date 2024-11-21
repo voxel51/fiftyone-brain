@@ -254,7 +254,7 @@ class LeakySplitsIndex(fob.BrainResults):
         """Returns the number of leaks found."""
         return self.leaks.count
 
-    def leaks_by_sample(self, sample):
+    def leaks_for_sample(self, sample):
         """Return view with all leaks related to a certain sample.
 
         Args:
