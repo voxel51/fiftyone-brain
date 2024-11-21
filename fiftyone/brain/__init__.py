@@ -740,7 +740,7 @@ def compute_leaky_splits(
         samples: a :class:`fiftyone.core.collections.SampleCollection`
         brain_key (None): a brain key under which to store the results of this
             method. If no brain key is provided the results will not be saved.
-        split_views (None): a list of :class:`fiftyone.core.view.DatasetView`
+        split_views (None): a dict of :class:`fiftyone.core.view.DatasetView`
             corresponding to different splits in the datset. Only one of
             `split_views`, `split_field`, and `splits_tags` need to be used.
         split_field (None): a string name of a field that holds the split of the sample.
