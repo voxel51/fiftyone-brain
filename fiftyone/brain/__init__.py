@@ -720,11 +720,10 @@ def compute_leaky_splits(
     similarity_config_dict=None,
     **kwargs,
 ):
-    """Uses embeddings to index the samples so that you can
-    find leaks.
+    """Uses a similarity index or creates one on the spot to find leaks.
 
     Calling this method only creates the index. You can then call the methods
-    exposed on the retuned object to perform the following operations:
+    exposed on the returned object to perform the following operations:
 
     -   :meth:`leaks <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndexInterface.leaks>`:
         Returns a view of all leaks in the dataset.
@@ -776,7 +775,7 @@ def compute_leaky_splits(
             precedence over the values in the dict (e.g. model)
 
     Returns:
-        a :class:`fiftyone.brain.internal.core.leaky_splits.LeakySplitsSKLIndex`,
+        a :class:`fiftyone.brain.internal.core.leaky_splits.LeakySplitsIndex`,
         a :class:`fiftyone.core.view.DatasetView`
     """
 
