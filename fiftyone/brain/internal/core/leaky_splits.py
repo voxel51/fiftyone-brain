@@ -12,8 +12,7 @@ import fiftyone.core.validation as fov
 
 fbu = fou.lazy_import("fiftyone.brain.internal.core.utils")
 
-_DEFAULT_MODEL = "clip-vit-base32-torch"
-_DEFAULT_BATCH_SIZE = None
+_DEFAULT_MODEL = "resnet18-imagenet-torch"
 
 
 def compute_leaky_splits(
@@ -156,21 +155,34 @@ class LeakySplitsIndex(fob.BrainResults):
 
         # create new similarity index
         if not index_found:
-            sim_conf_dict_kwargs = {
-                "name": self.config.similarity_backend,
-                "embeddings_field": self.config.embeddings_field,
-                "model": self.config.model,
-                "model_kwargs": self.config.model_kwargs,
-            }
+            sim_conf_dict_kwargs = {}
+            # if arguments aren't None they take precedence
+            if self.config.similarity_backend is not None:
+                sim_conf_dict_kwargs["name"] = self.config.similarity_backend
+            if self.config.embeddings_field is not None:
+                sim_conf_dict_kwargs[
+                    "embeddings_field"
+                ] = self.config.embeddings_field
+            if self.config.model is not None:
+                sim_conf_dict_kwargs["model"] = self.config.model
+            if self.config.model_kwargs is not None:
+                sim_conf_dict_kwargs["model_kwargs"] = self.config.model_kwargs
+
+            # empty conf if conf dict isn't provided
+            similarity_conf_provided = {}
             if self.config.similarity_config_dict is not None:
-                # values from args over config dict
-                sim_conf_dict_kwargs = {
-                    **self.config.similarity_config_dict,
-                    **sim_conf_dict_kwargs,
-                }
+                similarity_conf_provided = self.config.similarity_config_dict
+            sim_conf_dict_kwargs = {
+                "name": None,  # default if user doesn't provide any value
+                "model": _DEFAULT_MODEL,  # default if user doesn't provide any value
+                **similarity_conf_provided,  # conf over defaults
+                **sim_conf_dict_kwargs,  # arguments over conf
+            }
+
+            backend_name = sim_conf_dict_kwargs.pop("name")
 
             similarity_config_object = sim._parse_config(
-                **sim_conf_dict_kwargs
+                backend_name, **sim_conf_dict_kwargs
             )
             self._similarity_method = similarity_config_object.build()
             self._similarity_method.ensure_requirements()
