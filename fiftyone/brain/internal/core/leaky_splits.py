@@ -266,12 +266,28 @@ class LeakySplitsIndex(fob.BrainResults):
             leaks = self.leaks
 
         sample_id = sample if isinstance(sample, str) else sample["id"]
-
-        neighbors = self._similarity_index.neighbors_map[sample_id]
         sample_split = self.id2split[sample_id]
-        neighbors_ids = [
-            n[0] for n in neighbors if not self.id2split[n[0]] == sample_split
-        ]
+        neighbors_ids = []
+        if sample_id in self._similarity_index.neighbors_map.keys():
+            neighbors = self._similarity_index.neighbors_map[sample_id]
+            neighbors_ids = [
+                n[0]
+                for n in neighbors
+                if not self.id2split[n[0]] == sample_split
+            ]
+        else:
+            for (
+                unique_id,
+                neighbors,
+            ) in self._similarity_index.neighbors_map.items():
+                if sample_id in [n[0] for n in neighbors]:
+                    neighbors_ids = [
+                        n[0]
+                        for n in neighbors
+                        if not self.id2split[n[0]] == sample_split
+                    ]
+                    neighbors_ids.append(unique_id)
+                    break
 
         return self.samples.select([sample_id] + neighbors_ids)
 
