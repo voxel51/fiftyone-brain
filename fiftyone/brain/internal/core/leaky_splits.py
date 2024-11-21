@@ -145,23 +145,12 @@ class LeakySplitsIndex(fob.BrainResults):
                 self.config.similarity_brain_key
                 in self.samples._dataset.list_brain_runs()
             ):
+                index_found = True
                 self._similarity_index = (
                     self.samples._dataset.load_brain_results(
                         self.config.similarity_brain_key, load_view=True
                     )
                 )
-                # check if brain run view lines up with samples provided
-                # TODO: Brian says there is a better way of doing this, need to think of how
-                similarity_view = self.samples._dataset.load_brain_view(
-                    self.config.similarity_brain_key
-                )
-                if not set(samples.values("id")) == set(
-                    similarity_view.values("id")
-                ):
-                    raise ValueError(
-                        "Provided similarity run doesn't include all samples given. "
-                        "Please rerun the similarity with all of the wanted samples."
-                    )
             else:
                 self._save_similarity_index = True
 
