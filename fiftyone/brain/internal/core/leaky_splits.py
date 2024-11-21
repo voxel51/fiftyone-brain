@@ -361,9 +361,9 @@ def _tags_to_views(samples, tags):
             )
         views[tag] = view
 
-    for i, v in enumerate(views):
-        other_tags = [t for j, t in enumerate(tags) if not i == j]
-        if len(v.match_tags(other_tags)) > 0:
+    for i, (tag, view) in enumerate(views.items()):
+        other_tags = [t for t in tags if not t == tag]
+        if len(view.match_tags(other_tags)) > 0:
             raise ValueError(
                 f"One or more samples have more than one of the tags provided! Every sample should have at most one of the tags provided."
             )
