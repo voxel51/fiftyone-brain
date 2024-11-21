@@ -150,8 +150,6 @@ class LeakySplitsIndex(fob.BrainResults):
                         self.config.similarity_brain_key, load_view=True
                     )
                 )
-                if self._similarity_index is not None:
-                    index_found = True
                 # check if brain run view lines up with samples provided
                 # TODO: Brian says there is a better way of doing this, need to think of how
                 similarity_view = self.samples._dataset.load_brain_view(
