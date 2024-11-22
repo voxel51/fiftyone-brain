@@ -739,7 +739,8 @@ def compute_leaky_splits(
 
 
     Args:
-        samples: a :class:`fiftyone.core.collections.SampleCollection`
+        samples: a :class:`fiftyone.core.collections.SampleCollection` This should be a union of the
+            splits provided.
         brain_key (None): a brain key under which to store the results of this
             method. If no brain key is provided the results will not be saved.
         split_views (None): a dict of :class:`fiftyone.core.view.DatasetView`
@@ -750,12 +751,19 @@ def compute_leaky_splits(
             Only one of `split_views`, `split_field`, and `splits_tags` need to be used.
         split_tags (None): a list of strings, tags corresponding to differents splits.
             Only one of `split_views`, `split_field`, and `splits_tags` need to be used.
+
+        The splits should be disjoint and their union should be samples.
+
         threshold (0.2): The threshold to run the algorithm with. Values between
             0.1 - 0.25 tend to give good results.
         similarity_brain_key (None): a brain key for the similarity index
             If the brain key exists already, it will load up the similarity index corresponding to it
             If the brain key does not exist already, a new similarity index will be created
             and the results will be saved under this name
+
+            The similarity backend passed should have been computed on at least the argument samples.
+            This method may break if this condition is not met.
+
         embeddings_field (None): field for embeddings to feed the index. This argument's
             behavior depends on whether a ``model`` is provided, as described
             below.
