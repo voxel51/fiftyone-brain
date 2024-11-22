@@ -298,7 +298,7 @@ class LeakySplitsIndex(fob.BrainResults):
         """
         # compute leaks if it hasn't happend yet
         if not self._leak_threshold == self._last_computed_threshold:
-            leaks = self.leaks
+            _ = self.leaks
 
         sample_id = sample if isinstance(sample, str) else sample["id"]
         sample_split = self._id2split[sample_id]
