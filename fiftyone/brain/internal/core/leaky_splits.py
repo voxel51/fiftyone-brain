@@ -135,6 +135,20 @@ class LeakySplitsIndex(fob.BrainResults):
             self.config.split_field,
             self.config.split_tags,
         )
+
+        total_len_views = sum([len(v) for v in self.split_views.values()])
+        if len(samples) > total_len_views:
+            warnings.warn(
+                "More samples passed than samples in splits. These will not be"
+                " considered for leak computation."
+            )
+
+        if total_len_views > len(samples):
+            raise ValueError(
+                "Found more items in splits than in total samples!\n"
+                "Splits are supposed to be a disjoint cover of the samples."
+            )
+
         self._id2split = self._id2splitConstructor()
         self._leak_threshold = 0.2
         self._last_computed_threshold = None
@@ -156,6 +170,13 @@ class LeakySplitsIndex(fob.BrainResults):
                         self.config.similarity_brain_key, load_view=True
                     )
                 )
+
+                if not len(self._similarity_index._samples) == len(samples):
+                    warnings.warn(
+                        "Passed similarity index is not of the same size as the samples passed. "
+                        "This can cause errors. Make sure the similarity index passed has all "
+                        "of the samples needed "
+                    )
             else:
                 self._save_similarity_index = True
 
