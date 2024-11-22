@@ -3,6 +3,7 @@ Finds leaks between splits.
 """
 
 from copy import copy
+import warnings
 
 from fiftyone import ViewField as F
 import fiftyone.core.brain as fob
@@ -233,10 +234,17 @@ class LeakySplitsIndex(fob.BrainResults):
             neighbors,
         ) in self._similarity_index.neighbors_map.items():
             keep_sample = False
-            sample_split = self._id2split[sample_id]
+            sample_split = self._id2split.get(sample_id, None)
+            if sample_split is None:
+                _throw_index_is_bigger_warning(sample_id)
+                continue  # sample is in index but not passed to leaky_splits
             leaks = []
             for n in neighbors:
-                if not (self._id2split[n[0]] == sample_split):
+                neighbor_split = self._id2split.get(n[0], None)
+                if neighbor_split is None:
+                    _throw_index_is_bigger_warning(n[0])
+                    continue
+                if not (neighbor_split == sample_split):
                     # at least one of the neighbors is from a different split
                     # we keep this one
                     keep_sample = True
@@ -383,3 +391,10 @@ def _tags_to_views(samples, tags):
             )
 
     return views
+
+
+def _throw_index_is_bigger_warning(sample_id):
+    warnings.warn(
+        f"Tried querying sample with id {sample_id}. This sample is not in any split\n"
+        "This sample will not be considered for leaks!"
+    )
