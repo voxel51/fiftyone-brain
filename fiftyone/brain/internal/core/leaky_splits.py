@@ -115,7 +115,12 @@ class LeakySplitsConfig(fob.BrainMethodConfig):
 
 class LeakySplits(fob.BrainMethod):
     def initialize(self, samples, brain_key=None):
-        return LeakySplitsIndex(samples, self.config, brain_key)
+        self.index = LeakySplitsIndex(samples, self.config, brain_key)
+        return self.index
+
+    def cleanup(self, samples, brain_key):
+        self.index._similarity_method.cleanup(samples, brain_key)
+        super.cleanup(samples, brain_key)
 
 
 class LeakySplitsIndex(fob.BrainResults):
@@ -129,7 +134,7 @@ class LeakySplitsIndex(fob.BrainResults):
             self.config.split_field,
             self.config.split_tags,
         )
-        self.id2split = self._id2splitConstructor()
+        self._id2split = self._id2splitConstructor()
         self._leak_threshold = 0.2
         self._last_computed_threshold = None
         self._leaks = None
@@ -228,10 +233,10 @@ class LeakySplitsIndex(fob.BrainResults):
             neighbors,
         ) in self._similarity_index.neighbors_map.items():
             keep_sample = False
-            sample_split = self.id2split[sample_id]
+            sample_split = self._id2split[sample_id]
             leaks = []
             for n in neighbors:
-                if not (self.id2split[n[0]] == sample_split):
+                if not (self._id2split[n[0]] == sample_split):
                     # at least one of the neighbors is from a different split
                     # we keep this one
                     keep_sample = True
@@ -267,14 +272,14 @@ class LeakySplitsIndex(fob.BrainResults):
             leaks = self.leaks
 
         sample_id = sample if isinstance(sample, str) else sample["id"]
-        sample_split = self.id2split[sample_id]
+        sample_split = self._id2split[sample_id]
         neighbors_ids = []
         if sample_id in self._similarity_index.neighbors_map.keys():
             neighbors = self._similarity_index.neighbors_map[sample_id]
             neighbors_ids = [
                 n[0]
                 for n in neighbors
-                if not self.id2split[n[0]] == sample_split
+                if not self._id2split[n[0]] == sample_split
             ]
         else:
             for (
@@ -285,7 +290,7 @@ class LeakySplitsIndex(fob.BrainResults):
                     neighbors_ids = [
                         n[0]
                         for n in neighbors
-                        if not self.id2split[n[0]] == sample_split
+                        if not self._id2split[n[0]] == sample_split
                     ]
                     neighbors_ids.append(unique_id)
                     break
@@ -313,9 +318,6 @@ class LeakySplitsIndex(fob.BrainResults):
             id2split.update({sid: split_name for sid in sample_ids})
 
         return id2split
-
-    def cleanup(self):
-        self._similarity_index.cleanup()
 
 
 def _to_views(samples, split_views=None, split_field=None, split_tags=None):
