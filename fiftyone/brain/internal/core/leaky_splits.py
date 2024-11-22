@@ -404,7 +404,7 @@ def _tags_to_views(samples, tags):
             )
         views[tag] = view
 
-    for i, (tag, view) in enumerate(views.items()):
+    for tag, view in views.items():
         other_tags = [t for t in tags if not t == tag]
         if len(view.match_tags(other_tags)) > 0:
             raise ValueError(
