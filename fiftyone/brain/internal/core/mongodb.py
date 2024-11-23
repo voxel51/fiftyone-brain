@@ -435,12 +435,12 @@ class MongoDBSimilarityIndex(SimilarityIndex):
 
         return embeddings, sample_ids, label_ids
 
-    def reload(self, lazy=False):
+    def reload(self):
         sample_ids, label_ids = self._parse_data(self._dataset, self.config)
         self._sample_ids = sample_ids
         self._label_ids = label_ids
 
-        super().reload(lazy=lazy)
+        super().reload()
 
     def cleanup(self):
         if self._index is None:

@@ -335,7 +335,6 @@ class SimilarityIndex(fob.BrainResults):
 
         self._model = None
         self._last_view = None
-        self._last_lazy = None
         self._last_views = []
         self._curr_view = None
         self._curr_view_allow_missing = None
@@ -345,19 +344,19 @@ class SimilarityIndex(fob.BrainResults):
         self._curr_keep_inds = None
         self._curr_missing_size = None
 
-        self.use_view(samples, lazy=True)
+        self.use_view(samples)
 
     def __enter__(self):
-        self._last_views.append((self._last_view, self._last_lazy))
+        self._last_views.append(self._last_view)
         return self
 
     def __exit__(self, *args):
         try:
-            last_view, last_lazy = self._last_views.pop()
+            last_view = self._last_views.pop()
         except:
-            last_view, last_lazy = self._samples, True
+            last_view = self._samples
 
-        self.use_view(last_view, lazy=last_lazy)
+        self.use_view(last_view)
 
     @property
     def config(self):
@@ -554,7 +553,6 @@ class SimilarityIndex(fob.BrainResults):
         samples,
         allow_missing=True,
         warn_missing=False,
-        lazy=False,
     ):
         """Restricts the index to the provided view.
 
@@ -595,26 +593,18 @@ class SimilarityIndex(fob.BrainResults):
             warn_missing (False): whether to log a warning if the provided
                 collection contains data points that this index does not
                 contain
-            lazy (False): whether to lazily reinitialze the index for the
-                provided view only when necessary
 
         Returns:
             self
         """
         self._last_view = self._curr_view
-        self._last_lazy = lazy
-
         self._curr_view = samples
         self._curr_view_allow_missing = allow_missing
         self._curr_view_warn_missing = warn_missing
-
-        if lazy:
-            self._curr_sample_ids = None
-            self._curr_label_ids = None
-            self._curr_keep_inds = None
-            self._curr_missing_size = None
-        else:
-            self._apply_view()
+        self._curr_sample_ids = None
+        self._curr_label_ids = None
+        self._curr_keep_inds = None
+        self._curr_missing_size = None
 
         return self
 
@@ -642,30 +632,22 @@ class SimilarityIndex(fob.BrainResults):
         if self._curr_sample_ids is None:
             self._apply_view()
 
-    def clear_view(self, lazy=False):
+    def clear_view(self):
         """Clears the view set by :meth:`use_view`, if any.
 
         Subsequent operations will be performed on the full index.
-
-        Args:
-            lazy (False): whether to lazily reinitialze the index only when
-                necessary
         """
-        self.use_view(self._samples, lazy=lazy)
+        self.use_view(self._samples)
 
-    def reload(self, lazy=False):
+    def reload(self):
         """Reloads the index for the current view.
 
         Subclasses may override this method, but by default this method simply
         passes the current :meth:`view` back into :meth:`use_view`, which
         updates the index's current ID set based on any changes to the view
         since the index was last loaded.
-
-        Args:
-            lazy (False): whether to lazily reinitialze the index only when
-                necessary
         """
-        self.use_view(self._curr_view, lazy=lazy)
+        self.use_view(self._curr_view)
 
     def cleanup(self):
         """Deletes the similarity index from the backend."""
