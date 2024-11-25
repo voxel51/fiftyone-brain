@@ -325,9 +325,7 @@ class LeakySplitsIndex(fob.BrainResults):
 
     def tag_leaks(self, tag="leak"):
         """Tag leaks"""
-        for s in self.leaks_view().iter_samples():
-            s.tags.append(tag)
-            s.save()
+        self.leaks_view().tag_samples([tag])
 
     def _id2splitConstructor(self):
 
