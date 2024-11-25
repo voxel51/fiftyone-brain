@@ -65,7 +65,7 @@ def compute_leaky_splits(
         )
 
     results.set_threshold(threshold)
-    leaks = results.leaks
+    leaks = results.leaks_view()
 
     if brain_key is not None:
         brain_method.save_run_results(samples, brain_key, results)
@@ -222,8 +222,7 @@ class LeakySplitsIndex(fob.BrainResults):
         """Set threshold for leak computation"""
         self._leak_threshold = threshold
 
-    @property
-    def leaks(self):
+    def leaks_view(self):
         """
         Returns view with all potential leaks.
         """
@@ -284,11 +283,6 @@ class LeakySplitsIndex(fob.BrainResults):
 
         return duplicates
 
-    @property
-    def num_leaks(self):
-        """Returns the number of leaks found."""
-        return self.leaks.count
-
     def leaks_for_sample(self, sample):
         """Return view with all leaks related to a certain sample.
 
@@ -298,7 +292,7 @@ class LeakySplitsIndex(fob.BrainResults):
         """
         # compute leaks if it hasn't happend yet
         if not self._leak_threshold == self._last_computed_threshold:
-            _ = self.leaks
+            _ = self.leaks_view()
 
         sample_id = sample if isinstance(sample, str) else sample["id"]
         sample_split = self._id2split[sample_id]
@@ -327,11 +321,11 @@ class LeakySplitsIndex(fob.BrainResults):
         return self.samples.select([sample_id] + neighbors_ids)
 
     def no_leaks_view(self, view):
-        return view.exclude(self.leaks.values("id"))
+        return view.exclude(self.leaks_view().values("id"))
 
     def tag_leaks(self, tag="leak"):
         """Tag leaks"""
-        for s in self.leaks.iter_samples():
+        for s in self.leaks_view().iter_samples():
             s.tags.append(tag)
             s.save()
 

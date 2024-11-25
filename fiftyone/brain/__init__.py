@@ -725,7 +725,7 @@ def compute_leaky_splits(
     Calling this method only creates the index. You can then call the methods
     exposed on the returned object to perform the following operations:
 
-    -   :meth:`leaks <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndex.leaks>`:
+    -   :meth:`leaks_view <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndex.leaks>`:
         Returns a view of all leaks in the dataset.
 
     -   :meth:`no_leaks_view <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndex.no_leaks_view>`:
