@@ -342,7 +342,20 @@ class LeakySplitsIndex(fob.BrainResults):
 
 
 def _to_views(samples, split_views=None, split_field=None, split_tags=None):
-    """Helper function so that we can always work with views"""
+    """Helper function so that we can always work with views. I.e. creates
+    the splits denoted by one of the keyword arguments as views.
+
+    Args:
+        - samples: the samples in the datset
+        One and only one of the following:
+        - split_views (None): a dict of the splits as views. If this value is passed
+        it is returned as is
+        - split_field (None): a string corresponding to a field that has a unique
+        string value for each split e.g. samples that are in the 'train' split
+        will have a value of 'train' in this split.
+        - split_tags (None): a list of strings corresponding to the tags of the
+        different splits.
+    """
 
     arithmetic_true = lambda x: int(x is not None)
     num_given = (
