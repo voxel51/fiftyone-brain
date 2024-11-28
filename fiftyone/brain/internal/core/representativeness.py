@@ -185,6 +185,8 @@ def _compute_representativeness(embeddings, method="cluster-center"):
 def _cluster_ranker(
     embeddings, cluster_algorithm="kmeans", N=20, norm_method="local"
 ):
+    if np.linalg.matrix_rank(embeddings) == 1:
+        embeddings = np.reshape(embeddings, (-1, 1))
     # Cluster
     if cluster_algorithm == "meanshift":
         bandwidth = skc.estimate_bandwidth(
