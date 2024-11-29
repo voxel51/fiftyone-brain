@@ -712,9 +712,7 @@ def compute_exact_duplicates(
 
 def compute_leaky_splits(
     samples,
-    split_tags=None,
-    split_field=None,
-    split_views=None,
+    splits,
     threshold=0.2,
     embeddings=None,
     similarity_index=None,
@@ -727,32 +725,30 @@ def compute_leaky_splits(
 ):
     """Computes potential leaks between splits of the given sample collection.
 
-    You must provide one of ``split_tags``, ``split_field``, or ``split_views``
-    to use this method. It is assumed that the specified splits fully partition
-    the input collection (disjoint and fully covering).
-
     Calling this method only initializes the index. You can then call the
     methods exposed on the returned object to perform the following operations:
 
-    -   :meth:`leaks_view() <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndex.leaks_view>`:
+    -   :meth:`leaks_view() <fiftyone.brain.core.internal.leaky_splits.LeakySplitsIndex.leaks_view>`:
         Returns a view of all leaks in the input collection
 
-    -   :meth:`no_leaks_view() <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndex.no_leaks_view>`:
+    -   :meth:`no_leaks_view() <fiftyone.brain.core.internal.leaky_splits.LeakySplitsIndex.no_leaks_view>`:
         Returns the subset of the input collection without any leaks
 
-    -   :meth:`leaks_for_sample() <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndex.leaks_for_sample>`:
-        Returns a view with leaks corresponding to the given sample.
+    -   :meth:`leaks_for_sample() <fiftyone.brain.core.internal.leaky_splits.LeakySplitsIndex.leaks_for_sample>`:
+        Returns a view with leaks corresponding to the given sample
 
-    -   :meth:`tag_leaks() <fiftyone.brain.core.internal.leaky_splits.LeakySplitIndex.tag_leaks>`:
-        Tags leaks in the dataset as leaks.
+    -   :meth:`tag_leaks() <fiftyone.brain.core.internal.leaky_splits.LeakySplitsIndex.tag_leaks>`:
+        Tags leaks in the dataset as leaks
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
-        split_tags (None): a list of tag strings
-        split_field (None): the name of a string field that encodes the split
-            memberships
-        split_views (None): a dict mapping split names to
-            :class:`fiftyone.core.view.DatasetView` instances
+        splits: the dataset splits, specified in one of the following ways:
+
+            -   a list of tag strings
+            -   the name of a string/list field that encodes the split
+                memberships
+            -   a dict mapping split names to
+                :class:`fiftyone.core.view.DatasetView` instances
         threshold (0.2): the similarity distance threshold to use when
             detecting leaks. Values in ``[0.1, 0.25]`` work well for the
             default setup
@@ -760,8 +756,6 @@ def compute_leaky_splits(
             pre-computed embeddings to use, which can be any of the following:
 
             -   a ``num_samples x num_dims`` array of embeddings
-            -   if ``roi_field`` is specified,  a dict mapping sample IDs to
-                ``num_patches x num_dims`` arrays of patch embeddings
             -   the name of a dataset field containing the embeddings to use
 
             If a ``model`` is provided, this argument specifies the name of a
@@ -794,9 +788,7 @@ def compute_leaky_splits(
 
     return fbl.compute_leaky_splits(
         samples,
-        split_tags=split_tags,
-        split_field=split_field,
-        split_views=split_views,
+        splits,
         threshold=threshold,
         embeddings=embeddings,
         similarity_index=similarity_index,

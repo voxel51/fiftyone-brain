@@ -10,6 +10,7 @@ import logging
 import eta.core.utils as etau
 
 import fiftyone.core.brain as fob
+import fiftyone.core.fields as fof
 import fiftyone.core.validation as fov
 import fiftyone.zoo as foz
 from fiftyone import ViewField as F
@@ -27,9 +28,7 @@ _DEFAULT_BATCH_SIZE = None
 
 def compute_leaky_splits(
     samples,
-    split_tags=None,
-    split_field=None,
-    split_views=None,
+    splits,
     threshold=None,
     embeddings=None,
     similarity_index=None,
@@ -67,8 +66,7 @@ def compute_leaky_splits(
             batch_size = _DEFAULT_BATCH_SIZE
 
     config = LeakySplitsConfig(
-        split_field=split_field,
-        split_tags=split_tags,
+        splits=splits,
         embeddings_field=embeddings_field,
         similarity_index=similarity_index,
         model=model,
@@ -96,17 +94,12 @@ def compute_leaky_splits(
             "%s mixin" % fbs.DuplicatesMixin
         )
 
-    split_views = _to_views(
-        samples,
-        split_tags=split_tags,
-        split_field=split_field,
-        split_views=split_views,
-    )
+    split_views = _to_split_views(samples, splits)
 
     index = brain_method.initialize(samples, similarity_index, split_views)
 
     if threshold is not None:
-        index.find_leaks(threshold=threshold)
+        index.find_leaks(threshold)
 
     return index
 
@@ -114,22 +107,23 @@ def compute_leaky_splits(
 class LeakySplitsConfig(fob.BrainMethodConfig):
     def __init__(
         self,
-        split_field=None,
-        split_tags=None,
+        splits=None,
         embeddings_field=None,
         similarity_index=None,
         model=None,
         model_kwargs=None,
         **kwargs,
     ):
+        if isinstance(splits, dict):
+            splits = None
+
         if similarity_index is not None and not etau.is_str(similarity_index):
             similarity_index = similarity_index.key
 
         if model is not None and not etau.is_str(model):
             model = etau.get_class_name(model)
 
-        self.split_field = split_field
-        self.split_tags = split_tags
+        self.splits = splits
         self.embeddings_field = embeddings_field
         self.similarity_index = similarity_index
         self.model = model
@@ -189,19 +183,18 @@ class LeakySplitsIndex(fob.BrainResults):
         """
         return self._leak_ids
 
-    def find_leaks(self, threshold=0.2):
+    def find_leaks(self, thresh):
         """Scans the index for leaks between splits.
 
         Args:
-            threshold (0.2): the similarity distance threshold to use when
-                detecting potential leaks. Values in ``[0.1, 0.25]`` work well
-                for the default setup
+            thresh: the similarity distance threshold to use when detecting
+                potential leaks
         """
-        if threshold == self._thresh:
+        if thresh == self._thresh:
             return
 
         # Find duplicates
-        self._thresh = threshold
+        self._thresh = thresh
         if self._similarity_index.thresh != self._thresh:
             self._similarity_index.find_duplicates(self._thresh)
 
@@ -351,28 +344,19 @@ class LeakySplitsIndex(fob.BrainResults):
         self._id2split = id2split
 
 
-def _to_views(samples, split_tags=None, split_field=None, split_views=None):
-    if split_tags is not None:
-        return _tags_to_views(samples, split_tags)
+def _to_split_views(samples, splits):
+    if etau.is_container(splits):
+        return {tag: samples.match_tags(tag) for tag in splits}
 
-    if split_field is not None:
-        return _field_to_views(samples, split_field)
-
-    if split_views is not None:
-        return split_views
-
-    raise ValueError(
-        "You must provide one of the "
-        "['split_tags', 'split_field', 'split_views'] arguments"
-    )
-
-
-def _field_to_views(samples, field):
-    return {
-        value: samples.match(F(field) == value)
-        for value in samples.distinct(field)
-    }
-
-
-def _tags_to_views(samples, tags):
-    return {tag: samples.match_tags(tag) for tag in tags}
+    if isinstance(splits, str):
+        field = samples.get_field(splits)
+        if isinstance(field, fof.ListField):
+            return {
+                value: samples.exists(splits).match(F(splits).contains(value))
+                for value in samples.distinct(splits)
+            }
+        else:
+            return {
+                value: samples.match(F(splits) == value)
+                for value in samples.distinct(splits)
+            }
