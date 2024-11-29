@@ -1187,9 +1187,13 @@ class DuplicatesMixin(object):
                 unique_view = self._samples.select(unique_ids)
 
             with self.use_view(unique_view):
-                nearest_ids, dists = self._kneighbors(
+                _sample_ids, _label_ids, dists = self._kneighbors(
                     query=duplicate_ids, k=1, return_dists=True
                 )
+                if self.config.patches_field is not None:
+                    nearest_ids = _label_ids
+                else:
+                    nearest_ids = _sample_ids
 
             neighbors_map = defaultdict(list)
             for dup_id, _ids, _dists in zip(duplicate_ids, nearest_ids, dists):
