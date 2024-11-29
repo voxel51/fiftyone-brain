@@ -1,108 +1,140 @@
 """
 Finds leaks between splits.
+
+| Copyright 2017-2024, Voxel51, Inc.
+| `voxel51.com <https://voxel51.com/>`_
+|
 """
+import logging
 
-from copy import copy
-import warnings
+import eta.core.utils as etau
 
-from fiftyone import ViewField as F
 import fiftyone.core.brain as fob
-import fiftyone.brain.similarity as sim
-import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
+import fiftyone.zoo as foz
+from fiftyone import ViewField as F
 
-fbu = fou.lazy_import("fiftyone.brain.internal.core.utils")
+import fiftyone.brain as fb
+import fiftyone.brain.similarity as fbs
+import fiftyone.brain.internal.core.utils as fbu
+
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = "resnet18-imagenet-torch"
+_DEFAULT_BATCH_SIZE = None
 
 
 def compute_leaky_splits(
     samples,
-    brain_key=None,
-    split_views=None,
-    split_field=None,
     split_tags=None,
-    threshold=0.2,
-    similarity_brain_key=None,
-    embeddings_field=None,
+    split_field=None,
+    split_views=None,
+    threshold=None,
+    embeddings=None,
+    similarity_index=None,
     model=None,
     model_kwargs=None,
-    similarity_backend=None,
-    similarity_config_dict=None,
-    **kwargs,
+    batch_size=None,
+    num_workers=None,
+    skip_failures=True,
+    progress=None,
 ):
     """See ``fiftyone/brain/__init__.py``."""
 
-    fov.validate_collection(samples)
+    fov.validate_image_collection(samples)
+
+    if etau.is_str(embeddings):
+        embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
+            samples, embeddings
+        )
+        embeddings = None
+    else:
+        embeddings_field = None
+        embeddings_exist = None
+
+    if etau.is_str(similarity_index):
+        similarity_index = samples.load_brain_results(similarity_index)
+
+    if (
+        model is None
+        and embeddings is None
+        and similarity_index is None
+        and not embeddings_exist
+    ):
+        model = foz.load_zoo_model(_DEFAULT_MODEL)
+        if batch_size is None:
+            batch_size = _DEFAULT_BATCH_SIZE
 
     config = LeakySplitsConfig(
-        split_views,
-        split_field,
-        split_tags,
-        similarity_brain_key,
-        embeddings_field,
-        model,
-        model_kwargs,
-        similarity_backend,
-        similarity_config_dict,
-        **kwargs,
+        split_field=split_field,
+        split_tags=split_tags,
+        embeddings_field=embeddings_field,
+        similarity_index=similarity_index,
+        model=model,
+        model_kwargs=model_kwargs,
     )
+
     brain_method = config.build()
     brain_method.ensure_requirements()
 
-    if brain_key is not None:
-        # Don't allow overwriting an existing run with same key, since we
-        # need the existing run in order to perform workflows like
-        # automatically cleaning up the backend's index
-        brain_method.register_run(samples, brain_key, overwrite=False)
-
-    results = brain_method.initialize(samples, brain_key)
-
-    if results._save_similarity_index:
-        results._similarity_method.register_run(
+    if similarity_index is None:
+        similarity_index = fb.compute_similarity(
             samples,
-            results.config.similarity_brain_key,
+            backend="sklearn",
+            model=model,
+            model_kwargs=model_kwargs,
+            embeddings=embeddings_field or embeddings,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            skip_failures=skip_failures,
+            progress=progress,
+        )
+    elif not isinstance(similarity_index, fbs.DuplicatesMixin):
+        raise ValueError(
+            "This method only supports similarity indexes that implement the "
+            "%s mixin" % fbs.DuplicatesMixin
         )
 
-    results.set_threshold(threshold)
-    leaks = results.leaks_view()
+    split_views = _to_views(
+        samples,
+        split_tags=split_tags,
+        split_field=split_field,
+        split_views=split_views,
+    )
 
-    if brain_key is not None:
-        brain_method.save_run_results(samples, brain_key, results)
-    if results._save_similarity_index:
-        results._similarity_method.save_run_results(
-            samples, similarity_brain_key, results._similarity_index
-        )
+    index = brain_method.initialize(samples, similarity_index, split_views)
 
-    return results, leaks
+    if threshold is not None:
+        index.find_leaks(threshold=threshold)
 
-
-### GENERAL
+    return index
 
 
 class LeakySplitsConfig(fob.BrainMethodConfig):
     def __init__(
         self,
-        split_views=None,
         split_field=None,
         split_tags=None,
-        similarity_brain_key=None,
         embeddings_field=None,
+        similarity_index=None,
         model=None,
         model_kwargs=None,
-        similarity_backend=None,
-        similarity_config_dict=None,
         **kwargs,
     ):
-        self.split_views = split_views
+        if similarity_index is not None and not etau.is_str(similarity_index):
+            similarity_index = similarity_index.key
+
+        if model is not None and not etau.is_str(model):
+            model = etau.get_class_name(model)
+
         self.split_field = split_field
         self.split_tags = split_tags
-        self.similarity_brain_key = similarity_brain_key
         self.embeddings_field = embeddings_field
+        self.similarity_index = similarity_index
         self.model = model
         self.model_kwargs = model_kwargs
-        self.similarity_backend = similarity_backend
-        self.similarity_config_dict = similarity_config_dict
+
         super().__init__(**kwargs)
 
     @property
@@ -115,312 +147,232 @@ class LeakySplitsConfig(fob.BrainMethodConfig):
 
 
 class LeakySplits(fob.BrainMethod):
-    def initialize(self, samples, brain_key=None):
-        self.index = LeakySplitsIndex(samples, self.config, brain_key)
-        return self.index
+    def initialize(self, samples, similarity_index, split_views):
+        return LeakySplitsIndex(
+            samples, self.config, similarity_index, split_views
+        )
 
-    def cleanup(self, samples, brain_key):
-        self.index._similarity_method.cleanup(samples, brain_key)
-        super.cleanup(samples, brain_key)
+    def get_fields(self, samples, _):
+        fields = []
+        if self.config.embeddings_field is not None:
+            fields.append(self.config.embeddings_field)
+
+        return fields
 
 
 class LeakySplitsIndex(fob.BrainResults):
-    def __init__(self, samples, config, brain_key):
-        super().__init__(samples, config, brain_key)
+    def __init__(self, samples, config, similarity_index, split_views):
+        super().__init__(samples, config, None)
 
-        # process arguments to work only with views
-        self.split_views = _to_views(
-            samples,
-            self.config.split_views,
-            self.config.split_field,
-            self.config.split_tags,
-        )
+        self._similarity_index = similarity_index
+        self._split_views = split_views
+        self._id2split = None
+        self._thresh = None
+        self._leak_ids = None
 
-        total_len_views = sum([len(v) for v in self.split_views.values()])
-        if len(samples) > total_len_views:
-            warnings.warn(
-                "More samples passed than samples in splits. These will not be"
-                " considered for leak computation."
-            )
+        self._initialize()
 
-        if total_len_views > len(samples):
-            raise ValueError(
-                "Found more items in splits than in total samples!\n"
-                "Splits are supposed to be a disjoint cover of the samples."
-            )
+    @property
+    def split_views(self):
+        """A dict mapping split names to views."""
+        return self._split_views
 
-        self._id2split = self._id2splitConstructor()
-        self._leak_threshold = 0.2
-        self._last_computed_threshold = None
-        self._leaks = None
+    @property
+    def thresh(self):
+        """The threshold used by the last call to :meth:`find_leaks`."""
+        return self._thresh
 
-        # similarity index setup
-        self._similarity_index = None
-        self._save_similarity_index = False
-        index_found = False
-        if self.config.similarity_brain_key is not None:
-            # Load similarity brain run if it exists
-            if (
-                self.config.similarity_brain_key
-                in self.samples._dataset.list_brain_runs()
-            ):
-                index_found = True
-                self._similarity_index = (
-                    self.samples._dataset.load_brain_results(
-                        self.config.similarity_brain_key, load_view=True
-                    )
-                )
-
-                if not len(self._similarity_index._samples) == len(samples):
-                    warnings.warn(
-                        "Passed similarity index is not of the same size as the samples passed. "
-                        "This can cause errors. Make sure the similarity index passed has all "
-                        "of the samples needed "
-                    )
-            else:
-                self._save_similarity_index = True
-
-        # create new similarity index
-        if not index_found:
-            sim_conf_dict_kwargs = {}
-            # if arguments aren't None they take precedence
-            if self.config.similarity_backend is not None:
-                sim_conf_dict_kwargs["name"] = self.config.similarity_backend
-            if self.config.embeddings_field is not None:
-                sim_conf_dict_kwargs[
-                    "embeddings_field"
-                ] = self.config.embeddings_field
-            if self.config.model is not None:
-                sim_conf_dict_kwargs["model"] = self.config.model
-            if self.config.model_kwargs is not None:
-                sim_conf_dict_kwargs["model_kwargs"] = self.config.model_kwargs
-
-            # empty conf if conf dict isn't provided
-            similarity_conf_provided = {}
-            if self.config.similarity_config_dict is not None:
-                similarity_conf_provided = self.config.similarity_config_dict
-            sim_conf_dict_kwargs = {
-                "name": None,  # default if user doesn't provide any value
-                "model": _DEFAULT_MODEL,  # default if user doesn't provide any value
-                **similarity_conf_provided,  # conf over defaults
-                **sim_conf_dict_kwargs,  # arguments over conf
-            }
-
-            backend_name = sim_conf_dict_kwargs.pop("name")
-
-            similarity_config_object = sim._parse_config(
-                backend_name, **sim_conf_dict_kwargs
-            )
-            self._similarity_method = similarity_config_object.build()
-            self._similarity_method.ensure_requirements()
-
-            self._similarity_index = self._similarity_method.initialize(
-                samples, self.config.similarity_brain_key
-            )
-
-    def set_threshold(self, threshold):
-        """Set threshold for leak computation"""
-        self._leak_threshold = threshold
-
-    def leaks_view(self):
+    @property
+    def leak_ids(self):
+        """The list of leaky sample IDs from the last call to
+        :meth:`find_leaks`.
         """
-        Returns view with all potential leaks.
-        """
+        return self._leak_ids
 
-        # access cache if possible
-        if self._last_computed_threshold == self._leak_threshold:
-            return self._leaks
-
-        # populate index if it doesn't have some samples
-        if not self._similarity_index.total_index_size == len(self.samples):
-            (
-                embeddings,
-                sample_ids,
-                label_ids,
-            ) = self._similarity_index.compute_embeddings(self.samples)
-            self._similarity_index.add_to_index(
-                embeddings, sample_ids, label_ids
-            )
-
-        # check if duplicates already computed in the index
-        if not self._similarity_index.thresh == self._leak_threshold:
-            self._similarity_index.find_duplicates(self._leak_threshold)
-        duplicates = self._similarity_index.duplicates_view()
-
-        # filter duplicates to just those with neighbors in different splits
-        to_keep = []
-        for (
-            sample_id,
-            neighbors,
-        ) in self._similarity_index.neighbors_map.items():
-            keep_sample = False
-            sample_split = self._id2split.get(sample_id, None)
-            if sample_split is None:
-                _throw_index_is_bigger_warning(sample_id)
-                continue  # sample is in index but not passed to leaky_splits
-            leaks = []
-            for n in neighbors:
-                neighbor_split = self._id2split.get(n[0], None)
-                if neighbor_split is None:
-                    _throw_index_is_bigger_warning(n[0])
-                    continue
-                if not (neighbor_split == sample_split):
-                    # at least one of the neighbors is from a different split
-                    # we keep this one
-                    keep_sample = True
-                    leaks.append(n[0])
-
-            if keep_sample:
-                to_keep.append(sample_id)
-                # remove all other samples because they are all from the same split
-                to_keep = to_keep + leaks
-
-        duplicates = duplicates.select(to_keep)
-
-        # cache to avoid recomputation
-        self._last_computed_threshold = self._leak_threshold
-        self._leaks = duplicates
-
-        return duplicates
-
-    def leaks_for_sample(self, sample):
-        """Return view with all leaks related to a certain sample.
+    def find_leaks(self, threshold=0.2):
+        """Scans the index for leaks between splits.
 
         Args:
-            sample: sample object or sample id
-
+            threshold (0.2): the similarity distance threshold to use when
+                detecting potential leaks. Values in ``[0.1, 0.25]`` work well
+                for the default setup
         """
-        # compute leaks if it hasn't happend yet
-        if not self._leak_threshold == self._last_computed_threshold:
-            _ = self.leaks_view()
+        if threshold == self._thresh:
+            return
 
-        sample_id = sample if isinstance(sample, str) else sample["id"]
+        # Find duplicates
+        self._thresh = threshold
+        if self._similarity_index.thresh != self._thresh:
+            self._similarity_index.find_duplicates(self._thresh)
+
+        # Filter duplicates to just those with neighbors in different splits
+        leak_ids = []
+        neighbors_map = self._similarity_index.neighbors_map
+        for sample_id, neighbors in neighbors_map.items():
+            _leak_ids = []
+
+            sample_split = self._id2split.get(sample_id, None)
+            if sample_split is None:
+                continue
+
+            for n in neighbors:
+                neighbor_id = n[0]
+                neighbor_split = self._id2split.get(neighbor_id, None)
+                if neighbor_split is None:
+                    continue
+
+                if neighbor_split != sample_split:
+                    _leak_ids.append(neighbor_id)
+
+            if _leak_ids:
+                leak_ids.append(sample_id)
+                leak_ids.extend(_leak_ids)
+
+        self._leak_ids = leak_ids
+
+    def leaks_view(self):
+        """Returns a view containg all potential leaks generated by the last
+        call to :meth:`find_leaks`.
+
+        Returns:
+            a :class:`fiftyone.core.view.DatasetView`
+        """
+        if self._thresh is None:
+            raise ValueError("You must first call `find_leaks()`")
+
+        return self.samples.select(self._leak_ids, ordered=True)
+
+    def leaks_for_sample(self, sample_or_id):
+        """Returns a view that contains all leaks related to the given sample.
+
+        The given sample is always first in the returned view, followed by any
+        related leaks.
+
+        Args:
+            sample_or_id: a :class:`fiftyone.core.sample.Sample` or sample ID
+
+        Returns:
+            a :class:`fiftyone.core.view.DatasetView`
+        """
+        if self._thresh is None:
+            raise ValueError("You must first call `find_leaks()`")
+
+        if etau.is_str(sample_or_id):
+            sample_id = sample_or_id
+        else:
+            sample_id = sample_or_id.id
+
         sample_split = self._id2split[sample_id]
-        neighbors_ids = []
-        if sample_id in self._similarity_index.neighbors_map.keys():
-            neighbors = self._similarity_index.neighbors_map[sample_id]
-            neighbors_ids = [
-                n[0]
-                for n in neighbors
-                if not self._id2split[n[0]] == sample_split
+        neighbors_map = self._similarity_index.neighbors_map
+
+        leak_ids = []
+        if sample_id in neighbors_map.keys():
+            neighbors = neighbors_map[sample_id]
+            leak_ids = [
+                n[0] for n in neighbors if self._id2split[n[0]] != sample_split
             ]
         else:
-            for (
-                unique_id,
-                neighbors,
-            ) in self._similarity_index.neighbors_map.items():
+            for unique_id, neighbors in neighbors_map.items():
                 if sample_id in [n[0] for n in neighbors]:
-                    neighbors_ids = [
+                    leak_ids = [
                         n[0]
                         for n in neighbors
-                        if not self._id2split[n[0]] == sample_split
+                        if self._id2split[n[0]] != sample_split
                     ]
-                    neighbors_ids.append(unique_id)
+                    leak_ids.append(unique_id)
                     break
 
-        return self.samples.select([sample_id] + neighbors_ids)
+        return self.samples.select([sample_id] + leak_ids, ordered=True)
 
-    def no_leaks_view(self, view):
-        return view.exclude(self.leaks_view().values("id"))
+    def no_leaks_view(self, view=None):
+        """Returns a view with leaks excluded.
+
+        Args:
+            view (None): an optional :class:`fiftyone.core.view.DatasetView`
+                from which to exclude. By default, :meth:`samples` is used
+        """
+        if self._thresh is None:
+            raise ValueError("You must first call `find_leaks()`")
+
+        if view is None:
+            view = self.samples
+
+        return view.exclude(self._leak_ids)
 
     def tag_leaks(self, tag="leak"):
-        """Tag leaks"""
-        self.leaks_view().tag_samples([tag])
+        """Tags all potential leaks in :meth:`leaks_view` with the given tag.
 
-    def _id2splitConstructor(self):
+        Args:
+            tag ("leak"): the tag string to apply
+        """
+        self.leaks_view().tag_samples(tag)
 
-        # do this once at the beggining of the run
-        # has O(n) memory cost but memory is cheap compared to
-        # doing a couple of `in` operations per sample every run
-        # I want that sweet sweet O(1) lookup
+    def _initialize(self):
         id2split = {}
+
+        split_ids = {}
         for split_name, split_view in self.split_views.items():
-            sample_ids = split_view.values("id")
+            sample_ids = set(split_view.values("id"))
+            split_ids[split_name] = sample_ids
             id2split.update({sid: split_name for sid in sample_ids})
 
-        return id2split
+        # Check for overlapping splits
+        split_names = list(split_ids.keys())
+        for idx, split1 in enumerate(split_names):
+            for split2 in split_names[idx + 1 :]:
+                overlap = split_ids[split1] & split_ids[split2]
+                if overlap:
+                    logger.warning(
+                        "The '%s' and '%s' splits contain %d overlapping samples."
+                        "Use dataset.match_tags('%s').match_tags('%s') to "
+                        "identify them",
+                        split1,
+                        split2,
+                        len(overlap),
+                        split1,
+                        split2,
+                    )
+
+        # Check for samples not in index
+        index_ids = self._similarity_index.sample_ids
+        if index_ids is not None:
+            index_ids = set(index_ids)
+            all_split_ids = set(id2split.keys())
+
+            missing_ids = all_split_ids - index_ids
+            if missing_ids:
+                logger.warning(
+                    "The provided splits contain %d samples (eg '%s') that "
+                    "are not present in the provided index",
+                    len(missing_ids),
+                    next(iter(missing_ids)),
+                )
+
+        self._id2split = id2split
 
 
-def _to_views(samples, split_views=None, split_field=None, split_tags=None):
-    """Helper function so that we can always work with views. I.e. creates
-    the splits denoted by one of the keyword arguments as views.
+def _to_views(samples, split_tags=None, split_field=None, split_views=None):
+    if split_tags is not None:
+        return _tags_to_views(samples, split_tags)
 
-    Args:
-        - samples: the samples in the datset
-        One and only one of the following:
-        - split_views (None): a dict of the splits as views. If this value is passed
-        it is returned as is
-        - split_field (None): a string corresponding to a field that has a unique
-        string value for each split e.g. samples that are in the 'train' split
-        will have a value of 'train' in this split.
-        - split_tags (None): a list of strings corresponding to the tags of the
-        different splits.
-    """
-
-    arithmetic_true = lambda x: int(x is not None)
-    num_given = (
-        arithmetic_true(split_views)
-        + arithmetic_true(split_field)
-        + arithmetic_true(split_tags)
-    )
-
-    if num_given == 0:
-        raise ValueError(f"One of the split arguments must be given.")
-    if num_given > 1:
-        raise ValueError(f"Only one of the split arguments must be given.")
-
-    if split_views:
-        return split_views
-
-    if split_field:
+    if split_field is not None:
         return _field_to_views(samples, split_field)
 
-    if split_tags:
-        return _tags_to_views(samples, split_tags)
+    if split_views is not None:
+        return split_views
+
+    raise ValueError(
+        "You must provide one of the "
+        "['split_tags', 'split_field', 'split_views'] arguments"
+    )
 
 
 def _field_to_views(samples, field):
-    field_values = samples.distinct(field)
-
-    if len(field_values) < 2:
-        raise ValueError(
-            f"Field {field} has less than 2 distinct values,"
-            f"can't be used to create splits"
-        )
-
-    views = {}
-    for val in field_values:
-        view = samples.match(F(field) == val)
-        views[val] = view
-
-    return views
+    return {
+        value: samples.match(F(field) == value)
+        for value in samples.distinct(field)
+    }
 
 
 def _tags_to_views(samples, tags):
-    if len(tags) < 2:
-        raise ValueError("Must provide at least two tags.")
-
-    views = {}
-    for tag in tags:
-        view = samples.match_tags([tag])
-        if len(view) < 1:  # no samples in tag
-            raise ValueError(
-                f"One of the tags provided, '{tag}', has no samples. Make sure every tag has at least one sample."
-            )
-        views[tag] = view
-
-    for tag, view in views.items():
-        other_tags = [t for t in tags if not t == tag]
-        if len(view.match_tags(other_tags)) > 0:
-            raise ValueError(
-                f"One or more samples have more than one of the tags provided! Every sample should have at most one of the tags provided."
-            )
-
-    return views
-
-
-def _throw_index_is_bigger_warning(sample_id):
-    warnings.warn(
-        f"Tried querying sample with id {sample_id}. This sample is not in any split\n"
-        "This sample will not be considered for leaks!"
-    )
+    return {tag: samples.match_tags(tag) for tag in tags}
