@@ -36,13 +36,6 @@ class LanceDBSimilarityConfig(SimilarityConfig):
     """Configuration for a LanceDB similarity instance.
 
     Args:
-        embeddings_field (None): the sample field containing the embeddings,
-            if one was provided
-        model (None): the :class:`fiftyone.core.models.Model` or name of the
-            zoo model that was used to compute embeddings, if known
-        patches_field (None): the sample field defining the patches being
-            analyzed, if any
-        supports_prompts (None): whether this run supports prompt queries
         table_name (None): the name of the LanceDB table to use. If none is
             provided, a new table will be created
         metric ("cosine"): the embedding distance metric to use when creating a
@@ -53,10 +46,6 @@ class LanceDBSimilarityConfig(SimilarityConfig):
 
     def __init__(
         self,
-        embeddings_field=None,
-        model=None,
-        patches_field=None,
-        supports_prompts=None,
         table_name=None,
         metric="cosine",
         uri="/tmp/lancedb",
@@ -68,13 +57,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
                 % (metric, tuple(_SUPPORTED_METRICS.keys()))
             )
 
-        super().__init__(
-            embeddings_field=embeddings_field,
-            model=model,
-            patches_field=patches_field,
-            supports_prompts=supports_prompts,
-            **kwargs,
-        )
+        super().__init__(**kwargs)
 
         self.table_name = table_name
         self.metric = metric

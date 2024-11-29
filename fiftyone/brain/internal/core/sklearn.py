@@ -40,33 +40,13 @@ class SklearnSimilarityConfig(SimilarityConfig):
     """Configuration for the sklearn similarity backend.
 
     Args:
-        embeddings_field (None): the sample field containing the embeddings,
-            if one was provided
-        model (None): the :class:`fiftyone.core.models.Model` or name of the
-            zoo model that was used to compute embeddings, if known
-        patches_field (None): the sample field defining the patches being
-            analyzed, if any
-        supports_prompts (None): whether this run supports prompt queries
         metric ("cosine"): the embedding distance metric to use. See
             ``sklearn.metrics.pairwise_distance`` for supported values
+        **kwargs: keyword arguments for :class:`SimilarityConfig`
     """
 
-    def __init__(
-        self,
-        embeddings_field=None,
-        model=None,
-        patches_field=None,
-        supports_prompts=None,
-        metric="cosine",
-        **kwargs,
-    ):
-        super().__init__(
-            embeddings_field=embeddings_field,
-            model=model,
-            patches_field=patches_field,
-            supports_prompts=supports_prompts,
-            **kwargs,
-        )
+    def __init__(self, metric="cosine", **kwargs):
+        super().__init__(**kwargs)
         self.metric = metric
 
     @property

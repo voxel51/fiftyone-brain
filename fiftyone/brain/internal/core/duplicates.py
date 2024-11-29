@@ -10,12 +10,86 @@ import itertools
 import logging
 import multiprocessing
 
+import eta.core.utils as etau
+
 import fiftyone.core.media as fom
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 
+import fiftyone.brain as fb
+import fiftyone.brain.similarity as fbs
+import fiftyone.brain.internal.core.utils as fbu
+
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_MODEL = "resnet18-imagenet-torch"
+
+
+def compute_near_duplicates(
+    samples,
+    threshold=None,
+    roi_field=None,
+    embeddings=None,
+    similarity_index=None,
+    model=None,
+    model_kwargs=None,
+    force_square=False,
+    alpha=None,
+    batch_size=None,
+    num_workers=None,
+    skip_failures=True,
+    progress=None,
+):
+    """See ``fiftyone/brain/__init__.py``."""
+
+    fov.validate_collection(samples)
+
+    if etau.is_str(embeddings):
+        embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
+            samples,
+            embeddings,
+        )
+        embeddings = None
+    else:
+        embeddings_field = None
+        embeddings_exist = None
+
+    if etau.is_str(similarity_index):
+        similarity_index = samples.load_brain_results(similarity_index)
+
+    if (
+        model is None
+        and embeddings is None
+        and similarity_index is None
+        and not embeddings_exist
+    ):
+        model = _DEFAULT_MODEL
+
+    if similarity_index is None:
+        similarity_index = fb.compute_similarity(
+            samples,
+            backend="sklearn",
+            roi_field=roi_field,
+            embeddings=embeddings_field or embeddings,
+            model=model,
+            model_kwargs=model_kwargs,
+            force_square=force_square,
+            alpha=alpha,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            skip_failures=skip_failures,
+            progress=progress,
+        )
+    elif not isinstance(similarity_index, fbs.DuplicatesMixin):
+        raise ValueError(
+            "This method only supports similarity indexes that implement the "
+            "%s mixin" % fbs.DuplicatesMixin
+        )
+
+    similarity_index.find_duplicates(thresh=threshold)
+
+    return similarity_index
 
 
 def compute_exact_duplicates(samples, num_workers, skip_failures, progress):

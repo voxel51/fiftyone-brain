@@ -38,12 +38,6 @@ class MongoDBSimilarityConfig(SimilarityConfig):
     """Configuration for a MongoDB similarity instance.
 
     Args:
-        embeddings_field (None): the sample field containing the embeddings
-        model (None): the :class:`fiftyone.core.models.Model` or name of the
-            zoo model that was used to compute embeddings, if known
-        patches_field (None): the sample field defining the patches being
-            analyzed, if any
-        supports_prompts (None): whether this run supports prompt queries
         index_name (None): the name of the MongoDB vector index to use or
             create. If none is provided, a new index will be created
         metric ("cosine"): the embedding distance metric to use when creating a
@@ -52,17 +46,8 @@ class MongoDBSimilarityConfig(SimilarityConfig):
         **kwargs: keyword arguments for :class:`SimilarityConfig`
     """
 
-    def __init__(
-        self,
-        embeddings_field=None,
-        model=None,
-        patches_field=None,
-        supports_prompts=None,
-        index_name=None,
-        metric="cosine",
-        **kwargs,
-    ):
-        if embeddings_field is None and index_name is None:
+    def __init__(self, index_name=None, metric="cosine", **kwargs):
+        if kwargs.get("embeddings_field") is None and index_name is None:
             raise ValueError(
                 "You must provide either the name of a field to read/write "
                 "embeddings for this index by passing the `embeddings` "
@@ -72,7 +57,7 @@ class MongoDBSimilarityConfig(SimilarityConfig):
 
         # @todo support this. Will likely require copying embeddings to a new
         # collection as vector search indexes do not yet support array fields
-        if patches_field is not None:
+        if kwargs.get("patches_field") is not None:
             raise ValueError(
                 "The MongoDB backend does not yet support patch embeddings"
             )
@@ -83,13 +68,7 @@ class MongoDBSimilarityConfig(SimilarityConfig):
                 % (metric, tuple(_SUPPORTED_METRICS.keys()))
             )
 
-        super().__init__(
-            embeddings_field=embeddings_field,
-            model=model,
-            patches_field=patches_field,
-            supports_prompts=supports_prompts,
-            **kwargs,
-        )
+        super().__init__(**kwargs)
 
         self.index_name = index_name
         self.metric = metric

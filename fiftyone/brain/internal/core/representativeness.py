@@ -63,7 +63,7 @@ def compute_representativeness(
     # ranking and points on the outliers with low ranking.
     #
 
-    fov.validate_image_collection(samples)
+    fov.validate_collection(samples)
 
     if roi_field is not None:
         fov.validate_collection_label_fields(
