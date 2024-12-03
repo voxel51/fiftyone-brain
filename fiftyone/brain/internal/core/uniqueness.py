@@ -64,7 +64,7 @@ def compute_uniqueness(
     # to dense clusters of related samples.
     #
 
-    fov.validate_image_collection(samples)
+    fov.validate_collection(samples)
 
     if roi_field is not None:
         fov.validate_collection_label_fields(

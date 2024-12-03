@@ -32,6 +32,13 @@ fbu = fou.lazy_import("fiftyone.brain.internal.core.utils")
 
 logger = logging.getLogger(__name__)
 
+_ALLOWED_ROI_FIELD_TYPES = (
+    fol.Detection,
+    fol.Detections,
+    fol.Polyline,
+    fol.Polylines,
+)
+
 _DEFAULT_MODEL = "mobilenet-v2-imagenet-torch"
 _DEFAULT_BATCH_SIZE = None
 
@@ -39,6 +46,7 @@ _DEFAULT_BATCH_SIZE = None
 def compute_similarity(
     samples,
     patches_field,
+    roi_field,
     embeddings,
     brain_key,
     model,
@@ -56,6 +64,11 @@ def compute_similarity(
 
     fov.validate_collection(samples)
 
+    if roi_field is not None:
+        fov.validate_collection_label_fields(
+            samples, roi_field, _ALLOWED_ROI_FIELD_TYPES
+        )
+
     # Allow for `embeddings_field=XXX` and `embeddings=False` together
     embeddings_field = kwargs.pop("embeddings_field", None)
     if embeddings_field is not None or etau.is_str(embeddings):
@@ -66,7 +79,7 @@ def compute_similarity(
         embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
             samples,
             embeddings_field,
-            patches_field=patches_field,
+            patches_field=patches_field or roi_field,
         )
     else:
         embeddings_field = None
@@ -92,6 +105,7 @@ def compute_similarity(
         backend,
         embeddings_field=embeddings_field,
         patches_field=patches_field,
+        roi_field=roi_field,
         model=model,
         model_kwargs=model_kwargs,
         supports_prompts=supports_prompts,
@@ -118,14 +132,23 @@ def compute_similarity(
         if not embeddings_exist:
             embeddings_field = None
 
+        if roi_field is not None:
+            handle_missing = "image"
+            agg_fcn = lambda e: np.mean(e, axis=0)
+        else:
+            handle_missing = "skip"
+            agg_fcn = None
+
         embeddings, sample_ids, label_ids = fbu.get_embeddings(
             samples,
             model=_model,
-            patches_field=patches_field,
+            patches_field=patches_field or roi_field,
             embeddings=embeddings,
             embeddings_field=embeddings_field,
             force_square=force_square,
             alpha=alpha,
+            handle_missing=handle_missing,
+            agg_fcn=agg_fcn,
             batch_size=batch_size,
             num_workers=num_workers,
             skip_failures=skip_failures,
@@ -186,6 +209,8 @@ class SimilarityConfig(fob.BrainMethodConfig):
             to the model's ``Config`` when a model name is provided
         patches_field (None): the sample field defining the patches being
             analyzed, if any
+        roi_field (None): the sample field defining a region of interest within
+            each image to use to compute embeddings, if any
         supports_prompts (False): whether this run supports prompt queries
     """
 
@@ -195,6 +220,7 @@ class SimilarityConfig(fob.BrainMethodConfig):
         model=None,
         model_kwargs=None,
         patches_field=None,
+        roi_field=None,
         supports_prompts=None,
         **kwargs,
     ):
@@ -205,6 +231,7 @@ class SimilarityConfig(fob.BrainMethodConfig):
         self.model = model
         self.model_kwargs = model_kwargs
         self.patches_field = patches_field
+        self.roi_field = roi_field
         self.supports_prompts = supports_prompts
         super().__init__(**kwargs)
 
@@ -938,12 +965,23 @@ class SimilarityIndex(fob.BrainResults):
                     "This index does not support skipping existing IDs"
                 )
 
+        if self.config.roi_field is not None:
+            patches_field = self.config.roi_field
+            handle_missing = "image"
+            agg_fcn = lambda e: np.mean(e, axis=0)
+        else:
+            patches_field = self.config.patches_field
+            handle_missing = "skip"
+            agg_fcn = None
+
         return fbu.get_embeddings(
             samples,
             model=model,
-            patches_field=self.config.patches_field,
+            patches_field=patches_field,
             force_square=force_square,
             alpha=alpha,
+            handle_missing=handle_missing,
+            agg_fcn=agg_fcn,
             batch_size=batch_size,
             num_workers=num_workers,
             skip_failures=skip_failures,

@@ -30,10 +30,13 @@ def compute_leaky_splits(
     samples,
     splits,
     threshold=None,
+    roi_field=None,
     embeddings=None,
     similarity_index=None,
     model=None,
     model_kwargs=None,
+    force_square=False,
+    alpha=None,
     batch_size=None,
     num_workers=None,
     skip_failures=True,
@@ -41,7 +44,7 @@ def compute_leaky_splits(
 ):
     """See ``fiftyone/brain/__init__.py``."""
 
-    fov.validate_image_collection(samples)
+    fov.validate_collection(samples)
 
     if etau.is_str(embeddings):
         embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
@@ -80,9 +83,12 @@ def compute_leaky_splits(
         similarity_index = fb.compute_similarity(
             samples,
             backend="sklearn",
+            roi_field=roi_field,
+            embeddings=embeddings_field or embeddings,
             model=model,
             model_kwargs=model_kwargs,
-            embeddings=embeddings_field or embeddings,
+            force_square=force_square,
+            alpha=alpha,
             batch_size=batch_size,
             num_workers=num_workers,
             skip_failures=skip_failures,
@@ -336,7 +342,7 @@ class LeakySplitsIndex(fob.BrainResults):
             if missing_ids:
                 logger.warning(
                     "The provided splits contain %d samples (eg '%s') that "
-                    "are not present in the provided index",
+                    "are not present in the index",
                     len(missing_ids),
                     next(iter(missing_ids)),
                 )

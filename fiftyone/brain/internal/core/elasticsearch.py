@@ -37,12 +37,6 @@ class ElasticsearchSimilarityConfig(SimilarityConfig):
     """Configuration for a Elasticsearch similarity instance.
 
     Args:
-        embeddings_field (None): the sample field containing the embeddings
-        model (None): the :class:`fiftyone.core.models.Model` or name of the
-            zoo model that was used to compute embeddings, if known
-        patches_field (None): the sample field defining the patches being
-            analyzed, if any
-        supports_prompts (None): whether this run supports prompt queries
         index_name (None): the name of the Elasticsearch index to use or
             create. If none is provided, a new index will be created
         metric ("cosine"): the embedding distance metric to use when creating a
@@ -58,15 +52,12 @@ class ElasticsearchSimilarityConfig(SimilarityConfig):
         bearer_auth (None): a bearer token to use
         ssl_assert_fingerprint (None): a SHA256 fingerprint to use
         verify_certs (None): whether to verify SSL certificates
-        **kwargs: keyword arguments for :class:`SimilarityConfig`
+        **kwargs: keyword arguments for
+            :class:`fiftyone.brain.similarity.SimilarityConfig`
     """
 
     def __init__(
         self,
-        embeddings_field=None,
-        model=None,
-        patches_field=None,
-        supports_prompts=None,
         index_name=None,
         metric="cosine",
         hosts=None,
@@ -86,13 +77,7 @@ class ElasticsearchSimilarityConfig(SimilarityConfig):
                 % (metric, tuple(_SUPPORTED_METRICS.keys()))
             )
 
-        super().__init__(
-            embeddings_field=embeddings_field,
-            model=model,
-            patches_field=patches_field,
-            supports_prompts=supports_prompts,
-            **kwargs,
-        )
+        super().__init__(**kwargs)
 
         self.index_name = index_name
         self.metric = metric
