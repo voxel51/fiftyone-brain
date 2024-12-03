@@ -57,7 +57,8 @@ class QdrantSimilarityConfig(SimilarityConfig):
         api_key (None): a Qdrant API key to use
         grpc_port (None): Port of Qdrant gRPC interface
         prefer_grpc (None): If `true`, use gRPC interface when possible
-        **kwargs: keyword arguments for :class:`SimilarityConfig`
+        **kwargs: keyword arguments for
+            :class:`fiftyone.brain.similarity.SimilarityConfig`
     """
 
     def __init__(

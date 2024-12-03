@@ -43,7 +43,8 @@ class MongoDBSimilarityConfig(SimilarityConfig):
         metric ("cosine"): the embedding distance metric to use when creating a
             new index. Supported values are
             ``("cosine", "dotproduct", "euclidean")``
-        **kwargs: keyword arguments for :class:`SimilarityConfig`
+        **kwargs: keyword arguments for
+            :class:`fiftyone.brain.similarity.SimilarityConfig`
     """
 
     def __init__(self, index_name=None, metric="cosine", **kwargs):

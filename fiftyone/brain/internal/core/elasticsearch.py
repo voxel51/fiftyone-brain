@@ -52,7 +52,8 @@ class ElasticsearchSimilarityConfig(SimilarityConfig):
         bearer_auth (None): a bearer token to use
         ssl_assert_fingerprint (None): a SHA256 fingerprint to use
         verify_certs (None): whether to verify SSL certificates
-        **kwargs: keyword arguments for :class:`SimilarityConfig`
+        **kwargs: keyword arguments for
+            :class:`fiftyone.brain.similarity.SimilarityConfig`
     """
 
     def __init__(

@@ -54,7 +54,8 @@ class PineconeSimilarityConfig(SimilarityConfig):
         region (None): a region to use when creating serverless indexes
         environment (None): an environment to use when creating pod-based
             indexes
-        **kwargs: keyword arguments for :class:`SimilarityConfig`
+        **kwargs: keyword arguments for
+            :class:`fiftyone.brain.similarity.SimilarityConfig`
     """
 
     def __init__(
@@ -203,8 +204,9 @@ class PineconeSimilarityIndex(SimilarityIndex):
             ) from e
 
         if self.config.index_name is None:
+            # https://docs.pinecone.io/troubleshooting/restrictions-on-index-names
             root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
-            index_name = fbu.get_unique_name(root, index_names)
+            index_name = fbu.get_unique_name(root, index_names, max_len=45)
 
             self.config.index_name = index_name
             self.save_config()

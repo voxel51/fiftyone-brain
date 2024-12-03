@@ -342,7 +342,7 @@ class LeakySplitsIndex(fob.BrainResults):
             if missing_ids:
                 logger.warning(
                     "The provided splits contain %d samples (eg '%s') that "
-                    "are not present in the provided index",
+                    "are not present in the index",
                     len(missing_ids),
                     next(iter(missing_ids)),
                 )

@@ -721,7 +721,7 @@ def compute_near_duplicates(
             :class:`fiftyone.core.labels.Detections`,
             :class:`fiftyone.core.labels.Polyline`, or
             :class:`fiftyone.core.labels.Polylines` field defining a region of
-            interest within each image to use to compute leaks
+            interest within each image to use to compute embeddings
         embeddings (None): if no ``model`` is provided, this argument specifies
             pre-computed embeddings to use, which can be any of the following:
 

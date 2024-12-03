@@ -47,7 +47,8 @@ class RedisSimilarityConfig(SimilarityConfig):
         db (0): the database to use
         username (None): a username to use
         password (None): a password to use
-        **kwargs: keyword arguments for :class:`SimilarityConfig`
+        **kwargs: keyword arguments for
+            :class:`fiftyone.brain.similarity.SimilarityConfig`
     """
 
     def __init__(

@@ -835,7 +835,18 @@ def get_embeddings(
     return embeddings, sample_ids, label_ids
 
 
-def get_unique_name(name, ref_names_or_fcn):
+def get_unique_name(name, ref_names_or_fcn, max_len=None):
+    unique_name = _get_unique_name(name, ref_names_or_fcn)
+
+    if max_len is not None:
+        while name and len(unique_name) > max_len:
+            name = name[:-1]
+            unique_name = _get_unique_name(name, ref_names_or_fcn)
+
+    return unique_name
+
+
+def _get_unique_name(name, ref_names_or_fcn):
     if etau.is_container(ref_names_or_fcn):
         return _get_unique_name_from_list(name, ref_names_or_fcn)
 

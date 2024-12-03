@@ -42,7 +42,8 @@ class SklearnSimilarityConfig(SimilarityConfig):
     Args:
         metric ("cosine"): the embedding distance metric to use. See
             ``sklearn.metrics.pairwise_distance`` for supported values
-        **kwargs: keyword arguments for :class:`SimilarityConfig`
+        **kwargs: keyword arguments for
+            :class:`fiftyone.brain.similarity.SimilarityConfig`
     """
 
     def __init__(self, metric="cosine", **kwargs):

@@ -57,7 +57,8 @@ class MilvusSimilarityConfig(SimilarityConfig):
         ca_pem_path (None): a ca.pem path for TLS two-way
         server_pem_path (None): a server.pem path for TLS one-way
         server_name (None): the server name, for TLS
-        **kwargs: keyword arguments for :class:`SimilarityConfig`
+        **kwargs: keyword arguments for
+            :class:`fiftyone.brain.similarity.SimilarityConfig`
     """
 
     def __init__(
