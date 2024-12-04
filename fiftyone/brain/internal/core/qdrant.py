@@ -36,13 +36,6 @@ class QdrantSimilarityConfig(SimilarityConfig):
     """Configuration for the Qdrant similarity backend.
 
     Args:
-        embeddings_field (None): the sample field containing the embeddings,
-            if one was provided
-        model (None): the :class:`fiftyone.core.models.Model` or name of the
-            zoo model that was used to compute embeddings, if known
-        patches_field (None): the sample field defining the patches being
-            analyzed, if any
-        supports_prompts (None): whether this run supports prompt queries
         collection_name (None): the name of a Qdrant collection to use or
             create. If none is provided, a new collection will be created
         metric (None): the embedding distance metric to use when creating a
@@ -64,14 +57,12 @@ class QdrantSimilarityConfig(SimilarityConfig):
         api_key (None): a Qdrant API key to use
         grpc_port (None): Port of Qdrant gRPC interface
         prefer_grpc (None): If `true`, use gRPC interface when possible
+        **kwargs: keyword arguments for
+            :class:`fiftyone.brain.similarity.SimilarityConfig`
     """
 
     def __init__(
         self,
-        embeddings_field=None,
-        model=None,
-        patches_field=None,
-        supports_prompts=None,
         collection_name=None,
         metric=None,
         replication_factor=None,
@@ -92,13 +83,7 @@ class QdrantSimilarityConfig(SimilarityConfig):
                 % (metric, tuple(_SUPPORTED_METRICS.keys()))
             )
 
-        super().__init__(
-            embeddings_field=embeddings_field,
-            model=model,
-            patches_field=patches_field,
-            supports_prompts=supports_prompts,
-            **kwargs,
-        )
+        super().__init__(**kwargs)
 
         self.collection_name = collection_name
         self.metric = metric

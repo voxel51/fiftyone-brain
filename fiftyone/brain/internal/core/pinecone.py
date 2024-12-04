@@ -31,13 +31,6 @@ class PineconeSimilarityConfig(SimilarityConfig):
     """Configuration for the Pinecone similarity backend.
 
     Args:
-        embeddings_field (None): the sample field containing the embeddings,
-            if one was provided
-        model (None): the :class:`fiftyone.core.models.Model` or name of the
-            zoo model that was used to compute embeddings, if known
-        patches_field (None): the sample field defining the patches being
-            analyzed, if any
-        supports_prompts (None): whether this run supports prompt queries
         index_name (None): the name of a Pinecone index to use or create. If
             none is provided, a new index will be created
         index_type (None): the index type to use when creating a new index.
@@ -61,14 +54,12 @@ class PineconeSimilarityConfig(SimilarityConfig):
         region (None): a region to use when creating serverless indexes
         environment (None): an environment to use when creating pod-based
             indexes
+        **kwargs: keyword arguments for
+            :class:`fiftyone.brain.similarity.SimilarityConfig`
     """
 
     def __init__(
         self,
-        embeddings_field=None,
-        model=None,
-        patches_field=None,
-        supports_prompts=None,
         index_name=None,
         index_type=None,
         namespace=None,
@@ -89,13 +80,7 @@ class PineconeSimilarityConfig(SimilarityConfig):
                 % (metric, _SUPPORTED_METRICS)
             )
 
-        super().__init__(
-            embeddings_field=embeddings_field,
-            model=model,
-            patches_field=patches_field,
-            supports_prompts=supports_prompts,
-            **kwargs,
-        )
+        super().__init__(**kwargs)
 
         self.index_name = index_name
         self.index_type = index_type
@@ -219,8 +204,9 @@ class PineconeSimilarityIndex(SimilarityIndex):
             ) from e
 
         if self.config.index_name is None:
+            # https://docs.pinecone.io/troubleshooting/restrictions-on-index-names
             root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
-            index_name = fbu.get_unique_name(root, index_names)
+            index_name = fbu.get_unique_name(root, index_names, max_len=45)
 
             self.config.index_name = index_name
             self.save_config()

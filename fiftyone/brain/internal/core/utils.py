@@ -169,6 +169,7 @@ def get_embeddings_from_index(
         sample_ids = None
         label_ids = samples.values(label_id_path, unwind=True)
 
+    logger.info("Retrieving embeddings from similarity index...")
     return similarity_index.get_embeddings(
         sample_ids=sample_ids,
         label_ids=label_ids,
@@ -720,6 +721,7 @@ def get_embeddings(
     patches_field=None,
     embeddings_field=None,
     embeddings=None,
+    similarity_index=None,
     force_square=False,
     alpha=None,
     handle_missing="skip",
@@ -731,16 +733,20 @@ def get_embeddings(
 ):
     _validate_args(samples, patches_field=patches_field)
 
-    if model is None and embeddings_field is None and embeddings is None:
+    if (
+        model is None
+        and embeddings_field is None
+        and embeddings is None
+        and similarity_index is None
+    ):
         return _empty_embeddings(patches_field)
 
-    if isinstance(embeddings, fob.SimilarityIndex):
-        allow_missing = handle_missing == "skip"
+    if similarity_index is not None:
         return get_embeddings_from_index(
             samples,
-            embeddings,
+            similarity_index,
             patches_field=patches_field,
-            allow_missing=allow_missing,
+            allow_missing=True,
             warn_missing=True,
         )
 
@@ -829,7 +835,18 @@ def get_embeddings(
     return embeddings, sample_ids, label_ids
 
 
-def get_unique_name(name, ref_names_or_fcn):
+def get_unique_name(name, ref_names_or_fcn, max_len=None):
+    unique_name = _get_unique_name(name, ref_names_or_fcn)
+
+    if max_len is not None:
+        while name and len(unique_name) > max_len:
+            name = name[:-1]
+            unique_name = _get_unique_name(name, ref_names_or_fcn)
+
+    return unique_name
+
+
+def _get_unique_name(name, ref_names_or_fcn):
     if etau.is_container(ref_names_or_fcn):
         return _get_unique_name_from_list(name, ref_names_or_fcn)
 

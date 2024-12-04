@@ -8,15 +8,14 @@ Uniqueness methods.
 import logging
 
 import numpy as np
-import sklearn.metrics as skm
-import sklearn.neighbors as skn
 
 import eta.core.utils as etau
 
+import fiftyone.brain as fb
 import fiftyone.core.brain as fob
 import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
-import fiftyone.core.media as fom
+import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 
 import fiftyone.brain.internal.core.utils as fbu
@@ -35,14 +34,13 @@ _ALLOWED_ROI_FIELD_TYPES = (
 _DEFAULT_MODEL = "simple-resnet-cifar10"
 _DEFAULT_BATCH_SIZE = 16
 
-_MAX_PRECOMPUTE_DISTS = 15000  # ~1.7GB to store distance matrix in-memory
-
 
 def compute_uniqueness(
     samples,
     uniqueness_field,
     roi_field,
     embeddings,
+    similarity_index,
     model,
     model_kwargs,
     force_square,
@@ -66,7 +64,7 @@ def compute_uniqueness(
     # to dense clusters of related samples.
     #
 
-    fov.validate_image_collection(samples)
+    fov.validate_collection(samples)
 
     if roi_field is not None:
         fov.validate_collection_label_fields(
@@ -84,7 +82,15 @@ def compute_uniqueness(
         embeddings_field = None
         embeddings_exist = None
 
-    if model is None and embeddings is None and not embeddings_exist:
+    if etau.is_str(similarity_index):
+        similarity_index = samples.load_brain_results(similarity_index)
+
+    if (
+        model is None
+        and embeddings is None
+        and similarity_index is None
+        and not embeddings_exist
+    ):
         model = fbm.load_model(_DEFAULT_MODEL)
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
@@ -93,6 +99,7 @@ def compute_uniqueness(
         uniqueness_field,
         roi_field=roi_field,
         embeddings_field=embeddings_field,
+        similarity_index=similarity_index,
         model=model,
         model_kwargs=model_kwargs,
     )
@@ -114,6 +121,7 @@ def compute_uniqueness(
         patches_field=roi_field,
         embeddings_field=embeddings_field,
         embeddings=embeddings,
+        similarity_index=similarity_index,
         force_square=force_square,
         alpha=alpha,
         handle_missing="image",
@@ -124,8 +132,16 @@ def compute_uniqueness(
         progress=progress,
     )
 
+    if similarity_index is None:
+        similarity_index = fb.compute_similarity(
+            samples, backend="sklearn", embeddings=False
+        )
+        similarity_index.add_to_index(embeddings, sample_ids)
+
     logger.info("Computing uniqueness...")
-    uniqueness = _compute_uniqueness(embeddings)
+    uniqueness = _compute_uniqueness(
+        embeddings, similarity_index, progress=progress
+    )
 
     # Ensure field exists, even if `uniqueness` is empty
     samples._dataset.add_sample_field(uniqueness_field, fof.FloatField)
@@ -139,26 +155,29 @@ def compute_uniqueness(
     logger.info("Uniqueness computation complete")
 
 
-def _compute_uniqueness(embeddings, metric="euclidean"):
+def _compute_uniqueness(
+    embeddings, similarity_index, batch_size=10, progress=None
+):
     K = 3
 
     num_embeddings = len(embeddings)
     if num_embeddings <= K:
         return [1] * num_embeddings
-    elif num_embeddings <= _MAX_PRECOMPUTE_DISTS:
-        embeddings = skm.pairwise_distances(embeddings, metric=metric)
-        metric = "precomputed"
+
+    if similarity_index.config.method == "sklearn":
+        _, dists = similarity_index._kneighbors(k=K + 1, return_dists=True)
     else:
-        logger.info(
-            "Computing neighbors for %d embeddings; this may take awhile...",
-            num_embeddings,
-        )
+        dists = []
+        with fou.ProgressBar(total=num_embeddings, progress=progress) as pb:
+            for _embeddings in fou.iter_slices(embeddings, batch_size):
+                _, _dists = similarity_index._kneighbors(
+                    query=_embeddings, k=K + 1, return_dists=True
+                )
+                dists.extend(_dists)
+                pb.update(len(_dists))
 
-    # First column of dists and indices is self-distance
-    knns = skn.NearestNeighbors(metric=metric).fit(embeddings)
-    dists, _ = knns.kneighbors(embeddings, n_neighbors=K + 1)
+    dists = np.array(dists)
 
-    #
     # @todo experiment on which method for assessing uniqueness is best
     #
     # To get something going, for now, just take a weighted mean
@@ -181,18 +200,24 @@ class UniquenessConfig(fob.BrainMethodConfig):
         uniqueness_field,
         roi_field=None,
         embeddings_field=None,
+        similarity_index=None,
         model=None,
         model_kwargs=None,
         **kwargs,
     ):
+        if similarity_index is not None and not etau.is_str(similarity_index):
+            similarity_index = similarity_index.key
+
         if model is not None and not etau.is_str(model):
             model = etau.get_class_name(model)
 
         self.uniqueness_field = uniqueness_field
         self.roi_field = roi_field
         self.embeddings_field = embeddings_field
+        self.similarity_index = similarity_index
         self.model = model
         self.model_kwargs = model_kwargs
+
         super().__init__(**kwargs)
 
     @property

@@ -176,6 +176,7 @@ def compute_uniqueness(
     uniqueness_field="uniqueness",
     roi_field=None,
     embeddings=None,
+    similarity_index=None,
     model=None,
     model_kwargs=None,
     force_square=False,
@@ -191,8 +192,8 @@ def compute_uniqueness(
     This function only uses the pixel data and can therefore process labeled or
     unlabeled samples.
 
-    If no ``embeddings`` or ``model`` is provided, a default model is used to
-    generate embeddings.
+    If no ``embeddings``, ``similarity_index``, or ``model`` is provided, a
+    default model is used to generate embeddings.
 
     .. note::
 
@@ -221,6 +222,9 @@ def compute_uniqueness(
             when working with patch embeddings, you can provide either the
             fully-qualified path to the patch embeddings or just the name of
             the label attribute in ``roi_field``
+        similarity_index (None): a
+            :class:`fiftyone.brain.similarity.SimilarityIndex` or the brain key
+            of a similarity index to use to load pre-computed embeddings
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/models.html>`_
@@ -256,6 +260,7 @@ def compute_uniqueness(
         uniqueness_field,
         roi_field,
         embeddings,
+        similarity_index,
         model,
         model_kwargs,
         force_square,
@@ -273,6 +278,7 @@ def compute_representativeness(
     method="cluster-center",
     roi_field=None,
     embeddings=None,
+    similarity_index=None,
     model=None,
     model_kwargs=None,
     force_square=False,
@@ -288,8 +294,8 @@ def compute_representativeness(
     This function only uses the pixel data and can therefore process labeled or
     unlabeled samples.
 
-    If no ``embeddings`` or ``model`` is provided, a default model is used to
-    generate embeddings.
+    If no ``embeddings``, ``similarity_index``, or ``model`` is provided, a
+    default model is used to generate embeddings.
 
     .. note::
 
@@ -325,6 +331,9 @@ def compute_representativeness(
             when working with patch embeddings, you can provide either the
             fully-qualified path to the patch embeddings or just the name of
             the label attribute in ``roi_field``
+        similarity_index (None): a
+            :class:`fiftyone.brain.similarity.SimilarityIndex` or the brain key
+            of a similarity index to use to load pre-computed embeddings
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/models.html>`_
@@ -361,6 +370,7 @@ def compute_representativeness(
         method,
         roi_field,
         embeddings,
+        similarity_index,
         model,
         model_kwargs,
         force_square,
@@ -380,6 +390,7 @@ def compute_visualization(
     brain_key=None,
     num_dims=2,
     method=None,
+    similarity_index=None,
     model=None,
     model_kwargs=None,
     force_square=False,
@@ -398,12 +409,8 @@ def compute_visualization(
     method of the returned
     :class:`fiftyone.brain.visualization.VisualizationResults` object.
 
-    If no ``embeddings`` or ``model`` is provided, the following default model
-    is used to generate embeddings::
-
-        import fiftyone.zoo as foz
-
-        model = foz.load_zoo_model("mobilenet-v2-imagenet-torch")
+    If no ``embeddings``, ``similarity_index``, or ``model`` is provided, a
+    default model is used to generate embeddings.
 
     You can use the ``method`` parameter to select the dimensionality reduction
     method to use, and you can optionally customize the method by passing
@@ -438,8 +445,6 @@ def compute_visualization(
                 to ``num_patches x num_embedding_dims`` arrays of patch
                 embeddings
             -   the name of a dataset field containing the embeddings to use
-            -   a :class:`fiftyone.brain.similarity.SimilarityIndex` from which
-                to retrieve embeddings for all samples/patches in ``samples``
 
             If a ``model`` is provided, this argument specifies the name of a
             field in which to store the computed embeddings. In either case,
@@ -471,6 +476,9 @@ def compute_visualization(
             ``fiftyone.brain.brain_config.visualization_methods.keys()`` and
             the default is
             ``fiftyone.brain.brain_config.default_visualization_method``
+        similarity_index (None): a
+            :class:`fiftyone.brain.similarity.SimilarityIndex` or the brain key
+            of a similarity index to use to load pre-computed embeddings
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
             model from the
             `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/index.html>`_
@@ -515,6 +523,7 @@ def compute_visualization(
         brain_key,
         num_dims,
         method,
+        similarity_index,
         model,
         model_kwargs,
         force_square,
@@ -530,6 +539,7 @@ def compute_visualization(
 def compute_similarity(
     samples,
     patches_field=None,
+    roi_field=None,
     embeddings=None,
     brain_key=None,
     model=None,
@@ -572,12 +582,8 @@ def compute_similarity(
         Query the index to select a subset of examples of a specified size that
         are maximally unique with respect to each other
 
-    If no ``embeddings`` or ``model`` is provided, the following default model
-    is used to generate embeddings::
-
-        import fiftyone.zoo as foz
-
-        model = foz.load_zoo_model("mobilenet-v2-imagenet-torch")
+    If no ``embeddings`` or ``model`` is provided, a default model is used to
+    generate embeddings.
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
@@ -587,6 +593,11 @@ def compute_similarity(
             :class:`fiftyone.core.labels.Detections`,
             :class:`fiftyone.core.labels.Polyline`, or
             :class:`fiftyone.core.labels.Polylines`
+        roi_field (None): an optional :class:`fiftyone.core.labels.Detection`,
+            :class:`fiftyone.core.labels.Detections`,
+            :class:`fiftyone.core.labels.Polyline`, or
+            :class:`fiftyone.core.labels.Polylines` field defining a region of
+            interest within each image to use to compute embeddings
         embeddings (None): embeddings to feed the index. This argument's
             behavior depends on whether a ``model`` is provided, as described
             below.
@@ -595,8 +606,9 @@ def compute_similarity(
             embeddings to use:
 
             -   a ``num_samples x num_dims`` array of embeddings
-            -   if ``patches_field`` is specified,  a dict mapping sample IDs
-                to ``num_patches x num_dims`` arrays of patch embeddings
+            -   if ``patches_field``/``roi_field`` is specified,  a dict
+                mapping sample IDs to ``num_patches x num_dims`` arrays of
+                patch embeddings
             -   the name of a dataset field from which to load embeddings
             -   ``None``: use the default model to compute embeddings
             -   ``False``: **do not** compute embeddings right now
@@ -609,7 +621,7 @@ def compute_similarity(
 
             In either case, when working with patch embeddings, you can provide
             either the fully-qualified path to the patch embeddings or just the
-            name of the label attribute in ``patches_field``
+            name of the label attribute in ``patches_field``/``roi_field``
         brain_key (None): a brain key under which to store the results of this
             method
         model (None): a :class:`fiftyone.core.models.Model` or the name of a
@@ -621,14 +633,14 @@ def compute_similarity(
             to the model's ``Config`` when a model name is provided
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
-            when a ``model`` and ``patches_field`` are specified
+            when a ``model`` and ``patches_field``/``roi_field`` are specified
         alpha (None): an optional expansion/contraction to apply to the patches
             before extracting them, in ``[-1, inf)``. If provided, the length
             and width of the box are expanded (or contracted, when
             ``alpha < 0``) by ``(100 * alpha)%``. For example, set
             ``alpha = 0.1`` to expand the boxes by 10%, and set
             ``alpha = -0.1`` to contract the boxes by 10%. Only applicable when
-            a ``model`` and ``patches_field`` are specified
+            a ``model`` and ``patches_field``/``roi_field`` are specified
         batch_size (None): an optional batch size to use when computing
             embeddings. Only applicable when a ``model`` is provided
         num_workers (None): the number of workers to use when loading images.
@@ -655,6 +667,7 @@ def compute_similarity(
     return fbs.compute_similarity(
         samples,
         patches_field,
+        roi_field,
         embeddings,
         brain_key,
         model,
@@ -670,6 +683,111 @@ def compute_similarity(
     )
 
 
+def compute_near_duplicates(
+    samples,
+    threshold=0.2,
+    roi_field=None,
+    embeddings=None,
+    similarity_index=None,
+    model=None,
+    model_kwargs=None,
+    force_square=False,
+    alpha=None,
+    batch_size=None,
+    num_workers=None,
+    skip_failures=True,
+    progress=None,
+):
+    """Detects potential duplicates in the given sample collection.
+
+    Calling this method only initializes the index. You can then call the
+    methods exposed on the returned object to perform the following operations:
+
+    -   :meth:`duplicate_ids <fiftyone.brain.similarity.DuplicatesMixin.duplicate_ids>`:
+        A list of duplicate IDs
+
+    -   :meth:`neighbors_map <fiftyone.brain.similarity.DuplicatesMixin.neighbors_map>`:
+        A dictionary mapping IDs to lists of ``(dup_id, dist)`` tuples
+
+    -   :meth:`duplicates_view() <fiftyone.brain.similarity.DuplicatesMixin.duplicates_view>`:
+        Returns a view of all duplicates in the input collection
+
+    Args:
+        samples: a :class:`fiftyone.core.collections.SampleCollection`
+        threshold (0.2): the similarity distance threshold to use when
+            detecting duplicates. Values in ``[0.1, 0.25]`` work well for the
+            default setup
+        roi_field (None): an optional :class:`fiftyone.core.labels.Detection`,
+            :class:`fiftyone.core.labels.Detections`,
+            :class:`fiftyone.core.labels.Polyline`, or
+            :class:`fiftyone.core.labels.Polylines` field defining a region of
+            interest within each image to use to compute embeddings
+        embeddings (None): if no ``model`` is provided, this argument specifies
+            pre-computed embeddings to use, which can be any of the following:
+
+            -   a ``num_samples x num_dims`` array of embeddings
+            -   if ``roi_field`` is specified,  a dict mapping sample IDs to
+                ``num_patches x num_dims`` arrays of patch embeddings
+            -   the name of a dataset field containing the embeddings to use
+
+            If a ``model`` is provided, this argument specifies the name of a
+            field in which to store the computed embeddings. In either case,
+            when working with patch embeddings, you can provide either the
+            fully-qualified path to the patch embeddings or just the name of
+            the label attribute in ``roi_field``
+        similarity_index (None): a
+            :class:`fiftyone.brain.similarity.SimilarityIndex` or the brain key
+            of a similarity index to use to load pre-computed embeddings
+        model (None): a :class:`fiftyone.core.models.Model` or the name of a
+            model from the
+            `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/models.html>`_
+            to use to generate embeddings. The model must expose embeddings
+            (``model.has_embeddings = True``)
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
+        force_square (False): whether to minimally manipulate the patch
+            bounding boxes into squares prior to extraction. Only applicable
+            when a ``model`` and ``roi_field`` are specified
+        alpha (None): an optional expansion/contraction to apply to the patches
+            before extracting them, in ``[-1, inf)``. If provided, the length
+            and width of the box are expanded (or contracted, when
+            ``alpha < 0``) by ``(100 * alpha)%``. For example, set
+            ``alpha = 0.1`` to expand the boxes by 10%, and set
+            ``alpha = -0.1`` to contract the boxes by 10%. Only applicable when
+            a ``model`` and ``roi_field`` are specified
+        batch_size (None): a batch size to use when computing embeddings. Only
+            applicable when a ``model`` is provided
+        num_workers (None): the number of workers to use when loading images.
+            Only applicable when a Torch-based model is being used to compute
+            embeddings
+        skip_failures (True): whether to gracefully continue without raising an
+            error if embeddings cannot be generated for a sample
+        progress (None): whether to render a progress bar (True/False), use the
+            default value ``fiftyone.config.show_progress_bars`` (None), or a
+            progress callback function to invoke instead
+
+    Returns:
+        a :class:`fiftyone.brain.similarity.SimilarityIndex`
+    """
+    import fiftyone.brain.internal.core.duplicates as fbd
+
+    return fbd.compute_near_duplicates(
+        samples,
+        threshold=threshold,
+        roi_field=roi_field,
+        embeddings=embeddings,
+        similarity_index=similarity_index,
+        model=model,
+        model_kwargs=model_kwargs,
+        force_square=force_square,
+        alpha=alpha,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        skip_failures=skip_failures,
+        progress=progress,
+    )
+
+
 def compute_exact_duplicates(
     samples,
     num_workers=None,
@@ -679,7 +797,7 @@ def compute_exact_duplicates(
     """Detects duplicate media in a sample collection.
 
     This method detects exact duplicates with the same filehash. Use
-    :meth:`compute_similarity` to detect near-duplicate images.
+    :meth:`compute_near_duplicates` to detect near-duplicates.
 
     If duplicates are found, the first instance in ``samples`` will be the key
     in the returned dictionary, while the subsequent duplicates will be the
@@ -702,4 +820,121 @@ def compute_exact_duplicates(
 
     return fbd.compute_exact_duplicates(
         samples, num_workers, skip_failures, progress
+    )
+
+
+def compute_leaky_splits(
+    samples,
+    splits,
+    threshold=0.2,
+    roi_field=None,
+    embeddings=None,
+    similarity_index=None,
+    model=None,
+    model_kwargs=None,
+    force_square=False,
+    alpha=None,
+    batch_size=None,
+    num_workers=None,
+    skip_failures=True,
+    progress=None,
+):
+    """Computes potential leaks between splits of the given sample collection.
+
+    Calling this method only initializes the index. You can then call the
+    methods exposed on the returned object to perform the following operations:
+
+    -   :meth:`leaks_view() <fiftyone.brain.core.internal.leaky_splits.LeakySplitsIndex.leaks_view>`:
+        Returns a view of all leaks in the input collection
+
+    -   :meth:`no_leaks_view() <fiftyone.brain.core.internal.leaky_splits.LeakySplitsIndex.no_leaks_view>`:
+        Returns the subset of the input collection without any leaks
+
+    -   :meth:`leaks_for_sample() <fiftyone.brain.core.internal.leaky_splits.LeakySplitsIndex.leaks_for_sample>`:
+        Returns a view with leaks corresponding to the given sample
+
+    -   :meth:`tag_leaks() <fiftyone.brain.core.internal.leaky_splits.LeakySplitsIndex.tag_leaks>`:
+        Tags leaks in the dataset as leaks
+
+    Args:
+        samples: a :class:`fiftyone.core.collections.SampleCollection`
+        splits: the dataset splits, specified in one of the following ways:
+
+            -   a list of tag strings
+            -   the name of a string/list field that encodes the split
+                memberships
+            -   a dict mapping split names to
+                :class:`fiftyone.core.view.DatasetView` instances
+        threshold (0.2): the similarity distance threshold to use when
+            detecting leaks. Values in ``[0.1, 0.25]`` work well for the
+            default setup
+        roi_field (None): an optional :class:`fiftyone.core.labels.Detection`,
+            :class:`fiftyone.core.labels.Detections`,
+            :class:`fiftyone.core.labels.Polyline`, or
+            :class:`fiftyone.core.labels.Polylines` field defining a region of
+            interest within each image to use to compute leaks
+        embeddings (None): if no ``model`` is provided, this argument specifies
+            pre-computed embeddings to use, which can be any of the following:
+
+            -   a ``num_samples x num_dims`` array of embeddings
+            -   if ``roi_field`` is specified,  a dict mapping sample IDs to
+                ``num_patches x num_dims`` arrays of patch embeddings
+            -   the name of a dataset field containing the embeddings to use
+
+            If a ``model`` is provided, this argument specifies the name of a
+            field in which to store the computed embeddings. In either case,
+            when working with patch embeddings, you can provide either the
+            fully-qualified path to the patch embeddings or just the name of
+            the label attribute in ``roi_field``
+        similarity_index (None): a
+            :class:`fiftyone.brain.similarity.SimilarityIndex` or the brain key
+            of a similarity index to use to load pre-computed embeddings
+        model (None): a :class:`fiftyone.core.models.Model` or the name of a
+            model from the
+            `FiftyOne Model Zoo <https://docs.voxel51.com/user_guide/model_zoo/models.html>`_
+            to use to generate embeddings. The model must expose embeddings
+            (``model.has_embeddings = True``)
+        model_kwargs (None): a dictionary of optional keyword arguments to pass
+            to the model's ``Config`` when a model name is provided
+        force_square (False): whether to minimally manipulate the patch
+            bounding boxes into squares prior to extraction. Only applicable
+            when a ``model`` and ``roi_field`` are specified
+        alpha (None): an optional expansion/contraction to apply to the patches
+            before extracting them, in ``[-1, inf)``. If provided, the length
+            and width of the box are expanded (or contracted, when
+            ``alpha < 0``) by ``(100 * alpha)%``. For example, set
+            ``alpha = 0.1`` to expand the boxes by 10%, and set
+            ``alpha = -0.1`` to contract the boxes by 10%. Only applicable when
+            a ``model`` and ``roi_field`` are specified
+        batch_size (None): a batch size to use when computing embeddings. Only
+            applicable when a ``model`` is provided
+        num_workers (None): the number of workers to use when loading images.
+            Only applicable when a Torch-based model is being used to compute
+            embeddings
+        skip_failures (True): whether to gracefully continue without raising an
+            error if embeddings cannot be generated for a sample
+        progress (None): whether to render a progress bar (True/False), use the
+            default value ``fiftyone.config.show_progress_bars`` (None), or a
+            progress callback function to invoke instead
+
+    Returns:
+        a :class:`fiftyone.brain.internal.core.leaky_splits.LeakySplitsIndex`
+    """
+    import fiftyone.brain.internal.core.leaky_splits as fbl
+
+    return fbl.compute_leaky_splits(
+        samples,
+        splits,
+        threshold=threshold,
+        roi_field=roi_field,
+        embeddings=embeddings,
+        similarity_index=similarity_index,
+        model=model,
+        model_kwargs=model_kwargs,
+        force_square=force_square,
+        alpha=alpha,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        skip_failures=skip_failures,
+        progress=progress,
     )
