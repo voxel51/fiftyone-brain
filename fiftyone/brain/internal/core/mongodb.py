@@ -106,10 +106,10 @@ class MongoDBSimilarity(Similarity):
         # eg Atlas clusters generally have hostnames which end in "mongodb.net"
         # https://stackoverflow.com/q/73180110
         #
-        fou.ensure_package("pymongo>=4.5,<4.9")
+        fou.ensure_package("pymongo>=4.7")
 
     def ensure_usage_requirements(self):
-        fou.ensure_package("pymongo>=4.5,<4.9")
+        fou.ensure_package("pymongo>=4.7")
 
     def initialize(self, samples, brain_key):
         return MongoDBSimilarityIndex(
@@ -170,11 +170,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             if self.config.index_name is None:
                 raise ValueError(
                     "You must be running MongoDB Atlas 7.0 or later in order "
-                    "to programmatically create vector search indexes. If "
-                    "you are running MongoDB Atlas 6.0.11 then you can still "
-                    "use this feature if you first manually create a vector "
-                    "search index and then provide its name via the "
-                    "`index_name` parameter"
+                    "to use vector search indexes"
                 )
 
             # Must assume index exists because we can't use pymongo to check...
@@ -227,6 +223,10 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         return embeddings.shape[1]
 
     def _create_index(self, dimension):
+        # https://www.mongodb.com/docs/atlas/atlas-vector-search/vector-search-stage
+        # https://www.mongodb.com/docs/languages/python/pymongo-driver/current/indexes/atlas-search-index/
+        from pymongo.operations import SearchIndexModel
+
         field = self._dataset.get_field(self.config.embeddings_field)
         if field is not None and not isinstance(field, fof.ListField):
             raise ValueError(
@@ -236,26 +236,31 @@ class MongoDBSimilarityIndex(SimilarityIndex):
 
         metric = _SUPPORTED_METRICS[self.config.metric]
 
-        # https://www.mongodb.com/docs/atlas/atlas-search/field-types/knn-vector
-        # https://pymongo.readthedocs.io/en/stable/api/pymongo/collection.html#pymongo.collection.Collection.create_search_index
-        coll = self._dataset._sample_collection
-        coll.create_search_index(
+        fields = [
             {
-                "name": self.config.index_name,
-                "definition": {
-                    "mappings": {
-                        "dynamic": True,
-                        "fields": {
-                            self.config.embeddings_field: {
-                                "type": "knnVector",
-                                "dimensions": dimension,
-                                "similarity": metric,
-                            }
-                        },
-                    }
-                },
+                "type": "vector",
+                "numDimensions": dimension,
+                "path": self.config.embeddings_field,
+                "similarity": metric,
             }
+        ]
+
+        if self._dataset.media_type == fom.GROUP:
+            fields.append(
+                {
+                    "type": "filter",
+                    "path": self._dataset.group_field + ".name",
+                }
+            )
+
+        model = SearchIndexModel(
+            name=self.config.index_name,
+            type="vectorSearch",  # requires pymongo>=4.7
+            definition={"fields": fields},
         )
+
+        coll = self._dataset._sample_collection
+        coll.create_search_index(model=model)
 
         self._index = True
 
