@@ -328,13 +328,15 @@ class SimilarityIndex(fob.BrainResults):
         super().__init__(samples, config, brain_key, backend=backend)
 
         self._model = None
+        self._last_view = None
+        self._last_views = []
         self._curr_view = None
+        self._curr_view_allow_missing = None
+        self._curr_view_warn_missing = None
         self._curr_sample_ids = None
         self._curr_label_ids = None
         self._curr_keep_inds = None
         self._curr_missing_size = None
-        self._last_view = None
-        self._last_views = []
 
         self.use_view(samples)
 
@@ -410,6 +412,7 @@ class SimilarityIndex(fob.BrainResults):
         If :meth:`use_view` has been called, this may be a subset of the full
         index.
         """
+        self._apply_view_if_necessary()
         return self._curr_sample_ids
 
     @property
@@ -420,6 +423,7 @@ class SimilarityIndex(fob.BrainResults):
         If :meth:`use_view` has been called, this may be a subset of the full
         index.
         """
+        self._apply_view_if_necessary()
         return self._curr_label_ids
 
     @property
@@ -427,6 +431,7 @@ class SimilarityIndex(fob.BrainResults):
         """The indices of :meth:`current_sample_ids` in :meth:`sample_ids`, or
         ``None`` if not supported or if the full index is currently being used.
         """
+        self._apply_view_if_necessary()
         return self._curr_keep_inds
 
     @property
@@ -436,6 +441,7 @@ class SimilarityIndex(fob.BrainResults):
         If :meth:`use_view` has been called to restrict the index, this
         property will reflect the size of the active index.
         """
+        self._apply_view_if_necessary()
         return len(self._curr_sample_ids)
 
     @property
@@ -447,6 +453,7 @@ class SimilarityIndex(fob.BrainResults):
         and it will be ``None`` if no data points are missing or when the
         backend does not support it.
         """
+        self._apply_view_if_necessary()
         return self._curr_missing_size
 
     def add_to_index(
@@ -535,7 +542,12 @@ class SimilarityIndex(fob.BrainResults):
         """
         raise NotImplementedError("subclass must implement get_embeddings()")
 
-    def use_view(self, samples, allow_missing=True, warn_missing=False):
+    def use_view(
+        self,
+        samples,
+        allow_missing=True,
+        warn_missing=False,
+    ):
         """Restricts the index to the provided view.
 
         Subsequent calls to methods on this instance will only contain results
@@ -579,13 +591,25 @@ class SimilarityIndex(fob.BrainResults):
         Returns:
             self
         """
+        self._last_view = self._curr_view
+        self._curr_view = samples
+        self._curr_view_allow_missing = allow_missing
+        self._curr_view_warn_missing = warn_missing
+        self._curr_sample_ids = None
+        self._curr_label_ids = None
+        self._curr_keep_inds = None
+        self._curr_missing_size = None
+
+        return self
+
+    def _apply_view(self):
         sample_ids, label_ids, keep_inds, good_inds = fbu.filter_ids(
-            samples,
+            self._curr_view,
             self.sample_ids,
             self.label_ids,
             patches_field=self.config.patches_field,
-            allow_missing=allow_missing,
-            warn_missing=warn_missing,
+            allow_missing=self._curr_view_allow_missing,
+            warn_missing=self._curr_view_warn_missing,
         )
 
         if good_inds is not None:
@@ -593,14 +617,14 @@ class SimilarityIndex(fob.BrainResults):
         else:
             missing_size = None
 
-        self._last_view = self._curr_view
-        self._curr_view = samples
         self._curr_sample_ids = sample_ids
         self._curr_label_ids = label_ids
         self._curr_keep_inds = keep_inds
         self._curr_missing_size = missing_size
 
-        return self
+    def _apply_view_if_necessary(self):
+        if self._curr_sample_ids is None:
+            self._apply_view()
 
     def clear_view(self):
         """Clears the view set by :meth:`use_view`, if any.
@@ -710,16 +734,17 @@ class SimilarityIndex(fob.BrainResults):
         )
 
         if dist_field is not None:
-            ids, dists = self._kneighbors(**kwargs)
+            sample_ids, label_ids, dists = self._kneighbors(**kwargs)
         else:
-            ids = self._kneighbors(**kwargs)
+            sample_ids, label_ids = self._kneighbors(**kwargs)
 
-        if not selecting_samples:
-            label_ids = ids
-
-            _ids = set(ids)
-            bools = np.array([_id in _ids for _id in self.current_label_ids])
-            sample_ids = self.current_sample_ids[bools]
+        if selecting_samples:
+            if patches_field is not None:
+                ids = label_ids
+            else:
+                ids = sample_ids
+        else:
+            ids = label_ids
 
         # Store query distances
         if dist_field is not None:
@@ -834,7 +859,7 @@ class SimilarityIndex(fob.BrainResults):
                 -   an embedding or ``num_queries x num_dim`` array of
                     embeddings for which to return neighbors
                 -   Some backends may also support ``None``, in which case the
-                    neighbors for all points in the current :meth:`view are
+                    neighbors for all points in the current :meth:`view` are
                     returned
 
             k (None): the number of neighbors to return. Some backends may
@@ -851,23 +876,31 @@ class SimilarityIndex(fob.BrainResults):
         Returns:
             the query result, in one of the following formats:
 
-                -   an ``(ids, dists)`` tuple, when ``return_dists`` is True
-                -   ``ids``, when ``return_dists`` is False
+                -   a ``(sample_ids, label_ids, dists)`` tuple, when
+                    ``return_dists`` is True
+                -   a ``(sample_ids, label_ids)`` tuple, when ``return_dists``
+                    is False
 
-            In the above, ``ids`` contains the IDs of the nearest neighbors, in
-            one of the following formats:
+            In the above, ``sample_ids`` and ``label_ids`` (if applicable)
+            contain the IDs of the nearest neighbors, in one of the following
+            formats:
 
                 -   a list of nearest neighbor IDs, when a single query ID or
                     vector is provided, **or** when an ``aggregation`` is
                     provided
                 -   a list of lists of nearest neighbor IDs, when multiple
                     query IDs/vectors and no ``aggregation`` is provided
+
+            and ``dists`` contains the corresponding query-neighbor distances
+            for each result.
+
+            If the backend supports full index queries (``query=None``), then
+            ``inds`` are returned rather than ``(sample_ids, label_ids)``, in
+            the following format:
+
                 -   a list of arrays of the **integer indexes** (not IDs) of
                     nearest neighbor points for every vector in the index, when
                     no query is provided
-
-            and ``dists`` contains the corresponding query-neighbor distances
-            for each result in ``ids``
         """
         raise NotImplementedError("subclass must implement _kneighbors()")
 
@@ -1060,7 +1093,7 @@ class DuplicatesMixin(object):
                 -   an embedding or ``num_queries x num_dim`` array of
                     embeddings for which to return neighbors
                 -   ``None``, in which case the neighbors for all points in the
-                    current :meth:`view are returned
+                    current :meth:`view` are returned
 
             thresh (None): the distance threshold to use
             return_dists (False): whether to return query-neighbor distances
@@ -1068,22 +1101,31 @@ class DuplicatesMixin(object):
         Returns:
             the query result, in one of the following formats:
 
-                -   an ``(ids, dists)`` tuple, when ``return_dists`` is True
-                -   ``ids``, when ``return_dists`` is False
+                -   a ``(sample_ids, label_ids, dists)`` tuple, when
+                    ``return_dists`` is True
+                -   a ``(sample_ids, label_ids)`` tuple, when ``return_dists``
+                    is False
 
-            In the above, ``ids`` contains the IDs of the nearest neighbors, in
-            one of the following formats:
+            In the above, ``sample_ids`` and ``label_ids`` (if applicable)
+            contain the IDs of the nearest neighbors, in one of the following
+            formats:
 
                 -   a list of nearest neighbor IDs, when a single query ID or
-                    vector is provided
+                    vector is provided, **or** when an ``aggregation`` is
+                    provided
                 -   a list of lists of nearest neighbor IDs, when multiple
-                    query IDs/vectors is provided
+                    query IDs/vectors and no ``aggregation`` is provided
+
+            and ``dists`` contains the corresponding query-neighbor distances
+            for each result.
+
+            If the backend supports full index queries (``query=None``), then
+            ``inds`` are returned rather than ``(sample_ids, label_ids)``, in
+            the following format:
+
                 -   a list of arrays of the **integer indexes** (not IDs) of
                     nearest neighbor points for every vector in the index, when
                     no query is provided
-
-            and ``dists`` contains the corresponding query-neighbor distances
-            for each result in ``ids``
         """
         raise NotImplementedError(
             "subclass must implement _radius_neighbors()"
@@ -1139,9 +1181,13 @@ class DuplicatesMixin(object):
                 unique_view = self._samples.select(unique_ids)
 
             with self.use_view(unique_view):
-                nearest_ids, dists = self._kneighbors(
+                _sample_ids, _label_ids, dists = self._kneighbors(
                     query=duplicate_ids, k=1, return_dists=True
                 )
+                if self.config.patches_field is not None:
+                    nearest_ids = _label_ids
+                else:
+                    nearest_ids = _sample_ids
 
             neighbors_map = defaultdict(list)
             for dup_id, _ids, _dists in zip(duplicate_ids, nearest_ids, dists):

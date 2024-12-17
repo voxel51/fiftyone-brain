@@ -4,7 +4,7 @@ Similarity tests.
 Usage::
 
     # Optional: specific backends to test
-    export SIMILARITY_BACKENDS=qdrant,pinecone,milvus,lancedb,redis,elasticsearch
+    export SIMILARITY_BACKENDS=qdrant,pinecone,milvus,redis,elasticsearch,lancedb
 
     pytest tests/intensive/test_similarity.py -s -k test_XXX
 
@@ -107,9 +107,9 @@ CUSTOM_BACKENDS = [
     "qdrant",
     "pinecone",
     "milvus",
-    "lancedb",
     "redis",
     "elasticsearch",
+    "lancedb",
 ]
 
 
