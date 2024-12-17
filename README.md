@@ -13,7 +13,7 @@
 <a href="https://slack.voxel51.com">Community</a>
 
 [![PyPI python](https://img.shields.io/pypi/pyversions/fiftyone-brain)](https://pypi.org/project/fiftyone-brain)
-[![PyPI version](https://badge.fury.io/py/fiftyone.svg)](https://pypi.org/project/fiftyone-brain)
+[![PyPI version](https://badge.fury.io/py/fiftyone-brain.svg)](https://pypi.org/project/fiftyone-brain)
 [![Downloads](https://static.pepy.tech/badge/fiftyone-brain)](https://pepy.tech/project/fiftyone-brain)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Slack](https://img.shields.io/badge/Slack-4A154B?logo=slack&logoColor=white)](https://slack.voxel51.com)
