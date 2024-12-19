@@ -6,11 +6,9 @@ PGVector similarity backend.
 |
 """
 import logging
-
 import numpy as np
-
+import psycopg2
 import eta.core.utils as etau
-
 import fiftyone.core.utils as fou
 from fiftyone.brain.similarity import (
     SimilarityConfig,
@@ -19,166 +17,42 @@ from fiftyone.brain.similarity import (
 )
 import fiftyone.brain.internal.core.utils as fbu
 
-PgVector = fou.lazy_import("PgVector")
-
-
+pgvector = fou.lazy_import("pgvector")
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_METRICS = ("cosine", "dotproduct", "euclidean")
 
-
-class PGVectorConnector:
-    def __init__(self, connection_string):
-        self.conn = psycopg2.connect(connection_string)
-        self.cur = self.conn.cursor()
-        
-    def store_embeddings(self, embeddings, ids):
-        try:
-            self.cur.execute('''
-                CREATE TABLE IF NOT EXISTS embeddings (
-                    id TEXT PRIMARY KEY,
-                    embedding vector(%s)
-                )
-            ''', (len(embeddings[0]),))
-            
-            for embedding, id in zip(embeddings, ids):
-                self.cur.execute(
-                    'INSERT INTO embeddings (id, embedding) VALUES (%s, %s::vector) ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding',
-                    (id, embedding.tolist())
-                )
-            self.conn.commit()
-        except Exception as e:
-            self.conn.rollback()
-            raise e
-    
-    def search_similar(self, query_embedding, k=10):
-        try:
-            self.cur.execute('''
-                SELECT id, embedding <-> %s::vector AS distance
-                FROM embeddings
-                ORDER BY distance
-                LIMIT %s
-            ''', (query_embedding.tolist(), k))
-            return self.cur.fetchall()
-        except Exception as e:
-            self.conn.rollback()
-            raise e
-        
-    def __del__(self):
-        if hasattr(self, 'cur') and self.cur is not None:
-            self.cur.close()
-        if hasattr(self, 'conn') and self.conn is not None:
-            self.conn.close()
-            
 class PgVectorSimilarityConfig(SimilarityConfig):
-    """Configuration for the PgVector similarity backend.
-
-    Args:
-        index_name (None): the name of a PgVector index to use or create. If
-            none is provided, a new index will be created
-        index_type (None): the index type to use when creating a new index.
-            The supported values are ``["serverless", "pod"]`` and the default
-            is ``"serverless"``
-        namespace (None): a namespace under which to store vectors added to the
-            index
-        metric (None): the embedding distance metric to use when creating a
-            new index. Supported values are
-            ``("cosine", "dotproduct", "euclidean")``
-        replicas (None): an optional number of replicas when creating a new
-            pod-based index
-        shards (None): an optional number of shards when creating a new
-            pod-based index
-        pods (None): an optional number of pods when creating a new pod-based
-            index
-        pod_type (None): an optional pod type when creating a new pod-based
-            index
-        api_key (None): a PgVector API key to use
-        cloud (None): a cloud to use when creating serverless indexes
-        region (None): a region to use when creating serverless indexes
-        environment (None): an environment to use when creating pod-based
-            indexes
-        **kwargs: keyword arguments for
-            :class:`fiftyone.brain.similarity.SimilarityConfig`
-    """
-
     def __init__(
         self,
-        index_name=None,
-        index_type=None,
-        namespace=None,
+        connection_string=None,
         metric=None,
-        replicas=None,
-        shards=None,
-        pods=None,
-        pod_type=None,
-        api_key=None,
-        cloud=None,
-        region=None,
-        environment=None,
         **kwargs,
     ):
         if metric is not None and metric not in _SUPPORTED_METRICS:
             raise ValueError(
-                "Unsupported metric '%s'. Supported values are %s"
+                "Unsupported metric '%s'. Supported values are %s" 
                 % (metric, _SUPPORTED_METRICS)
             )
-
         super().__init__(**kwargs)
-
-        self.index_name = index_name
-        self.index_type = index_type
-        self.namespace = namespace
+        self._connection_string = connection_string
         self.metric = metric
-        self.replicas = replicas
-        self.shards = shards
-        self.pods = pods
-        self.pod_type = pod_type
-
-        # store privately so these aren't serialized
-        self._api_key = api_key
-        self._cloud = cloud
-        self._region = region
-        self._environment = environment
 
     @property
     def method(self):
-        return "PgVector"
+        return "pgvector"
 
     @property
-    def api_key(self):
-        return self._api_key
+    def connection_string(self):
+        return self._connection_string
 
-    @api_key.setter
-    def api_key(self, value):
-        self._api_key = value
-
-    @property
-    def cloud(self):
-        return self._cloud
-
-    @cloud.setter
-    def cloud(self, value):
-        self._cloud = value
-
-    @property
-    def region(self):
-        return self._region
-
-    @region.setter
-    def region(self, value):
-        self._region = value
-
-    @property
-    def environment(self):
-        return self._environment
-
-    @environment.setter
-    def environment(self, value):
-        self._environment = value
+    @connection_string.setter
+    def connection_string(self, value):
+        self._connection_string = value
 
     @property
     def max_k(self):
-        return 10000  # PgVector limit
+        return 10000
 
     @property
     def supports_least_similarity(self):
@@ -188,518 +62,81 @@ class PgVectorSimilarityConfig(SimilarityConfig):
     def supported_aggregations(self):
         return ("mean",)
 
-    def load_credentials(
-        self, api_key=None, cloud=None, region=None, environment=None
-    ):
-        self._load_parameters(
-            api_key=api_key,
-            cloud=cloud,
-            region=region,
-            environment=environment,
-        )
-
-
 class PgVectorSimilarity(Similarity):
-    """PgVector similarity factory.
-
-    Args:
-        config: a :class:`PgVectorSimilarityConfig`
-    """
-
     def ensure_requirements(self):
-        fou.ensure_package("PgVector-client")
-
-    def ensure_usage_requirements(self):
-        fou.ensure_package("PgVector-client>=3.2")
+        fou.ensure_package("pgvector")
+        fou.ensure_package("psycopg2-binary")
 
     def initialize(self, samples, brain_key):
         return PgVectorSimilarityIndex(
             samples, self.config, brain_key, backend=self
         )
 
-
 class PgVectorSimilarityIndex(SimilarityIndex):
-    """Class for interacting with PgVector similarity indexes.
-
-    Args:
-        samples: the :class:`fiftyone.core.collections.SampleCollection` used
-        config: the :class:`PgVectorSimilarityConfig` used
-        brain_key: the brain key
-        backend (None): a :class:`PgVectorSimilarity` instance
-    """
-
     def __init__(self, samples, config, brain_key, backend=None):
         super().__init__(samples, config, brain_key, backend=backend)
-        self._PgVector = None
-        self._index = None
+        self._conn = None
+        self._cur = None
         self._initialize()
 
     def _initialize(self):
-        self._PgVector = PgVector.PgVector(api_key=self.config.api_key)
-
         try:
-            index_names = [d["name"] for d in self._PgVector.list_indexes()]
+            self._conn = psycopg2.connect(self.config.connection_string)
+            self._cur = self._conn.cursor()
         except Exception as e:
             raise ValueError(
-                "Failed to connect to PgVector backend. "
-                "Refer to https://docs.voxel51.com/integrations/PgVector.html "
-                "for more information"
+                "Failed to connect to PostgreSQL database. "
+                "Check your connection string and ensure the database is running"
             ) from e
 
-        if self.config.index_name is None:
-            # https://docs.PgVector.io/troubleshooting/restrictions-on-index-names
-            root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
-            index_name = fbu.get_unique_name(root, index_names, max_len=45)
-
-            self.config.index_name = index_name
-            self.save_config()
-
-        if self.config.index_name in index_names:
-            index = self._PgVector.Index(self.config.index_name)
-        else:
-            index = None
-
-        self._index = index
-
-    def _create_index(self, dimension):
-        index_type = self.config.index_type or "serverless"
-
-        if index_type == "serverless":
-            spec = PgVector.ServerlessSpec(
-                self.config.cloud,
-                self.config.region,
-            )
-        elif index_type == "pod":
-            kwargs = dict(
-                pod_type=self.config.pod_type,
-                pods=self.config.pods,
-                replicas=self.config.replicas,
-                shards=self.config.shards,
-            )
-            kwargs = {k: v for k, v in kwargs.items() if v is not None}
-            spec = PgVector.PodSpec(self.config.environment, **kwargs)
-        else:
-            raise TypeError(
-                f"Invalid index_type='{index_type}'. The supported values are "
-                "['serverless', 'pod']"
-            )
-
-        metric = self.config.metric or "cosine"
-        self._PgVector.create_index(
-            name=self.config.index_name,
-            dimension=dimension,
-            metric=metric,
-            spec=spec,
-        )
-
-        self._index = self._PgVector.Index(self.config.index_name)
-
-    @property
-    def index(self):
-        """The ``PgVector.Index`` instance for this index."""
-        return self._index
-
-    @property
-    def total_index_size(self):
-        if self._index is None:
-            return 0
-
-        return self._index.describe_index_stats()["total_vector_count"]
-
-    @property
-    def ready(self):
-        return self._PgVector.describe_index(self.config.index_name).status[
-            "ready"
-        ]
-
-    def add_to_index(
-        self,
-        embeddings,
-        sample_ids,
-        label_ids=None,
-        overwrite=True,
-        allow_existing=True,
-        warn_existing=False,
-        reload=True,
-        batch_size=100,
-        namespace=None,
-    ):
-        if namespace is None:
-            namespace = self.config.namespace
-
-        if self._index is None:
-            self._create_index(embeddings.shape[1])
-
-        if label_ids is not None:
-            ids = label_ids
-        else:
-            ids = sample_ids
-
-        if warn_existing or not allow_existing or not overwrite:
-            existing_ids = self._get_existing_ids(ids)
-            num_existing = len(existing_ids)
-
-            if num_existing > 0:
-                if not allow_existing:
-                    raise ValueError(
-                        "Found %d IDs (eg %s) that already exist in the index"
-                        % (num_existing, next(iter(existing_ids)))
-                    )
-
-                if warn_class PGVectorConnector:
-    def __init__(self, connection_string):
-        self.conn = psycopg2.connect(connection_string)
-        self.cur = self.conn.cursor()
-        
-    def store_embeddings(self, embeddings, ids):
+    def add_to_index(self, embeddings, sample_ids, **kwargs):
         try:
-            self.cur.execute('''
+            self._cur.execute('''
                 CREATE TABLE IF NOT EXISTS embeddings (
                     id TEXT PRIMARY KEY,
                     embedding vector(%s)
                 )
             ''', (len(embeddings[0]),))
             
-            for embedding, id in zip(embeddings, ids):
-                self.cur.execute(
+            for embedding, id in zip(embeddings, sample_ids):
+                self._cur.execute(
                     'INSERT INTO embeddings (id, embedding) VALUES (%s, %s::vector) ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding',
                     (id, embedding.tolist())
                 )
-            self.conn.commit()
+            self._conn.commit()
         except Exception as e:
-            self.conn.rollback()
+            self._conn.rollback()
             raise e
-    
-    def search_similar(self, query_embedding, k=10):
+
+    def _kneighbors(self, query, k=None, **kwargs):
         try:
-            self.cur.execute('''
+            self._cur.execute('''
                 SELECT id, embedding <-> %s::vector AS distance
                 FROM embeddings
                 ORDER BY distance
                 LIMIT %s
-            ''', (query_embedding.tolist(), k))
-            return self.cur.fetchall()
+            ''', (query.tolist(), k))
+            results = self._cur.fetchall()
+            return [r[0] for r in results], [r[1] for r in results]
         except Exception as e:
-            self.conn.rollback()
+            self._conn.rollback()
             raise e
-        
-    def __del__(self):
-        if hasattr(self, 'cur') and self.cur is not None:
-            self.cur.close()
-        if hasattr(self, 'conn') and self.conn is not None:
-            self.conn.close()existing:
-                    if overwrite:
-                        logger.warning(
-                            "Overwriting %d IDs that already exist in the "
-                            "index",
-                            num_existing,
-                        )
-                    else:
-                        logger.warning(
-                            "Skipping %d IDs that already exist in the index",
-                            num_existing,
-                        )
-        else:
-            existing_ids = set()
-
-        if existing_ids and not overwrite:
-            del_inds = [i for i, _id in enumerate(ids) if _id in existing_ids]
-            embeddings = np.delete(embeddings, del_inds, axis=0)
-            sample_ids = np.delete(sample_ids, del_inds)
-            if label_ids is not None:
-                label_ids = np.delete(label_ids, del_inds)
-
-        embeddings = [e.tolist() for e in embeddings]
-        sample_ids = list(sample_ids)
-        if label_ids is not None:
-            ids = list(label_ids)
-        else:
-            ids = list(sample_ids)
-
-        for _embeddings, _ids, _sample_ids in zip(
-            fou.iter_batches(embeddings, batch_size),
-            fou.iter_batches(ids, batch_size),
-            fou.iter_batches(sample_ids, batch_size),
-        ):
-            _id_dicts = [
-                {"id": _id, "sample_id": _sid}
-                for _id, _sid in zip(_ids, _sample_ids)
-            ]
-            self._index.upsert(
-                list(zip(_ids, _embeddings, _id_dicts)),
-                namespace=namespace,
-            )
-        if reload:
-            self.reload()
-
-    def remove_from_index(
-        self,
-        sample_ids=None,
-        label_ids=None,
-        allow_missing=True,
-        warn_missing=False,
-        reload=True,
-    ):
-        if label_ids is not None:
-            ids = label_ids
-        else:
-            ids = sample_ids
-
-        if not allow_missing or warn_missing:
-            existing_ids = list(self._index.fetch(ids).vectors.keys())
-            missing_ids = set(ids) - set(existing_ids)
-            num_missing = len(missing_ids)
-
-            if num_missing > 0:
-                if not allow_missing:
-                    raise ValueError(
-                        "Found %d IDs (eg %s) that are not present in the "
-                        "index" % (num_missing, next(iter(missing_ids)))
-                    )
-
-                if warn_missing:
-                    logger.warning(
-                        "Ignoring %d IDs that are not present in the index",
-                        num_missing,
-                    )
-
-                ids = existing_ids
-
-        self._index.delete(ids=ids)
-
-        if reload:
-            self.reload()
-
-    def get_embeddings(
-        self,
-        sample_ids=None,
-        label_ids=None,
-        allow_missing=True,
-        warn_missing=False,
-    ):
-        if label_ids is not None:
-            if self.config.patches_field is None:
-                raise ValueError("This index does not support label IDs")
-
-            if sample_ids is not None:
-                logger.warning(
-                    "Ignoring sample IDs when label IDs are provided"
-                )
-
-        if sample_ids is not None and self.config.patches_field is not None:
-            (
-                embeddings,
-                sample_ids,
-                label_ids,
-                missing_ids,
-            ) = self._get_patch_embeddings_from_sample_ids(sample_ids)
-        elif self.config.patches_field is not None:
-            (
-                embeddings,
-                sample_ids,
-                label_ids,
-                missing_ids,
-            ) = self._get_patch_embeddings_from_label_ids(label_ids)
-        else:
-            (
-                embeddings,
-                sample_ids,
-                label_ids,
-                missing_ids,
-            ) = self._get_sample_embeddings(sample_ids)
-
-        num_missing_ids = len(missing_ids)
-        if num_missing_ids > 0:
-            if not allow_missing:
-                raise ValueError(
-                    "Found %d IDs (eg %s) that do not exist in the index"
-                    % (num_missing_ids, missing_ids[0])
-                )
-
-            if warn_missing:
-                logger.warning(
-                    "Skipping %d IDs that do not exist in the index",
-                    num_missing_ids,
-                )
-
-        embeddings = np.array(embeddings)
-        sample_ids = np.array(sample_ids)
-        if label_ids is not None:
-            label_ids = np.array(label_ids)
-
-        return embeddings, sample_ids, label_ids
 
     def cleanup(self):
-        self._PgVector.delete_index(self.config.index_name)
-        self._index = None
+        if self._cur is not None:
+            self._cur.close()
+        if self._conn is not None:
+            self._conn.close()
 
-    def _get_existing_ids(self, ids, batch_size=1000):
-        existing_ids = set()
-        for batch_ids in fou.iter_batches(ids, batch_size):
-            response = self._index.fetch(ids=list(batch_ids))["vectors"]
-            existing_ids.update(response.keys())
-
-        return existing_ids
-
-    def _get_sample_embeddings(self, sample_ids, batch_size=1000):
-        found_embeddings = []
-        found_sample_ids = []
-
-        if sample_ids is None:
-            raise ValueError(
-                "PgVector does not support retrieving all vectors in an index"
-            )
-
-        for batch_ids in fou.iter_batches(sample_ids, batch_size):
-            response = self._index.fetch(ids=list(batch_ids))["vectors"]
-
-            for r in response.values():
-                found_embeddings.append(r["values"])
-                found_sample_ids.append(r["id"])
-
-        missing_ids = list(set(sample_ids) - set(found_sample_ids))
-
-        return found_embeddings, found_sample_ids, None, missing_ids
-
-    def _get_patch_embeddings_from_label_ids(self, label_ids, batch_size=1000):
-        found_embeddings = []
-        found_sample_ids = []
-        found_label_ids = []
-
-        if label_ids is None:
-            raise ValueError(
-                "PgVector does not support retrieving all vectors in an index"
-            )
-
-        for batch_ids in fou.iter_batches(label_ids, batch_size):
-            response = self._index.fetch(ids=list(batch_ids))["vectors"]
-
-            for r in response.values():
-                found_embeddings.append(r["values"])
-                found_sample_ids.append(r["metadata"]["sample_id"])
-                found_label_ids.append(r["id"])
-
-        missing_ids = list(set(label_ids) - set(found_label_ids))
-
-        return found_embeddings, found_sample_ids, found_label_ids, missing_ids
-
-    def _get_patch_embeddings_from_sample_ids(
-        self, sample_ids, batch_size=100
-    ):
-        found_embeddings = []
-        found_sample_ids = []
-        found_label_ids = []
-
-        query_vector = [0.0] * self._get_dimension()
-        top_k = min(batch_size, self.config.max_k)
-
-        for batch_ids in fou.iter_batches(sample_ids, batch_size):
-            response = self._index.query(
-                vector=query_vector,
-                filter={"sample_id": {"$in": list(batch_ids)}},
-                top_k=top_k,
-                include_values=True,
-                include_metadata=True,
-            )
-
-            for r in response["matches"]:
-                found_embeddings.append(r["values"])
-                found_sample_ids.append(r["metadata"]["sample_id"])
-                found_label_ids.append(r["id"])
-
-        missing_ids = list(set(sample_ids) - set(found_sample_ids))
-
-        return found_embeddings, found_sample_ids, found_label_ids, missing_ids
-
-    def _kneighbors(
-        self,
-        query=None,
-        k=None,
-        reverse=False,
-        aggregation=None,
-        return_dists=False,
-    ):
-        if query is None:
-            raise ValueError("PgVector does not support full index neighbors")
-
-        if reverse is True:
-            raise ValueError(
-                "PgVector does not support least similarity queries"
-            )
-
-        if k is None or k > self.config.max_k:
-            raise ValueError("PgVector requires k<=%s" % self.config.max_k)
-
-        if aggregation not in (None, "mean"):
-            raise ValueError("Unsupported aggregation '%s'" % aggregation)
-
-        query = self._parse_neighbors_query(query)
-        if aggregation == "mean" and query.ndim == 2:
-            query = query.mean(axis=0)
-
-        single_query = query.ndim == 1
-        if single_query:
-            query = [query]
-
-        if self.has_view:
-            if self.config.patches_field is not None:
-                index_ids = self.current_label_ids
-            else:
-                index_ids = self.current_sample_ids
-
-            _filter = {"id": {"$in": list(index_ids)}}
-        else:
-            _filter = None
-
-        ids = []
-        dists = []
-        for q in query:
-            response = self._index.query(
-                vector=q.tolist(), top_k=k, filter=_filter
-            )
-            ids.append([r["id"] for r in response["matches"]])
-            if return_dists:
-                dists.append([r["score"] for r in response["matches"]])
-
-        if single_query:
-            ids = ids[0]
-            if return_dists:
-                dists = dists[0]
-
-        if return_dists:
-            return ids, dists
-
-        return ids
-
-    def _parse_neighbors_query(self, query):
-        if etau.is_str(query):
-            query_ids = [query]
-            single_query = True
-        else:
-            query = np.asarray(query)
-
-            # Query by vector(s)
-            if np.issubdtype(query.dtype, np.number):
-                return query
-
-            query_ids = list(query)
-            single_query = False
-
-        # Query by ID(s)
-        response = self._index.fetch(query_ids)["vectors"]
-        query = np.array([response[_id]["values"] for _id in query_ids])
-
-        if single_query:
-            query = query[0, :]
-
-        return query
-
-    def _get_dimension(self):
-        if self._index is None:
-            return None
-
-        return self._index.describe_index_stats().dimension
+    @property
+    def total_index_size(self):
+        try:
+            self._cur.execute('SELECT COUNT(*) FROM embeddings')
+            return self._cur.fetchone()[0]
+        except:
+            return 0
 
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):
         return cls(samples, config, brain_key)
+
