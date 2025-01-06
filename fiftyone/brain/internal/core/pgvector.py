@@ -130,6 +130,26 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             self._conn.rollback()
             raise e
 
+    def cleanup(self):
+        try:
+            logger.info("Cleaning up: Deleting HNSW index and embeddings table...")
+
+            # Drop the HNSW index if it exists
+            index_name = "embedding_hnsw_index"
+            self._cur.execute(f"DROP INDEX IF EXISTS {index_name};")
+            logger.info(f"HNSW index '{index_name}' deleted successfully.")
+
+            # Optionally, drop the embeddings table
+            self._cur.execute("DROP TABLE IF EXISTS embeddings;")
+            logger.info("Embeddings table deleted successfully.")
+
+            # Commit changes to the database
+            self._conn.commit()
+        except Exception as e:
+            logger.error("Error during cleanup operation. Rolling back transaction.")
+            self._conn.rollback()
+            raise e
+
     def add_to_index(self, embeddings, sample_ids, m=16, ef_construction=64, **kwargs):
         try:
             logger.info("Adding embeddings to the database...")
