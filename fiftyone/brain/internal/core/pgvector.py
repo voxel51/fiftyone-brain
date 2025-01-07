@@ -234,30 +234,60 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             logger.error(f"Error creating HNSW index: {e}")
             raise
 
-    def _kneighbors(self, query, k=None, return_dists=False, **kwargs):
+    def get_embedding_by_id(self, sample_id):
+        """Fetch the embedding for a given sample ID."""
         try:
-            query_metric_op = f"{self.config.metric}_ops"
-            
+            self._cur.execute("SELECT embedding FROM embeddings WHERE id = %s", (sample_id,))
+            result = self._cur.fetchone()
+            if result:
+                return np.array(result[0])
+            raise ValueError(f"Sample ID {sample_id} not found in the database.")
+        except Exception as e:
+            logger.error(f"Error fetching embedding for sample ID {sample_id}: {e}")
+            raise
+
+    def text_to_embedding(self, text):
+        """Convert a text string to an embedding using the provided model."""
+        if not self.embedding_model:
+            raise ValueError("No embedding model provided for text-to-embedding conversion.")
+        return self.embedding_model.encode(text)
+
+    def _kneighbors(self, query, k=None, return_dists=False):
+        """
+        Perform k-NN search. Query can be a sample ID, text string, or numeric vector.
+        """
+        try:
+            # Determine query type and convert to embedding
+            if isinstance(query, str):
+                if query.isnumeric():  # Assume it's a sample ID
+                    query_embedding = self.get_embedding_by_id(query)
+                else:  # Assume it's a text string
+                    query_embedding = self.text_to_embedding(query)
+            elif isinstance(query, (list, np.ndarray)):  # Numeric vector
+                query_embedding = np.array(query)
+            else:
+                raise ValueError("Unsupported query type. Must be sample ID, text, or numeric vector.")
+
+            # Perform k-NN search
+            query_str = ",".join(map(str, query_embedding))
             logger.info(f"Performing k-NN search with top-{k} neighbors...")
-            
-            query_str = ",".join(map(str, query))
-            
+
             self._cur.execute(
-                f'''
+                f"""
                 SELECT id, embedding <-> ARRAY[{query_str}]::vector AS distance
                 FROM embeddings ORDER BY distance ASC LIMIT %s;
-                ''',
+                """,
                 (k,),
             )
-
-            results = self._cur.fetchall()
             
+            results = self._cur.fetchall()
             ids = [r[0] for r in results]
             distances = [r[1] for r in results]
 
             if return_dists:
                 return ids, distances
             return ids
-        
+
         except Exception as e:
-            logger.error("Error during k-NN search.")
+            logger.error(f"Error during k-NN search: {e}")
+            raise
