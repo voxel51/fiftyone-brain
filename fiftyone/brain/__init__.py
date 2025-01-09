@@ -794,7 +794,7 @@ def compute_exact_duplicates(
     skip_failures=True,
     progress=None,
     hash_method="filehash",
-    threshold=None,
+    threshold=0.01,
 ):
     """Detects duplicate media in a sample collection.
 

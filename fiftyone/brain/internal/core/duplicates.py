@@ -28,6 +28,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = "resnet18-imagenet-torch"
+FILE_HASH_TYPES = ["md5", "sha1", "sha256", "sha512"]
 
 
 def compute_near_duplicates(
@@ -156,6 +157,7 @@ def compute_exact_duplicates(
 
         distances = pairwise_distances(_hashes, _hashes, metric="hamming")
 
+        # Ignore the diagonal to not include the sample in it's own neighbors
         mask = np.eye(distances.shape[0], dtype=bool)
         thresholded_distances = np.logical_and(distances < threshold, ~mask)
         for i, _id in enumerate(_ids):
@@ -195,7 +197,7 @@ def _compute_filehashes_multi(samples, method, num_workers, progress):
 
 def _compute_filehash(filepath, method):
     try:
-        if method is None or method in ["md5", "sha1", "sha256", "sha512"]:
+        if method is None or method in FILE_HASH_TYPES:
             filehash = fou.compute_filehash(filepath, method=method)
         else:
             filehash = fbh.compute_image_hash(filepath, method=method)
@@ -208,7 +210,7 @@ def _compute_filehash(filepath, method):
 def _do_compute_filehash(args):
     _id, filepath, method = args
     try:
-        if method is None or method in ["md5", "sha1", "sha256", "sha512"]:
+        if method is None or method in FILE_HASH_TYPES:
             filehash = fou.compute_filehash(filepath, method=method)
         else:
             filehash = fbh.compute_image_hash(filepath, method=method)
