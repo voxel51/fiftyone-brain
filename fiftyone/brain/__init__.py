@@ -793,6 +793,8 @@ def compute_exact_duplicates(
     num_workers=None,
     skip_failures=True,
     progress=None,
+    hash_method="filehash",
+    threshold=None,
 ):
     """Detects duplicate media in a sample collection.
 
@@ -811,6 +813,10 @@ def compute_exact_duplicates(
         progress (None): whether to render a progress bar (True/False), use the
             default value ``fiftyone.config.show_progress_bars`` (None), or a
             progress callback function to invoke instead
+        hash_method ('filehash'): the method to use to hash the samples. The
+            options include: 'filehash', 'phash', 'dhash', 'ahash', 'whash'
+        threshold (None): the threshold to use when comparing hashes. Only used
+            if ``hash_method`` is 'phash', 'dhash', 'ahash', or 'whash'
 
     Returns:
         a dictionary mapping IDs of samples with exact duplicates to lists of
@@ -819,7 +825,7 @@ def compute_exact_duplicates(
     import fiftyone.brain.internal.core.duplicates as fbd
 
     return fbd.compute_exact_duplicates(
-        samples, num_workers, skip_failures, progress
+        samples, num_workers, skip_failures, progress, hash_method, threshold
     )
 
 

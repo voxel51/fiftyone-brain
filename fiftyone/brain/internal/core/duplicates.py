@@ -19,6 +19,10 @@ import fiftyone.core.validation as fov
 import fiftyone.brain as fb
 import fiftyone.brain.similarity as fbs
 import fiftyone.brain.internal.core.utils as fbu
+import fiftyone.brain.internal.core.perceptual_hash as fbh
+
+from sklearn.metrics.pairwise import pairwise_distances
+import numpy as np
 
 
 logger = logging.getLogger(__name__)
@@ -92,7 +96,14 @@ def compute_near_duplicates(
     return similarity_index
 
 
-def compute_exact_duplicates(samples, num_workers, skip_failures, progress):
+def compute_exact_duplicates(
+    samples,
+    num_workers,
+    skip_failures,
+    progress,
+    hash_method="filehash",
+    threshold=None,
+):
     """See ``fiftyone/brain/__init__.py``."""
 
     fov.validate_collection(samples)
@@ -105,7 +116,10 @@ def compute_exact_duplicates(samples, num_workers, skip_failures, progress):
 
     logger.info("Computing filehashes...")
 
-    method = "md5" if samples.media_type == fom.VIDEO else None
+    if hash_method == "filehash":
+        method = "md5" if samples.media_type == fom.VIDEO else None
+    else:
+        method = hash_method
 
     if num_workers <= 1:
         hashes = _compute_filehashes(samples, method, progress)
@@ -123,16 +137,31 @@ def compute_exact_duplicates(samples, num_workers, skip_failures, progress):
             raise ValueError(msg)
 
     neighbors_map = defaultdict(list)
+    if hash_method == "filehash":
+        observed_hashes = {}
+        for _id, _hash in hashes.items():
+            if _hash is None:
+                continue
 
-    observed_hashes = {}
-    for _id, _hash in hashes.items():
-        if _hash is None:
-            continue
+            if _hash in observed_hashes:
+                neighbors_map[observed_hashes[_hash]].append(_id)
+            else:
+                observed_hashes[_hash] = _id
+    else:
+        observed_hashes = {}
 
-        if _hash in observed_hashes:
-            neighbors_map[observed_hashes[_hash]].append(_id)
-        else:
-            observed_hashes[_hash] = _id
+        _d = hashes.items()
+        _ids = [item[0] for item in _d]
+        _hashes = [item[1] for item in _d]
+
+        distances = pairwise_distances(_hashes, _hashes, metric="hamming")
+
+        mask = np.eye(distances.shape[0], dtype=bool)
+        thresholded_distances = np.logical_and(distances < threshold, ~mask)
+        for i, _id in enumerate(_ids):
+            nearby_indices = np.where(thresholded_distances[i, :])[0]
+            duplicate_ids = [_ids[j] for j in nearby_indices]
+            neighbors_map[_id] = duplicate_ids
 
     return dict(neighbors_map)
 
@@ -166,7 +195,10 @@ def _compute_filehashes_multi(samples, method, num_workers, progress):
 
 def _compute_filehash(filepath, method):
     try:
-        filehash = fou.compute_filehash(filepath, method=method)
+        if method is None or method in ["md5", "sha1", "sha256", "sha512"]:
+            filehash = fou.compute_filehash(filepath, method=method)
+        else:
+            filehash = fbh.compute_image_hash(filepath, method=method)
     except:
         filehash = None
 
@@ -176,7 +208,10 @@ def _compute_filehash(filepath, method):
 def _do_compute_filehash(args):
     _id, filepath, method = args
     try:
-        filehash = fou.compute_filehash(filepath, method=method)
+        if method is None or method in ["md5", "sha1", "sha256", "sha512"]:
+            filehash = fou.compute_filehash(filepath, method=method)
+        else:
+            filehash = fbh.compute_image_hash(filepath, method=method)
     except:
         filehash = None
 
