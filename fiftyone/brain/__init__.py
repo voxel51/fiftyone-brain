@@ -814,9 +814,9 @@ def compute_exact_duplicates(
             default value ``fiftyone.config.show_progress_bars`` (None), or a
             progress callback function to invoke instead
         hash_method ('filehash'): the method to use to hash the samples. The
-            options include: 'filehash', 'phash', 'dhash', 'ahash', 'whash'
+            options include: 'filehash', 'phash', 'dhash', 'ahash'
         threshold (None): the threshold to use when comparing hashes. Only used
-            if ``hash_method`` is 'phash', 'dhash', 'ahash', or 'whash'
+            if ``hash_method`` is 'phash', 'dhash', or 'ahash'
 
     Returns:
         a dictionary mapping IDs of samples with exact duplicates to lists of

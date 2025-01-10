@@ -18,7 +18,7 @@ def compute_image_hash(image_path, method="phash", hash_size=8):
     Args:
         image_path: Input image path.
         method: The hashing method to use. Supported values are
-            "ahash", "phash", "dhash", and "whash".
+            "ahash", "phash", and "dhash".
         hash_size: Size of the hash (default is 8x8).
 
     Returns:
@@ -31,8 +31,6 @@ def compute_image_hash(image_path, method="phash", hash_size=8):
         return phash(image, hash_size=hash_size)
     elif method == "dhash":
         return dhash(image, hash_size=hash_size)
-    elif method == "whash":
-        return whash(image, hash_size=hash_size)
     else:
         raise ValueError("Unsupported hashing method '%s'" % method)
 
@@ -122,38 +120,3 @@ def dhash(image, hash_size=8):
     binary_array = diff.flatten().astype(int)
 
     return binary_array
-
-
-def whash(image, hash_size=8):
-    """
-    Computes the wavelet hash (wHash) of an image.
-
-    Args:
-        image: Input image as a NumPy array.
-        hash_size: Size of the hash (default is 8x8).
-
-    Returns:
-        A 1D NumPy array representing the hash.
-    """
-    import pywt
-
-    # Step 1: Convert to grayscale
-    gray = etai.rgb_to_gray(image)
-
-    # Step 2: Resize to hash_size x hash_size
-    resized = etai.resize(gray, hash_size, hash_size)
-
-    # Step 3: Compute the wavelet transform
-    coeffs = pywt.dwt2(resized, "haar")
-    cA, (cH, cV, cD) = coeffs
-
-    # Step 4: Extract the approximation coefficients
-    cA = cA.flatten()
-
-    # Step 5: Compute the mean of the approximation coefficients
-    mean = cA.mean()
-
-    # Step 6: Create the binary hash
-    binary_hash = (cA >= mean).astype(np.uint8)
-
-    return binary_hash
