@@ -157,17 +157,3 @@ def whash(image, hash_size=8):
     binary_hash = (cA >= mean).astype(np.uint8)
 
     return binary_hash
-
-
-def hamming_distance(hash1, hash2):
-    """
-    Computes the Hamming distance between two hashes.
-
-    Args:
-        hash1: First hash as a 1D NumPy array.
-        hash2: Second hash as a 1D NumPy array.
-
-    Returns:
-        The Hamming distance (integer).
-    """
-    return np.count_nonzero(hash1 != hash2)
