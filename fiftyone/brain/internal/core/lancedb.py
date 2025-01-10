@@ -63,7 +63,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         self.metric = metric
 
         # store privately so these aren't serialized
-        self._uri = fos.normalize_path(uri)
+        self._uri = uri
 
     @property
     def method(self):
