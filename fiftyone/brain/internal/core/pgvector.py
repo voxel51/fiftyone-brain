@@ -3,7 +3,6 @@ PGVector similarity backend.
 
 | Copyright 2017-2024, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
-|
 """
 import logging
 import numpy as np
@@ -33,6 +32,8 @@ class PgVectorSimilarityConfig(SimilarityConfig):
         ssl_key=None,
         ssl_root_cert=None,
         work_mem="64MB",  # Default work_mem value
+        index_name="embedding_hnsw_index",  # Default index name
+        embedding_column="embedding",  # Default embedding column name
         **kwargs,
     ):
         if metric not in _SUPPORTED_METRICS:
@@ -46,6 +47,8 @@ class PgVectorSimilarityConfig(SimilarityConfig):
         self.ssl_key = ssl_key
         self.ssl_root_cert = ssl_root_cert
         self.work_mem = work_mem
+        self.index_name = index_name  # User-specified index name
+        self.embedding_column = embedding_column  # User-specified embedding column name
 
     @property
     def method(self):
@@ -82,6 +85,7 @@ class PgVectorSimilarity(Similarity):
             samples, self.config, brain_key, backend=self
         )
 
+
 class PgVectorSimilarityIndex(SimilarityIndex):
     def __init__(self, samples, config, brain_key, backend=None):
         super().__init__(samples, config, brain_key, backend=backend)
@@ -112,7 +116,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
     def get_embeddings(self):
         try:
             logger.info("Fetching embeddings from the database...")
-            self._cur.execute("SELECT id, embedding FROM embeddings")
+            self._cur.execute(f"SELECT id, {self.config.embedding_column} FROM embeddings")
             return {row[0]: np.array(row[1]) for row in self._cur.fetchall()}
         except Exception as e:
             logger.error("Failed to fetch embeddings.")
@@ -132,12 +136,11 @@ class PgVectorSimilarityIndex(SimilarityIndex):
 
     def cleanup(self):
         try:
-            logger.info("Cleaning up: Deleting HNSW index and embeddings table...")
+            logger.info(f"Cleaning up: Deleting HNSW index '{self.config.index_name}' and embeddings table...")
 
             # Drop the HNSW index if it exists
-            index_name = "embedding_hnsw_index"
-            self._cur.execute(f"DROP INDEX IF EXISTS {index_name};")
-            logger.info(f"HNSW index '{index_name}' deleted successfully.")
+            self._cur.execute(f"DROP INDEX IF EXISTS {self.config.index_name};")
+            logger.info(f"HNSW index '{self.config.index_name}' deleted successfully.")
 
             # Optionally, drop the embeddings table
             self._cur.execute("DROP TABLE IF EXISTS embeddings;")
@@ -157,35 +160,40 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             self._cur.execute(f"SET work_mem TO '{self.config.work_mem}'")
 
             n_dimensions = embeddings.shape[1]
-            logger.info(f"Ensuring database column 'embedding' has {n_dimensions} dimensions...")
+            logger.info(f"Ensuring database column '{self.config.embedding_column}' has {n_dimensions} dimensions...")
             
             # Create table or resize column dynamically if needed
             self._cur.execute(
                 f'''
                 CREATE TABLE IF NOT EXISTS embeddings (
                     id TEXT PRIMARY KEY,
-                    embedding VECTOR({n_dimensions})
+                    {self.config.embedding_column} VECTOR({n_dimensions})
                 )
                 '''
             )
             
             try:
                 self._cur.execute(
-                    f"ALTER TABLE embeddings ALTER COLUMN embedding TYPE vector({n_dimensions});"
+                    f"ALTER TABLE embeddings ALTER COLUMN {self.config.embedding_column} TYPE vector({n_dimensions});"
                 )
-                logger.info(f"Resized column 'embedding' to {n_dimensions} dimensions.")
+                logger.info(f"Resized column '{self.config.embedding_column}' to {n_dimensions} dimensions.")
             
             except UndefinedColumn:
                 logger.warning("Column resizing skipped: column does not exist or already matches dimensions.")
 
-            for embedding, id in zip(embeddings, sample_ids):
-                self._cur.execute(
-                    '''
-                    INSERT INTO embeddings (id, embedding)
+            # Batch insert embeddings
+            batch_size = 1000  # Adjust batch size as needed
+            for i in range(0, len(sample_ids), batch_size):
+                batch_ids = sample_ids[i:i + batch_size]
+                batch_embeddings = embeddings[i:i + batch_size]
+                values = [(id, embedding.tolist()) for id, embedding in zip(batch_ids, batch_embeddings)]
+                self._cur.executemany(
+                    f'''
+                    INSERT INTO embeddings (id, {self.config.embedding_column})
                     VALUES (%s, %s::vector)
-                    ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding;
+                    ON CONFLICT (id) DO UPDATE SET {self.config.embedding_column} = EXCLUDED.{self.config.embedding_column};
                     ''',
-                    (id, embedding.tolist()),
+                    values,
                 )
             
             logger.info("Committing changes to the database...")
@@ -204,7 +212,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
 
     def create_hnsw_index(self, m=16, ef_construction=64):
         try:
-            logger.info("Creating HNSW index...")
+            logger.info(f"Creating HNSW index '{self.config.index_name}'...")
 
             metric_to_operator_class = {
                 "cosine": "vector_cosine_ops",
@@ -217,18 +225,16 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             if query_metric_op is None:
                 raise ValueError(f"Unsupported metric: {self.config.metric}")
 
-            index_name = "embedding_hnsw_index"
-            
             self._cur.execute(
                 f'''
-                CREATE INDEX IF NOT EXISTS {index_name}
-                ON embeddings USING hnsw (embedding {query_metric_op})
+                CREATE INDEX IF NOT EXISTS {self.config.index_name}
+                ON embeddings USING hnsw ({self.config.embedding_column} {query_metric_op})
                 WITH (m = %s, ef_construction = %s);
                 ''',
                 (m, ef_construction),
             )
             
-            logger.info("HNSW index created successfully.")
+            logger.info(f"HNSW index '{self.config.index_name}' created successfully.")
         
         except Exception as e:
             logger.error(f"Error creating HNSW index: {e}")
@@ -237,7 +243,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
     def get_embedding_by_id(self, sample_id):
         """Fetch the embedding for a given sample ID."""
         try:
-            self._cur.execute("SELECT embedding FROM embeddings WHERE id = %s", (sample_id,))
+            self._cur.execute(f"SELECT {self.config.embedding_column} FROM embeddings WHERE id = %s", (sample_id,))
             result = self._cur.fetchone()
             if result:
                 return np.array(result[0])
@@ -257,6 +263,11 @@ class PgVectorSimilarityIndex(SimilarityIndex):
         Perform k-NN search. Query can be a sample ID, text string, or numeric vector.
         """
         try:
+            # Set default value for k if not provided
+            if k is None:
+                k = 20  # Default value for k
+                logger.info(f"k not specified. Using default value: {k}")
+
             # Determine query type and convert to embedding
             if isinstance(query, str):
                 if query.isnumeric():  # Assume it's a sample ID
@@ -274,7 +285,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
 
             self._cur.execute(
                 f"""
-                SELECT id, embedding <-> ARRAY[{query_str}]::vector AS distance
+                SELECT id, {self.config.embedding_column} <-> ARRAY[{query_str}]::vector AS distance
                 FROM embeddings ORDER BY distance ASC LIMIT %s;
                 """,
                 (k,),
