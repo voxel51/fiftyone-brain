@@ -4,7 +4,7 @@ and visualization.
 
 See https://github.com/voxel51/fiftyone for more information.
 
-| Copyright 2017-2024, Voxel51, Inc.
+| Copyright 2017-2025, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -544,6 +544,7 @@ def compute_similarity(
     brain_key=None,
     model=None,
     model_kwargs=None,
+    hash_method=None,
     force_square=False,
     alpha=None,
     batch_size=None,
@@ -631,6 +632,8 @@ def compute_similarity(
             must expose embeddings (``model.has_embeddings = True``)
         model_kwargs (None): a dictionary of optional keyword arguments to pass
             to the model's ``Config`` when a model name is provided
+        hash_method (None): the perceptual hashing method to use in place of
+            embeddings. The supported values are ``["dhash", "phash", "ahash"]``
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``patches_field``/``roi_field`` are specified
@@ -672,6 +675,7 @@ def compute_similarity(
         brain_key,
         model,
         model_kwargs,
+        hash_method,
         force_square,
         alpha,
         batch_size,
@@ -691,6 +695,7 @@ def compute_near_duplicates(
     similarity_index=None,
     model=None,
     model_kwargs=None,
+    hash_method=None,
     force_square=False,
     alpha=None,
     batch_size=None,
@@ -745,6 +750,8 @@ def compute_near_duplicates(
             (``model.has_embeddings = True``)
         model_kwargs (None): a dictionary of optional keyword arguments to pass
             to the model's ``Config`` when a model name is provided
+        hash_method (None): the perceptual hashing method to use in place of
+            embeddings. The supported values are ``["dhash", "phash", "ahash"]``
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``roi_field`` are specified
@@ -779,6 +786,7 @@ def compute_near_duplicates(
         similarity_index=similarity_index,
         model=model,
         model_kwargs=model_kwargs,
+        hash_method=hash_method,
         force_square=force_square,
         alpha=alpha,
         batch_size=batch_size,
@@ -793,8 +801,6 @@ def compute_exact_duplicates(
     num_workers=None,
     skip_failures=True,
     progress=None,
-    hash_method="filehash",
-    threshold=0.01,
 ):
     """Detects duplicate media in a sample collection.
 
@@ -813,10 +819,6 @@ def compute_exact_duplicates(
         progress (None): whether to render a progress bar (True/False), use the
             default value ``fiftyone.config.show_progress_bars`` (None), or a
             progress callback function to invoke instead
-        hash_method ('filehash'): the method to use to hash the samples. The
-            options include: 'filehash', 'phash', 'dhash', 'ahash'
-        threshold (None): the threshold to use when comparing hashes. Only used
-            if ``hash_method`` is 'phash', 'dhash', or 'ahash'
 
     Returns:
         a dictionary mapping IDs of samples with exact duplicates to lists of
@@ -825,7 +827,7 @@ def compute_exact_duplicates(
     import fiftyone.brain.internal.core.duplicates as fbd
 
     return fbd.compute_exact_duplicates(
-        samples, num_workers, skip_failures, progress, hash_method, threshold
+        samples, num_workers, skip_failures, progress
     )
 
 
