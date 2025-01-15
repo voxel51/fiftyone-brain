@@ -544,6 +544,7 @@ def compute_similarity(
     brain_key=None,
     model=None,
     model_kwargs=None,
+    hash_method=None,
     force_square=False,
     alpha=None,
     batch_size=None,
@@ -631,6 +632,8 @@ def compute_similarity(
             must expose embeddings (``model.has_embeddings = True``)
         model_kwargs (None): a dictionary of optional keyword arguments to pass
             to the model's ``Config`` when a model name is provided
+        hash_method (None): the perceptual hashing method to use in place of
+            embeddings. The supported values are ``["dhash", "phash", "ahash"]``
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``patches_field``/``roi_field`` are specified
@@ -672,6 +675,7 @@ def compute_similarity(
         brain_key,
         model,
         model_kwargs,
+        hash_method,
         force_square,
         alpha,
         batch_size,
@@ -691,6 +695,7 @@ def compute_near_duplicates(
     similarity_index=None,
     model=None,
     model_kwargs=None,
+    hash_method=None,
     force_square=False,
     alpha=None,
     batch_size=None,
@@ -745,6 +750,8 @@ def compute_near_duplicates(
             (``model.has_embeddings = True``)
         model_kwargs (None): a dictionary of optional keyword arguments to pass
             to the model's ``Config`` when a model name is provided
+        hash_method (None): the perceptual hashing method to use in place of
+            embeddings. The supported values are ``["dhash", "phash", "ahash"]``
         force_square (False): whether to minimally manipulate the patch
             bounding boxes into squares prior to extraction. Only applicable
             when a ``model`` and ``roi_field`` are specified
@@ -779,6 +786,7 @@ def compute_near_duplicates(
         similarity_index=similarity_index,
         model=model,
         model_kwargs=model_kwargs,
+        hash_method=hash_method,
         force_square=force_square,
         alpha=alpha,
         batch_size=batch_size,
