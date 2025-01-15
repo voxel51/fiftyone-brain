@@ -2,7 +2,7 @@
 """
 Installs `fiftyone-brain`.
 
-| Copyright 2017-2024, Voxel51, Inc.
+| Copyright 2017-2025, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -10,7 +10,7 @@ import os
 from setuptools import setup
 
 
-VERSION = "0.18.2"
+VERSION = "0.19.0"
 
 
 def get_version():
