@@ -39,6 +39,7 @@ def compute_near_duplicates(
     similarity_index=None,
     model=None,
     model_kwargs=None,
+    hash_method=None,
     force_square=False,
     alpha=None,
     batch_size=None,
@@ -67,6 +68,7 @@ def compute_near_duplicates(
         model is None
         and embeddings is None
         and similarity_index is None
+        and hash_method is None
         and not embeddings_exist
     ):
         model = _DEFAULT_MODEL
@@ -79,6 +81,7 @@ def compute_near_duplicates(
             embeddings=embeddings_field or embeddings,
             model=model,
             model_kwargs=model_kwargs,
+            hash_method=hash_method,
             force_square=force_square,
             alpha=alpha,
             batch_size=batch_size,
@@ -97,14 +100,7 @@ def compute_near_duplicates(
     return similarity_index
 
 
-def compute_exact_duplicates(
-    samples,
-    num_workers,
-    skip_failures,
-    progress,
-    hash_method="filehash",
-    threshold=None,
-):
+def compute_exact_duplicates(samples, num_workers, skip_failures, progress):
     """See ``fiftyone/brain/__init__.py``."""
 
     fov.validate_collection(samples)
@@ -117,10 +113,7 @@ def compute_exact_duplicates(
 
     logger.info("Computing filehashes...")
 
-    if hash_method == "filehash":
-        method = "md5" if samples.media_type == fom.VIDEO else None
-    else:
-        method = hash_method
+    method = "md5" if samples.media_type == fom.VIDEO else None
 
     if num_workers <= 1:
         hashes = _compute_filehashes(samples, method, progress)
@@ -138,38 +131,23 @@ def compute_exact_duplicates(
             raise ValueError(msg)
 
     neighbors_map = defaultdict(list)
-    if hash_method == "filehash":
-        observed_hashes = {}
-        for _id, _hash in hashes.items():
-            if _hash is None:
-                continue
 
-            if _hash in observed_hashes:
-                neighbors_map[observed_hashes[_hash]].append(_id)
-            else:
-                observed_hashes[_hash] = _id
-    else:
-        observed_hashes = {}
+    observed_hashes = {}
+    for _id, _hash in hashes.items():
+        if _hash is None:
+            continue
 
-        _d = hashes.items()
-        _ids = [item[0] for item in _d]
-        _hashes = [item[1] for item in _d]
-
-        distances = pairwise_distances(_hashes, _hashes, metric="hamming")
-
-        # Ignore the diagonal to not include the sample in it's own neighbors
-        mask = np.eye(distances.shape[0], dtype=bool)
-        thresholded_distances = np.logical_and(distances < threshold, ~mask)
-        for i, _id in enumerate(_ids):
-            nearby_indices = np.where(thresholded_distances[i, :])[0]
-            duplicate_ids = [_ids[j] for j in nearby_indices]
-            neighbors_map[_id] = duplicate_ids
+        if _hash in observed_hashes:
+            neighbors_map[observed_hashes[_hash]].append(_id)
+        else:
+            observed_hashes[_hash] = _id
 
     return dict(neighbors_map)
 
 
 def _compute_filehashes(samples, method, progress):
     ids, filepaths = samples.values(["id", "filepath"])
+    # I need embeddings, sample_ids, label_ids
 
     with fou.ProgressBar(total=len(ids), progress=progress) as pb:
         return {
