@@ -4,7 +4,7 @@ Similarity tests.
 Usage::
 
     # Optional: specific backends to test
-    export SIMILARITY_BACKENDS=qdrant,pinecone,milvus,lancedb,redis,elasticsearch
+    export SIMILARITY_BACKENDS=qdrant,pinecone,milvus,lancedb,redis,elasticsearch,pgvector
 
     pytest tests/intensive/test_similarity.py -s -k test_XXX
 
@@ -55,6 +55,15 @@ Elasticsearch setup::
 
     pip install elasticsearch
 
+PGVector setup::
+
+    # There are many different ways to deploy PostgreSQL no matter whether you're considering on-prem, containers, or self hosted 
+    # vs. managed deployments across any cloud provider or operating system. Find the generalized `PostgreSQL installation 
+    # instructions on the official PostgreSQL.org site, here: https://www.postgresql.org/download/.
+
+    # Follow the instructions in the PGVector documentation (https://github.com/pgvector/pgvector>) to set up PGVector for your 
+    # operating system & environment.
+
 Brain config setup at `~/.fiftyone/brain_config.json`::
 
     {
@@ -77,11 +86,27 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
             "redis": {
                 "host": "localhost",
                 "port": 6379
-            }
+            },
             "elasticsearch": {
                 "hosts": "http://localhost:9200",
                 "username": "elastic",
                 "password": "elastic"
+            },
+            "pgvector": {
+                "host": "localhost",
+                "port": 5432,
+                "database": "your_database",
+                "user": "your_user",
+                "password": "your_password",
+                "config_cls": "fiftyone.brain.internal.core.pgvector.PgVectorSimilarityConfig",
+                "connection_string": "postgresql://doug:admin@localhost:5432/fiftyone_test",
+                "metric": "cosine",
+                "ssl_cert": null,
+                "ssl_key": null,
+                "ssl_root_cert": null,
+                "work_mem": "64MB",
+                "index_name": "embedding_hnsw_index",
+                "uri": "http://localhost:5151"
             }
         }
     }
@@ -90,6 +115,7 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+import pytest
 import random
 import os
 import time
@@ -110,6 +136,7 @@ CUSTOM_BACKENDS = [
     "lancedb",
     "redis",
     "elasticsearch",
+    "pgvector",
 ]
 
 
@@ -129,39 +156,23 @@ def test_brain_config():
         if backend == "qdrant":
             assert "qdrant" in similarity_backends
 
-            # this isn't mandatory
-            # assert "url" in similarity_backends["qdrant"]
-
         if backend == "pinecone":
             assert "pinecone" in similarity_backends
-
-            # this isn't mandatory
-            # assert "api_key" in similarity_backends["pinecone"]
-            # assert "cloud" in similarity_backends["pinecone"]
-            # assert "region" in similarity_backends["pinecone"]
-            # assert "environment" in similarity_backends["pinecone"]
 
         if backend == "milvus":
             assert "milvus" in similarity_backends
 
-            # this isn't mandatory
-            # assert "uri" in similarity_backends["milvus"]
-
         if backend == "lancedb":
             assert "lancedb" in similarity_backends
-
-            # this isn't mandatory
-            # assert "uri" in similarity_backends["lancedb"]
 
         if backend == "redis":
             assert "redis" in similarity_backends
 
-            # this isn't mandatory
-            # assert "host" in similarity_backends["redis"]
-            # assert "port" in similarity_backends["redis"]
-
         if backend == "elasticsearch":
             assert "elasticsearch" in similarity_backends
+
+        if backend == "pgvector":
+            assert "pgvector" in similarity_backends
 
 
 def test_image_similarity_backends():
@@ -172,8 +183,6 @@ def test_image_similarity_backends():
     )
 
     # sklearn backend
-    ###########################################################################
-
     index1 = fob.compute_similarity(
         dataset,
         model="clip-vit-base32-torch",
@@ -222,8 +231,6 @@ def test_image_similarity_backends():
     dataset.delete_brain_run("clip_sklearn")
 
     # custom backends
-    ###########################################################################
-
     for backend in get_custom_backends():
         brain_key = "clip_" + backend
 
@@ -290,8 +297,6 @@ def test_patch_similarity_backends():
     )
 
     # sklearn backend
-    ###########################################################################
-
     index1 = fob.compute_similarity(
         dataset,
         patches_field="ground_truth",
@@ -346,8 +351,6 @@ def test_patch_similarity_backends():
     dataset.delete_brain_run("gt_clip_sklearn")
 
     # custom backends
-    ###########################################################################
-
     for backend in get_custom_backends():
         brain_key = "gt_clip_" + backend
 
@@ -451,6 +454,143 @@ def test_qdrant_backend_config():
     else:
         print("Qdrant config grpc_port unset")
 
+    dataset.delete()
+
+
+def test_pgvector_backend_config():
+    """
+    Test that pgvector backend configuration is correctly applied.
+    """
+    backend = "pgvector"
+    if backend not in get_custom_backends():
+        return
+
+    dataset = foz.load_zoo_dataset("quickstart", max_samples=5)
+    brain_key = "clip_" + backend
+    index = fob.compute_similarity(
+        dataset,
+        model="clip-vit-base32-torch",
+        metric="euclidean",
+        embeddings=False,
+        backend=backend,
+        brain_key=brain_key,
+    )
+
+    pgvector_config = fob.brain_config.similarity_backends["pgvector"]
+
+    assert "host" in pgvector_config
+    assert "port" in pgvector_config
+    assert "database" in pgvector_config
+    assert "user" in pgvector_config
+    assert "password" in pgvector_config
+
+    print(f"Applied pgvector config: {pgvector_config}")
+
+    dataset.delete()
+
+
+def test_pgvector_connection_handling():
+    """
+    Test that pgvector handles connection issues gracefully.
+    """
+    dataset = foz.load_zoo_dataset(
+        "quickstart",
+        dataset_name="quickstart-test-pgvector-connection",
+        drop_existing_dataset=True,
+    )
+
+    # Test with invalid connection string
+    invalid_config = {
+        "host": "invalid_host",
+        "port": 5432,
+        "database": "invalid_db",
+        "user": "invalid_user",
+        "password": "invalid_password",
+    }
+
+    print("Testing with invalid connection string...")
+    try:
+        index = fob.compute_similarity(
+            dataset,
+            model="clip-vit-base32-torch",
+            metric="cosine",
+            embeddings=False,
+            backend="pgvector",
+            brain_key="pgvector_invalid",
+            **invalid_config,
+        )
+        print("No exception was raised. Index created successfully.")
+    except Exception as e:
+        print(f"Exception raised: {e}")
+        raise
+
+    dataset.delete()
+
+
+def test_pgvector_basic_similarity():
+    """
+    Test basic similarity search functionality with pgvector.
+    """
+    dataset = foz.load_zoo_dataset(
+        "quickstart",
+        dataset_name="quickstart-test-pgvector-basic",
+        drop_existing_dataset=True,
+    )
+
+    # Compute embeddings and index them using pgvector
+    index = fob.compute_similarity(
+        dataset,
+        model="clip-vit-base32-torch",
+        metric="cosine",
+        embeddings=False,
+        backend="pgvector",
+        brain_key="pgvector_basic",
+    )
+
+    embeddings, sample_ids, _ = index.compute_embeddings(dataset)
+    index.add_to_index(embeddings, sample_ids)
+
+    # Perform a similarity search
+    prompt = "kites high in the air"
+    view = dataset.sort_by_similarity(prompt, k=10, brain_key="pgvector_basic")
+    assert len(view) == 10
+
+    # Cleanup
+    index.cleanup()
+    dataset.delete_brain_run("pgvector_basic")
+    dataset.delete()
+    
+def test_pgvector_index_persistence():
+    """
+    Test that the pgvector index persists across sessions and can be reloaded.
+    """
+    dataset = foz.load_zoo_dataset(
+        "quickstart",
+        dataset_name="quickstart-test-pgvector-persistence",
+        drop_existing_dataset=True,
+    )
+
+    # Create and save the index
+    index = fob.compute_similarity(
+        dataset,
+        model="clip-vit-base32-torch",
+        metric="cosine",
+        embeddings=False,
+        backend="pgvector",
+        brain_key="pgvector_persistence",
+    )
+
+    embeddings, sample_ids, _ = index.compute_embeddings(dataset)
+    index.add_to_index(embeddings, sample_ids)
+    index.save()
+
+    # Reload the index
+    reloaded_index = dataset.load_brain_results("pgvector_persistence")
+    assert reloaded_index.total_index_size == len(dataset)
+
+    # Cleanup
+    reloaded_index.cleanup()
+    dataset.delete_brain_run("pgvector_persistence")
     dataset.delete()
 
 
