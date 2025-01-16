@@ -38,6 +38,9 @@ class BrainConfig(EnvConfig):
         "elasticsearch": {
             "config_cls": "fiftyone.brain.internal.core.elasticsearch.ElasticsearchSimilarityConfig",
         },
+        "pgvector": {
+            "config_cls": "fiftyone.brain.internal.core.pgvector.PgVectorSimilarityConfig",
+        },
 
     }
 
