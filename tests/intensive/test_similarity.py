@@ -99,7 +99,7 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
                 "user": "your_user",
                 "password": "your_password",
                 "config_cls": "fiftyone.brain.internal.core.pgvector.PgVectorSimilarityConfig",
-                "connection_string": "postgresql://user:password@localhost:5432/fiftyone_test",
+                "connection_string": "postgresql://<user>:<password>@<server>:<port>/<database>",
                 "metric": "cosine",
                 "ssl_cert": null,
                 "ssl_key": null,
