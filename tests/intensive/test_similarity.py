@@ -4,7 +4,7 @@ Similarity tests.
 Usage::
 
     # Optional: specific backends to test
-    export SIMILARITY_BACKENDS=qdrant,pinecone,milvus,lancedb,redis,elasticsearch,pgvector
+    export SIMILARITY_BACKENDS=qdrant,pinecone,milvus,lancedb,redis,elasticsearch,mosaic,pgvector
 
     pytest tests/intensive/test_similarity.py -s -k test_XXX
 
@@ -55,6 +55,13 @@ Elasticsearch setup::
 
     pip install elasticsearch
 
+Mosaic setup::
+
+    # In your databricks workspace, generate a personal access token for authentication. You will also need to 
+    # create a catalog and schema in your workspace. You will have to create an endpoint under `compute` -> `vector search`
+
+    pip install databricks-vectorsearch
+
 Brain config setup at `~/.fiftyone/brain_config.json`::
 
     {
@@ -99,6 +106,12 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
                 "index_name": "embedding_hnsw_index",
                 "uri": "http://localhost:5151"
             }
+            "mosaic": {
+                "workspace_url": "https://<unique-url>.cloud.databricks.com/",
+                "personal_access_token": "<personal-access-token>",
+                "catalog_name": "<catalong_name>",
+                "schema_name": "<schema_name>",
+                "endpoint_name": "<endpoint_name>"
         }
     }
 
@@ -127,7 +140,8 @@ CUSTOM_BACKENDS = [
     "lancedb",
     "redis",
     "elasticsearch",
-    "pgvector",
+    "mosaic",
+     "pgvector",
 ]
 
 
