@@ -1,5 +1,5 @@
 """
-Redis similarity backend.
+Mosaic similarity backend.
 
 | Copyright 2017-2025, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -29,18 +29,14 @@ class MosaicSimilarityConfig(SimilarityConfig):
     """Configuration for the Mosaic similarity backend.
 
     Args:
-        index_name (None): the name of a Redis index to use or create. If none
-            is provided, a new index will be created
-        metric ("cosine"): the embedding distance metric to use when creating a
-            new index. Supported values are
-            ``("cosine", "dotproduct", "euclidean")``
-        algorithm ("FLAT"): the search algorithm to use. The supported values
-            are ``("FLAT", "HNSW")``
-        host ("localhost"): the host to use
-        port (6379): the port to use
-        db (0): the database to use
-        username (None): a username to use
-        password (None): a password to use
+        endpoint_name (None): the name of the vector search endpoint that was created in the Databricks workspace
+        workspace_url (None): the URL of the Databricks workspace
+        catalog_name (None): the name of the catalog in the Databricks workspace
+        schema_name (None): the name of the schema in the Databricks workspace
+        index_name (None): the name of the index to use, if one is not provided, a unique name will be generated
+        service_principal_client_id (None): the client ID of the service principal created for authentication
+        service_principal_client_secret (None): the client secret of the service principal created for authentication
+        personal_access_token (None): the personal access token created for authentication
         **kwargs: keyword arguments for
             :class:`fiftyone.brain.similarity.SimilarityConfig`
     """
@@ -137,7 +133,7 @@ class MosaicSimilarity(Similarity):
     """Mosaic similarity factory.
 
     Args:
-        config: a :class:`RedisSimilarityConfig`
+        config: a :class:`MosaicSimilarityConfig`
     """
 
     def ensure_requirements(self):
@@ -153,13 +149,13 @@ class MosaicSimilarity(Similarity):
 
 
 class MosaicSimilarityIndex(SimilarityIndex):
-    """Class for interacting with Redis similarity indexes.
+    """Class for interacting with Mosaic similarity indexes.
 
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
-        config: the :class:`RedisSimilarityConfig` used
+        config: the :class:`MosaicSimilarityConfig` used
         brain_key: the brain key
-        backend (None): a :class:`RedisSimilarity` instance
+        backend (None): a :class:`MosaicSimilarity` instance
     """
 
     def __init__(self, samples, config, brain_key, backend=None):
@@ -186,11 +182,14 @@ class MosaicSimilarityIndex(SimilarityIndex):
             ) from e
 
         index_prefix = f"{self.config.catalog_name}.{self.config.schema_name}."
-        index_names = [
-            ind["name"].replace(index_prefix, "")
-            for ind in index_names_result["vector_indexes"]
-            if ind["name"].startswith(index_prefix)
-        ]
+        if index_names_result == {}:
+            index_names = []
+        else:
+            index_names = [
+                ind["name"].replace(index_prefix, "")
+                for ind in index_names_result["vector_indexes"]
+                if ind["name"].startswith(index_prefix)
+            ]
 
         if self.config.index_name is None:
             root = "fiftyone-" + fou.to_slug(self._samples._root_dataset.name)
@@ -294,7 +293,7 @@ class MosaicSimilarityIndex(SimilarityIndex):
         ):
             result = [
                 {"foid": f, "sample_id": s, "embedding_vector": list(e)}
-                for s, f, e in zip(_ids, _sample_ids, _embeddings)
+                for f, s, e in zip(_ids, _sample_ids, _embeddings)
             ]
             self._index.upsert(result)
 
@@ -440,7 +439,10 @@ class MosaicSimilarityIndex(SimilarityIndex):
 
     # Note: might be an arg in delete_brain_run?
     def cleanup(self):
-        self._client.delete_index(self.config.index_name)
+        self._client.delete_index(
+            self.config.endpoint_name,
+            f"{self.config.catalog_name}.{self.config.schema_name}.{self.config.index_name}",
+        )
 
     def _get_sample_embeddings(self, sample_ids, batch_size=1000):
         found_embeddings = []
@@ -585,7 +587,7 @@ class MosaicSimilarityIndex(SimilarityIndex):
         for q in query:
             results = self._index.similarity_search(
                 columns=["foid"],
-                query_vector=list(q),
+                query_vector=[float(i) for i in list(q)],
                 filters=_filter,
                 num_results=k,
             )
