@@ -442,6 +442,7 @@ class MosaicSimilarityIndex(SimilarityIndex):
                 self.config.endpoint_name,
                 f"{self.config.catalog_name}.{self.config.schema_name}.{self.config.index_name}",
             )
+            self._index = None
 
     def _get_sample_embeddings(self, sample_ids, batch_size=200):
         found_embeddings = []
