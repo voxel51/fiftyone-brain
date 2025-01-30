@@ -182,7 +182,7 @@ class MosaicSimilarityIndex(SimilarityIndex):
             ) from e
 
         index_prefix = f"{self.config.catalog_name}.{self.config.schema_name}."
-        if index_names_result == {}:
+        if not index_names_result:
             index_names = []
         else:
             index_names = [
@@ -229,7 +229,8 @@ class MosaicSimilarityIndex(SimilarityIndex):
 
     @property
     def total_index_size(self):
-        # TEST THIS
+        if self._index is None:
+            return 0
         return self._index.describe()["status"]["indexed_row_count"]
 
     def add_to_index(
@@ -241,7 +242,7 @@ class MosaicSimilarityIndex(SimilarityIndex):
         allow_existing=True,
         warn_existing=False,
         reload=True,
-        batch_size=1000,
+        batch_size=200,
     ):
         if self._index is None:
             self._create_index(embeddings.shape[1])
@@ -300,9 +301,8 @@ class MosaicSimilarityIndex(SimilarityIndex):
         if reload:
             self.reload()
 
-    def _get_index_ids(self, batch_size=1000):
+    def _get_index_ids(self, batch_size=200):
         ids = set()
-        last_primary_key = None
         result = self._index.scan(num_results=batch_size)
         while len(result) > 0:
             ids.update(
@@ -317,10 +317,8 @@ class MosaicSimilarityIndex(SimilarityIndex):
             )
         return list(ids)
 
-    def _get_values(self, ids, batch_size=1000):
-
+    def _get_values(self, ids, batch_size=200):
         embeddings = []
-        last_primary_key = None
         result = self._index.scan(num_results=batch_size)
         while len(result) > 0:
             for doc in result["data"]:
@@ -439,19 +437,19 @@ class MosaicSimilarityIndex(SimilarityIndex):
 
     # Note: might be an arg in delete_brain_run?
     def cleanup(self):
-        self._client.delete_index(
-            self.config.endpoint_name,
-            f"{self.config.catalog_name}.{self.config.schema_name}.{self.config.index_name}",
-        )
+        if self._index is not None:
+            self._client.delete_index(
+                self.config.endpoint_name,
+                f"{self.config.catalog_name}.{self.config.schema_name}.{self.config.index_name}",
+            )
 
-    def _get_sample_embeddings(self, sample_ids, batch_size=1000):
+    def _get_sample_embeddings(self, sample_ids, batch_size=200):
         found_embeddings = []
         found_sample_ids = []
 
         if sample_ids is None:
             sample_ids = self._get_index_ids()
 
-        last_primary_key = None
         result = self._index.scan(num_results=batch_size)
         while len(result) > 0:
             for doc in result["data"]:
@@ -474,7 +472,7 @@ class MosaicSimilarityIndex(SimilarityIndex):
 
         return found_embeddings, found_sample_ids, None, missing_ids
 
-    def _get_patch_embeddings_from_label_ids(self, label_ids, batch_size=1000):
+    def _get_patch_embeddings_from_label_ids(self, label_ids, batch_size=200):
         found_embeddings = []
         found_sample_ids = []
         found_label_ids = []
@@ -482,7 +480,6 @@ class MosaicSimilarityIndex(SimilarityIndex):
         if label_ids is None:
             label_ids = self._get_index_ids()
 
-        last_primary_key = None
         result = self._index.scan(num_results=batch_size)
         while len(result) > 0:
             for doc in result["data"]:
@@ -509,13 +506,12 @@ class MosaicSimilarityIndex(SimilarityIndex):
         return found_embeddings, found_sample_ids, found_label_ids, missing_ids
 
     def _get_patch_embeddings_from_sample_ids(
-        self, sample_ids, batch_size=100
+        self, sample_ids, batch_size=200
     ):
         found_embeddings = []
         found_sample_ids = []
         found_label_ids = []
 
-        last_primary_key = None
         result = self._index.scan(num_results=batch_size)
         while len(result) > 0:
             for doc in result["data"]:
@@ -579,6 +575,8 @@ class MosaicSimilarityIndex(SimilarityIndex):
                 index_ids = list(self.current_sample_ids)
 
             _filter = {"foid": list(index_ids)}
+            # NOTE: Filtering is supported in Mosaic but is not robust and cannot handle a large number of filters
+            # so we apply the filter after the search
         else:
             _filter = None
 
@@ -588,11 +586,19 @@ class MosaicSimilarityIndex(SimilarityIndex):
             results = self._index.similarity_search(
                 columns=["foid"],
                 query_vector=[float(i) for i in list(q)],
-                filters=_filter,
                 num_results=k,
             )
 
-            ids.append([res[0] for res in results["result"]["data_array"]])
+            if _filter:
+                ids.append(
+                    [
+                        res[0]
+                        for res in results["result"]["data_array"]
+                        if res[0] in _filter["foid"]
+                    ]
+                )
+            else:
+                ids.append([res[0] for res in results["result"]["data_array"]])
             if return_dists:
                 dists.append(
                     [res[1] for res in results["result"]["data_array"]]
