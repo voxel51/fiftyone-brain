@@ -38,7 +38,9 @@ class BrainConfig(EnvConfig):
         "elasticsearch": {
             "config_cls": "fiftyone.brain.internal.core.elasticsearch.ElasticsearchSimilarityConfig",
         },
-
+        "mosaic": {
+            "config_cls": "fiftyone.brain.internal.core.mosaic.MosaicSimilarityConfig",
+        },
     }
 
     _BUILTIN_VISUALIZATION_METHODS = {
