@@ -124,6 +124,12 @@ class PgVectorSimilarityConfig(SimilarityConfig):
 
 
 class PgVectorSimilarity(Similarity):
+    """PGVector similarity factory.
+
+    Args:
+        config: a :class:`PgVectorSimilarityConfig`
+    """
+
     def ensure_requirements(self):
         fou.ensure_package("psycopg2-binary")
 
@@ -361,8 +367,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
         self.create_hnsw_index()
 
         if close_conn:
-            self._cur.close()
-            self._conn.close()
+            self.close_connections()
 
         if reload:
             self.reload()
@@ -419,9 +424,9 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             self.reload()
 
     def close_connections(self):
-        if not self._conn.closed:
-            self._conn.close()
         if not self._cur.closed:
+            self._cur.close()
+        if not self._conn.closed:
             self._conn.close()
 
     def get_embeddings_by_id(self, sample_ids=None, label_ids=None):
@@ -632,8 +637,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
                 dists = dists[0]
 
         if close_conn:
-            self._cur.close()
-            self._conn.close()
+            self.close_connections()
 
         if return_dists:
             return ids, dists
@@ -690,8 +694,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
 
         self._conn.commit()
         # Close the database connection
-        self._cur.close()
-        self._conn.close()
+        self.close_connections()
         logger.info("Database connection closed.")
 
     @classmethod

@@ -66,7 +66,7 @@ PGVector Setup:
 
     # Run a postgres instance locally with pgvector extension
     docker pull pgvector/pgvector:pg17
-    docker run --name postgres -p 5432:5432 -e POSTGRES_PASSWORD=mysecretpassword -d pgvector/pgvector:pg16
+    docker run --name postgres -p 5432:5432 -e POSTGRES_PASSWORD=mysecretpassword -d pgvector/pgvector:pg17
 
     # Enter the container and create the vector extension
     docker exec -it postgres ./bin/psql -U postgres
