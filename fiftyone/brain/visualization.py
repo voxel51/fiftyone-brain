@@ -18,6 +18,7 @@ import eta.core.utils as etau
 import fiftyone.brain as fb
 import fiftyone.core.brain as fob
 import fiftyone.core.expressions as foe
+import fiftyone.core.fields as fof
 import fiftyone.core.plots as fop
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
@@ -50,18 +51,26 @@ def compute_visualization(
     num_workers,
     skip_failures,
     progress,
+    point_field=None,
+    index_points=False,
     **kwargs,
 ):
     """See ``fiftyone/brain/__init__.py``."""
 
     fov.validate_collection(samples)
+    point_field = _get_point_field(
+        brain_key, points, point_field, index_points
+    )
+    points = None if point_field else points
+    points_not_provided = points is None
 
-    if method == "manual" and points is None:
+    if method == "manual" and points_not_provided:
         raise ValueError(
             "You must provide your own `points` when `method='manual'`"
         )
 
-    if points is not None:
+    if points is not None and not point_field:
+        points_not_provided = False
         method = "manual"
         model = None
         embeddings = None
@@ -79,12 +88,17 @@ def compute_visualization(
         embeddings_field = None
         embeddings_exist = None
 
+    if etau.is_str(point_field):
+        point_field, points_exist = fbu.parse_point_field(
+            samples, point_field, patches_field
+        )
+
     if etau.is_str(similarity_index):
         similarity_index = samples.load_brain_results(similarity_index)
 
     if (
         model is None
-        and points is None
+        and points_not_provided
         and embeddings is None
         and similarity_index is None
         and not embeddings_exist
@@ -101,6 +115,7 @@ def compute_visualization(
         model_kwargs=model_kwargs,
         patches_field=patches_field,
         num_dims=num_dims,
+        point_field=point_field,
         **kwargs,
     )
 
@@ -110,7 +125,7 @@ def compute_visualization(
     if brain_key is not None:
         brain_method.register_run(samples, brain_key)
 
-    if points is None:
+    if points_not_provided:
         embeddings, sample_ids, label_ids = fbu.get_embeddings(
             samples,
             model=model,
@@ -129,6 +144,11 @@ def compute_visualization(
 
         logger.info("Generating visualization...")
         points = brain_method.fit(embeddings)
+        if point_field:
+            logger.info(f"Indexing visualization on field '{point_field}'")
+            min_val, max_val = _get_min_max(points)
+            _define_point_field(samples, point_field, min_val, max_val)
+            _populate_point_field(samples, point_field, points)
     else:
         points, sample_ids, label_ids = fbu.parse_data(
             samples,
@@ -141,9 +161,10 @@ def compute_visualization(
         samples,
         config,
         brain_key,
-        points,
-        sample_ids=sample_ids,
-        label_ids=label_ids,
+        point_field=point_field,
+        points=None if point_field else points,
+        sample_ids=None if point_field else sample_ids,
+        label_ids=None if point_field else label_ids,
     )
 
     brain_method.save_run_results(samples, brain_key, results)
@@ -172,7 +193,7 @@ def visualize(
     backend="plotly",
     **kwargs,
 ):
-    points = results.current_points
+    points = results.get_points()
     samples = results.view
     patches_field = results.config.patches_field
     good_inds = results._curr_good_inds
@@ -266,15 +287,54 @@ def _get_dimension(points):
     return points.shape[-1]
 
 
+def _get_point_field(
+    brain_key, points_arg, point_field_arg, use_default_point_field=False
+):
+    if points_arg and point_field_arg:
+        raise ValueError("You cannot provide both `points` and `point_field`")
+
+    if etau.is_str(points_arg):
+        return points_arg
+
+    if etau.is_str(point_field_arg):
+        return point_field_arg
+
+    if use_default_point_field:
+        return f"_{brain_key}_point"
+
+    return None
+
+
+def _get_min_max(points):
+    return np.min(points, axis=0), np.max(points, axis=0)
+
+
+def _define_point_field(samples, point_field, min_val, max_val):
+    dataset = samples._dataset
+    dataset.add_sample_field(
+        point_field, fof.ListField, subfield=fof.FloatField
+    )
+    dataset.create_index(
+        [(point_field, "2d")], min=float(min_val), max=float(max_val)
+    )
+
+
+def _populate_point_field(samples, point_field, points):
+    pass
+
+
 class VisualizationResults(fob.BrainResults):
     """Class storing the results of
     :meth:`fiftyone.brain.compute_visualization`.
+
+    NOTE: either `points` or `point_field` must be provided.
 
     Args:
         samples: the :class:`fiftyone.core.collections.SampleCollection` used
         config: the :class:`VisualizationConfig` used
         brain_key: the brain key
-        points: a ``num_points x num_dims`` array of visualization points
+        points (None): an optional ``num_points x num_dims`` array of visualization points
+        point_field (None): the name of an optional field where points are stored and indexed
         sample_ids (None): a ``num_points`` array of sample IDs
         label_ids (None): a ``num_points`` array of label IDs, if applicable
         backend (None): a :class:`Visualization` backend
@@ -285,7 +345,8 @@ class VisualizationResults(fob.BrainResults):
         samples,
         config,
         brain_key,
-        points,
+        points=None,
+        point_field=None,
         sample_ids=None,
         label_ids=None,
         backend=None,
@@ -298,6 +359,11 @@ class VisualizationResults(fob.BrainResults):
                 patches_field=config.patches_field,
                 data=points,
                 data_type="points",
+            )
+
+        if points is None and point_field is None:
+            raise ValueError(
+                "Either `points` or `point_field` must be provided"
             )
 
         self.points = points
@@ -442,6 +508,11 @@ class VisualizationResults(fob.BrainResults):
         Returns:
             self
         """
+        if self.point_field:
+            # If points are stored in a field, we don't need to filter
+            self._curr_view = sample_collection
+            return self
+
         sample_ids, label_ids, keep_inds, good_inds = fbu.filter_ids(
             sample_collection,
             self.sample_ids,
@@ -493,6 +564,21 @@ class VisualizationResults(fob.BrainResults):
             a list of values
         """
         return values(self, path_or_expr)
+
+    def get_points(self):
+        """Returns the current points in the index.
+
+        If :meth:`use_view` has been called, this method will return the
+        currently active points in the index. Otherwise, it will return the
+        full index.
+
+        Returns:
+            a ``num_points x num_dims`` array of visualization points
+        """
+        if self.point_field:
+            return self.view.values(self.point_field)
+
+        return self.points
 
     def visualize(
         self,

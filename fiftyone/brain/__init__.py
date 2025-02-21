@@ -399,6 +399,8 @@ def compute_visualization(
     num_workers=None,
     skip_failures=True,
     progress=None,
+    point_field=None,
+    index_points=False,
     **kwargs,
 ):
     """Computes a low-dimensional representation of the samples' media or their
@@ -424,6 +426,11 @@ def compute_visualization(
     -   ``"tsne"``: :class:`fiftyone.brain.visualization.TSNEVisualizationConfig`
     -   ``"pca"``: :class:`fiftyone.brain.visualization.PCAVisualizationConfig`
     -   ``"manual"``: :class:`fiftyone.brain.visualization.ManualVisualizationConfig`
+
+    Use ``point_field`` or ``index_points`` to create a spatial index of the
+    computed points. This enables efficient querying of the points and is highly
+    recommended when working with large datasets. Using ``index_points=True``
+    will set the ``point_field`` to a value based on ``brain_key``.
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
@@ -455,6 +462,7 @@ def compute_visualization(
             provided, no embeddings will be used/computed. Can be any of the
             following:
 
+            -   a string defining the point_field (See: point_field)
             -   a dict mapping sample IDs to points vectors
             -   a ``num_samples x num_dims`` array of points corresponding to
                 the samples in ``samples``
@@ -468,6 +476,9 @@ def compute_visualization(
                     _, id_field = samples._get_label_field_path(patches_field, "id")
                     patch_ids = samples.values(id_field, unwind=True)
 
+
+        point_field (None): the name of the field to store the computed points in
+        index_points (False): whether to index the points
         brain_key (None): a brain key under which to store the results of this
             method
         num_dims (2): the dimension of the visualization space
@@ -532,6 +543,8 @@ def compute_visualization(
         num_workers,
         skip_failures,
         progress,
+        point_field,
+        index_points,
         **kwargs,
     )
 

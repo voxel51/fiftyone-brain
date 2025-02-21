@@ -13,6 +13,7 @@ import unittest
 
 import cv2
 import numpy as np
+import random as rand
 
 import fiftyone as fo
 import fiftyone.brain as fob
@@ -275,6 +276,29 @@ def test_similarity_index():
     )
 
     assert len(results2.points) == len(view)
+
+
+def test_points_field():
+    dataset = _load_images_dataset()
+    num_samples = len(dataset)
+    point_field = f"test_point_{rand.randint(0, 1000)}"
+    results = fob.compute_visualization(
+        dataset,
+        point_field=point_field,
+        seed=51,
+    )
+    points = results.get_points()
+    assert results.points == None
+    assert len(points) == num_samples
+    assert len(points[0]) == 2
+
+    # cleanup
+    dataset.delete_sample_field(point_field)
+
+
+# TODO: add test for point_field with patches
+# TODO: add test for point_field with labels
+# TODO: add assertions for ids, labels
 
 
 def _load_images_dataset():
