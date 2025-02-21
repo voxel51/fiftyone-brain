@@ -148,7 +148,7 @@ def compute_visualization(
             logger.info(f"Indexing visualization on field '{point_field}'")
             min_val, max_val = _get_min_max(points)
             _define_point_field(samples, point_field, min_val, max_val)
-            _populate_point_field(samples, point_field, points)
+            _populate_point_field(samples, point_field, points, progress)
     else:
         points, sample_ids, label_ids = fbu.parse_data(
             samples,
@@ -319,8 +319,14 @@ def _define_point_field(samples, point_field, min_val, max_val):
     )
 
 
-def _populate_point_field(samples, point_field, points):
-    pass
+def _populate_point_field(samples, point_field, points, progress=True):
+    samples_and_points = zip(samples, points)
+    iterator = (
+        fou.ProgressBar(samples_and_points) if progress else samples_and_points
+    )
+    for sample, point in iterator:
+        sample.set_field(point_field, point.tolist())
+        sample.save()
 
 
 class VisualizationResults(fob.BrainResults):
