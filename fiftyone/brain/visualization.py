@@ -734,6 +734,9 @@ class Visualization(fob.BrainMethod):
         if self.config.patches_field is not None:
             fields.append(self.config.patches_field)
 
+        if self.config.point_field is not None:
+            fields.append(self.config.point_field)
+
         return fields
 
 
