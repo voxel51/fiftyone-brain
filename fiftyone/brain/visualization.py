@@ -306,7 +306,9 @@ def _get_point_field(
 
 
 def _get_min_max(points):
-    return np.min(points, axis=0), np.max(points, axis=0)
+    flat_points = points.flatten()
+    min, max = float(np.min(flat_points)), float(np.max(flat_points))
+    return min, max
 
 
 def _define_point_field(samples, point_field, min_val, max_val):
@@ -314,8 +316,14 @@ def _define_point_field(samples, point_field, min_val, max_val):
     dataset.add_sample_field(
         point_field, fof.ListField, subfield=fof.FloatField
     )
+    try:
+        dataset.delete_index(point_field)
+    except:
+        # TODO: should we log this?
+        #       should we catch other errors and re-raise?
+        pass
     dataset.create_index(
-        [(point_field, "2d")], min=float(min_val), max=float(max_val)
+        [(point_field, "2d")], min=min_val, max=max_val, name=point_field
     )
 
 
@@ -373,6 +381,7 @@ class VisualizationResults(fob.BrainResults):
             )
 
         self.points = points
+        self.point_field = point_field
         self.sample_ids = sample_ids
         self.label_ids = label_ids
 
