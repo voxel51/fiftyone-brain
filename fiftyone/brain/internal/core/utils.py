@@ -714,6 +714,7 @@ def parse_embeddings_field(samples, embeddings_field, patches_field=None):
     return embeddings_field, embeddings_exist
 
 
+# TODO: this impl duplicates the embeddings util, but its not yet well tested and likely wrong
 def parse_point_field(samples, point_field, patches_field=None):
     if not etau.is_str(point_field):
         raise ValueError(
