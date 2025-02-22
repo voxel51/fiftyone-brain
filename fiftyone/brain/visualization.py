@@ -63,6 +63,7 @@ def compute_visualization(
     )
     points = None if point_field else points
     points_not_provided = points is None
+    point_field_index = f"{point_field}_index" if point_field else None
 
     if method == "manual" and points_not_provided:
         raise ValueError(
@@ -116,6 +117,7 @@ def compute_visualization(
         patches_field=patches_field,
         num_dims=num_dims,
         point_field=point_field,
+        point_field_index=point_field_index,
         **kwargs,
     )
 
@@ -703,6 +705,9 @@ class VisualizationConfig(fob.BrainMethodConfig):
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
+        point_field (None): the name of a field in which to store the
+            visualization points, if desired
+        point_field_index (None): the name of the index field for the
     """
 
     def __init__(
@@ -713,6 +718,8 @@ class VisualizationConfig(fob.BrainMethodConfig):
         model_kwargs=None,
         patches_field=None,
         num_dims=2,
+        point_field=None,
+        point_field_index=None,
         **kwargs,
     ):
         if similarity_index is not None and not etau.is_str(similarity_index):
@@ -727,6 +734,8 @@ class VisualizationConfig(fob.BrainMethodConfig):
         self.model_kwargs = model_kwargs
         self.patches_field = patches_field
         self.num_dims = num_dims
+        self.point_field = point_field
+        self.point_field_index = point_field_index
         super().__init__(**kwargs)
 
     @property
@@ -747,6 +756,13 @@ class Visualization(fob.BrainMethod):
             fields.append(self.config.point_field)
 
         return fields
+
+    def cleanup(self, samples, key):
+        dataset = samples._dataset
+        point_field_index = self.config.point_field_index
+        has_index = point_field_index in dataset.list_indexes()
+        if has_index:
+            dataset.delete_index(self.config.point_field)
 
 
 class UMAPVisualizationConfig(VisualizationConfig):

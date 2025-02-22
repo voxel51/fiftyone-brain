@@ -279,11 +279,13 @@ def test_similarity_index():
 
 
 def test_points_field():
+    brain_key = "test_points_field_brain_key"
     dataset = _load_images_dataset()
     num_samples = len(dataset)
     point_field = f"test_point_{rand.randint(0, 1000)}"
     results = fob.compute_visualization(
         dataset,
+        brain_key=brain_key,
         point_field=point_field,
         seed=51,
     )
@@ -293,12 +295,13 @@ def test_points_field():
     assert len(points[0]) == 2
 
     # cleanup
-    dataset.delete_sample_field(point_field)
+    dataset.delete_brain_run(brain_key)
 
 
 # TODO: add test for point_field with patches
 # TODO: add test for point_field with labels
 # TODO: add assertions for ids, labels
+# TODO: add test for cleanup
 
 
 def _load_images_dataset():
