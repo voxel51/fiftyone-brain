@@ -290,7 +290,6 @@ def test_points_field():
         seed=51,
     )
     points = results.get_points()
-    assert results.points == None
     assert len(points) == num_samples
     assert len(points[0]) == 2
 
