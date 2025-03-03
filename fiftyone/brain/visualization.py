@@ -90,7 +90,8 @@ def compute_visualization(
         embeddings_exist = None
 
     if etau.is_str(point_field):
-        point_field, points_exist = fbu.parse_point_field(
+        # parse_embeddings_field can be used for point_field as well
+        point_field, points_exist = fbu.parse_embeddings_field(
             samples, point_field, patches_field
         )
 
@@ -163,10 +164,9 @@ def compute_visualization(
         samples,
         config,
         brain_key,
-        point_field=point_field,
-        points=None if point_field else points,
-        sample_ids=None if point_field else sample_ids,
-        label_ids=None if point_field else label_ids,
+        points,
+        sample_ids=sample_ids,
+        label_ids=label_ids,
     )
 
     brain_method.save_run_results(samples, brain_key, results)
@@ -175,6 +175,7 @@ def compute_visualization(
 
 
 def values(results, path_or_expr):
+    # TODO: handle point_field - could just use view.values()
     samples = results.view
     patches_field = results.config.patches_field
     if patches_field is not None:
@@ -195,7 +196,7 @@ def visualize(
     backend="plotly",
     **kwargs,
 ):
-    points = results.get_points()
+    points = results.current_points
     samples = results.view
     patches_field = results.config.patches_field
     good_inds = results._curr_good_inds
@@ -383,7 +384,6 @@ class VisualizationResults(fob.BrainResults):
             )
 
         self.points = points
-        self.point_field = point_field
         self.sample_ids = sample_ids
         self.label_ids = label_ids
 
@@ -417,6 +417,8 @@ class VisualizationResults(fob.BrainResults):
         If :meth:`use_view` has been called to restrict the index, this
         property will reflect the size of the active index.
         """
+        if self.point_field:
+            return len(self.view)
         return len(self._curr_sample_ids)
 
     @property
@@ -426,6 +428,9 @@ class VisualizationResults(fob.BrainResults):
         If :meth:`use_view` has been called to restrict the index, this value
         may be larger than the current :meth:`index_size`.
         """
+        print(self.point_field)
+        if self.point_field:
+            return len(self._curr_view)
         return len(self.points)
 
     @property
@@ -525,11 +530,6 @@ class VisualizationResults(fob.BrainResults):
         Returns:
             self
         """
-        if self.point_field:
-            # If points are stored in a field, we don't need to filter
-            self._curr_view = sample_collection
-            return self
-
         sample_ids, label_ids, keep_inds, good_inds = fbu.filter_ids(
             sample_collection,
             self.sample_ids,
@@ -596,6 +596,13 @@ class VisualizationResults(fob.BrainResults):
             return self.view.values(self.point_field)
 
         return self.points
+
+    @property
+    def point_field(self):
+        """The name of the field in which the visualization points are stored,
+        or ``None`` if the points are stored directly in the results.
+        """
+        return self._config.point_field
 
     def visualize(
         self,
@@ -753,6 +760,7 @@ class Visualization(fob.BrainMethod):
             fields.append(self.config.patches_field)
 
         if self.config.point_field is not None:
+            # TODO: this doesn't seem to delete the point field!?
             fields.append(self.config.point_field)
 
         return fields
