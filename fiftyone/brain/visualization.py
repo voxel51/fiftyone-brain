@@ -322,6 +322,12 @@ def _get_min_max(points):
     return min, max
 
 
+#
+# TODO: cleanup full_path in _define_point_field and _populate_point_field
+#        should be handled with a fou utility
+#
+
+
 def _define_point_field(
     samples, point_field, min_val, max_val, patches_field=None
 ):
@@ -344,12 +350,15 @@ def _define_point_field(
 def _populate_point_field(
     samples, point_field, points, progress=True, patches_field=None
 ):
+    full_path = (
+        f"{patches_field}.{point_field}" if patches_field else point_field
+    )
     samples_and_points = zip(samples, points)
     iterator = (
         fou.ProgressBar(samples_and_points) if progress else samples_and_points
     )
     for sample, point in iterator:
-        sample.set_field(point_field, point.tolist())
+        sample.set_field(full_path, point.tolist())
         sample.save()
 
 
