@@ -662,56 +662,57 @@ def get_values(samples, path_or_expr, ids, patches_field=None):
     )
 
 
-def parse_embeddings_field(samples, embeddings_field, patches_field=None):
-    if not etau.is_str(embeddings_field):
+def parse_data_field(
+    samples,
+    data_field,
+    patches_field=None,
+    data_type="embeddings",
+):
+    if not etau.is_str(data_field):
         raise ValueError(
-            "Invalid embeddings_field=%s; expected a string field name"
-            % embeddings_field
+            "Invalid %s field '%s'; expected a string field name"
+            % (data_type, data_field)
         )
 
     if patches_field is None:
-        _embeddings_field, is_frame_field = samples._handle_frame_field(
-            embeddings_field
-        )
+        _data_field, is_frame_field = samples._handle_frame_field(data_field)
 
-        if "." in _embeddings_field:
-            root, _ = _embeddings_field.rsplit(".", 1)
+        if "." in _data_field:
+            root, _ = _data_field.rsplit(".", 1)
             if not samples.has_field(root):
                 raise ValueError(
-                    "Invalid embeddings_field=%s; root field=%s does not exist"
-                    % (embeddings_field, root)
+                    "Invalid %s field '%s'; root field '%s' does not exist"
+                    % (data_type, data_field, root)
                 )
 
-        embeddings_exist = samples.has_field(embeddings_field)
+        data_exists = samples.has_field(data_field)
 
-        return embeddings_field, embeddings_exist
+        return data_field, data_exists
 
-    if embeddings_field.startswith(patches_field + "."):
+    if data_field.startswith(patches_field + "."):
         _, root = samples._get_label_field_path(patches_field) + "."
-        if not embeddings_field.startswith(root):
+        if not data_field.startswith(root):
             raise ValueError(
-                "Invalid embeddings_field=%s for patches_field=%s"
-                % (embeddings_field, patches_field)
+                "Invalid %s field '%s' for patches field '%s'"
+                % (data_type, data_field, patches_field)
             )
 
-        embeddings_field = embeddings_field[len(root) + 1]
+        data_field = data_field[len(root) + 1]
 
-    if "." in embeddings_field:
+    if "." in data_field:
         _, root = samples._get_label_field_path(patches_field)
-        root += embeddings_field.rsplit(".", 1)[0]
+        root += data_field.rsplit(".", 1)[0]
         if not samples.has_field(root):
             raise ValueError(
-                "Invalid embeddings_field=%s; root field=%s does not exist"
-                % (embeddings_field, root)
+                "Invalid %s field '%s'; root field '%s' does not exist"
+                % (data_type, data_field, root)
             )
 
-    _, embeddings_path = samples._get_label_field_path(
-        patches_field, embeddings_field
-    )
+    _, data_path = samples._get_label_field_path(patches_field, data_field)
 
-    embeddings_exist = samples.has_field(embeddings_path)
+    data_exists = samples.has_field(data_path)
 
-    return embeddings_field, embeddings_exist
+    return data_field, data_exists
 
 
 def get_embeddings(
