@@ -290,7 +290,7 @@ def test_points_field():
         seed=51,
     )
     sample = dataset.first()
-    example_point = sample.get_values(point_field)
+    example_point = sample[point_field]
     assert example_point is not None
     assert len(example_point) == 2
     assert isinstance(example_point[0], float)

@@ -92,12 +92,12 @@ def compute_visualization(
         embeddings_field = None
         embeddings_exist = None
 
-    if etau.is_str(point_field):
-        # parse_embeddings_field can be used for point_field as well
-        # TODO: update parse_embeddings_field to raise errors with better names (hardcodes "embedding" in error messages)
-        point_field, points_exist = fbu.parse_embeddings_field(
-            samples, point_field, patches_field
-        )
+    # if etau.is_str(point_field):
+    #     # parse_embeddings_field can be used for point_field as well
+    #     # TODO: update parse_embeddings_field to raise errors with better names (hardcodes "embedding" in error messages)
+    #     point_field, points_exist = fbu.parse_embeddings_field(
+    #         samples, point_field, patches_field
+    #     )
 
     if etau.is_str(similarity_index):
         similarity_index = samples.load_brain_results(similarity_index)
@@ -332,9 +332,13 @@ def _define_point_field(
     samples, point_field, min_val, max_val, patches_field=None
 ):
     dataset = samples._dataset
-    full_path = (
-        f"{patches_field}.{point_field}" if patches_field else point_field
-    )
+    full_path = None
+    if patches_field:
+        _, full_path = dataset._get_label_field_path(
+            patches_field, subfield=point_field
+        )
+    else:
+        full_path = point_field
     dataset.add_sample_field(full_path, fof.ListField, subfield=fof.FloatField)
     try:
         dataset.delete_index(full_path)
@@ -350,13 +354,18 @@ def _define_point_field(
 def _populate_point_field(
     samples, point_field, points, progress=True, patches_field=None
 ):
-    full_path = (
-        f"{patches_field}.{point_field}" if patches_field else point_field
-    )
+    dataset = samples._dataset
+    if patches_field:
+        _, full_path = dataset._get_label_field_path(
+            patches_field, subfield=point_field
+        )
+    else:
+        full_path = point_field
     samples_and_points = zip(samples, points)
     iterator = (
         fou.ProgressBar(samples_and_points) if progress else samples_and_points
     )
+
     for sample, point in iterator:
         sample.set_field(full_path, point.tolist())
         sample.save()
