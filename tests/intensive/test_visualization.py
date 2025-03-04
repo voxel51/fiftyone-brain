@@ -289,12 +289,17 @@ def test_points_field():
         point_field=point_field,
         seed=51,
     )
+    index_name = results.config.point_field_index
     points = results.get_points()
     assert len(points) == num_samples
     assert len(points[0]) == 2
 
     # cleanup
     dataset.delete_brain_run(brain_key)
+
+    assert not dataset.has_sample_field(point_field)
+    indexes = dataset.list_indexes()
+    assert index_name not in indexes
 
 
 # TODO: add test for point_field with patches

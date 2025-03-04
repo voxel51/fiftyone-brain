@@ -760,13 +760,15 @@ class Visualization(fob.BrainMethod):
             fields.append(self.config.patches_field)
 
         if self.config.point_field is not None:
-            # TODO: this doesn't seem to delete the point field!?
             fields.append(self.config.point_field)
 
         return fields
 
     def cleanup(self, samples, key):
         dataset = samples._dataset
+        point_field = self.config.point_field
+        if point_field is not None:
+            dataset.delete_sample_fields(point_field, error_level=1)
         point_field_index = self.config.point_field_index
         has_index = point_field_index in dataset.list_indexes()
         if has_index:
