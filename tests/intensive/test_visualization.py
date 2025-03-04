@@ -338,10 +338,6 @@ def test_points_field_patches():
     dataset.delete_brain_run(brain_key)
 
 
-# TODO: add test for point_field with labels
-# TODO: add assertions for ids, labels in results
-
-
 def _load_images_dataset():
     name = "test-visualization-images"
 

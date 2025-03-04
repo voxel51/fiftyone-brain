@@ -450,7 +450,6 @@ class VisualizationResults(fob.BrainResults):
         If :meth:`use_view` has been called to restrict the index, this value
         may be larger than the current :meth:`index_size`.
         """
-        print(self.point_field)
         if self.point_field:
             return len(self._curr_view)
         return len(self.points)
