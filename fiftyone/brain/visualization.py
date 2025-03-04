@@ -70,6 +70,9 @@ def compute_visualization(
             "You must provide your own `points` when `method='manual'`"
         )
 
+    if point_field and num_dims != 2:
+        raise ValueError("You cannot use `point_field` with `num_dims != 2`")
+
     if points is not None and not point_field:
         points_not_provided = False
         method = "manual"
@@ -91,6 +94,7 @@ def compute_visualization(
 
     if etau.is_str(point_field):
         # parse_embeddings_field can be used for point_field as well
+        # TODO: update parse_embeddings_field to raise errors with better names (hardcodes "embedding" in error messages)
         point_field, points_exist = fbu.parse_embeddings_field(
             samples, point_field, patches_field
         )
@@ -150,8 +154,12 @@ def compute_visualization(
         if point_field:
             logger.info(f"Indexing visualization on field '{point_field}'")
             min_val, max_val = _get_min_max(points)
-            _define_point_field(samples, point_field, min_val, max_val)
-            _populate_point_field(samples, point_field, points, progress)
+            _define_point_field(
+                samples, point_field, min_val, max_val, patches_field
+            )
+            _populate_point_field(
+                samples, point_field, points, progress, patches_field
+            )
     else:
         points, sample_ids, label_ids = fbu.parse_data(
             samples,
@@ -314,23 +322,28 @@ def _get_min_max(points):
     return min, max
 
 
-def _define_point_field(samples, point_field, min_val, max_val):
+def _define_point_field(
+    samples, point_field, min_val, max_val, patches_field=None
+):
     dataset = samples._dataset
-    dataset.add_sample_field(
-        point_field, fof.ListField, subfield=fof.FloatField
+    full_path = (
+        f"{patches_field}.{point_field}" if patches_field else point_field
     )
+    dataset.add_sample_field(full_path, fof.ListField, subfield=fof.FloatField)
     try:
-        dataset.delete_index(point_field)
+        dataset.delete_index(full_path)
     except:
         # TODO: should we log this?
         #       should we catch other errors and re-raise?
         pass
     dataset.create_index(
-        [(point_field, "2d")], min=min_val, max=max_val, name=point_field
+        [(full_path, "2d")], min=min_val, max=max_val, name=full_path
     )
 
 
-def _populate_point_field(samples, point_field, points, progress=True):
+def _populate_point_field(
+    samples, point_field, points, progress=True, patches_field=None
+):
     samples_and_points = zip(samples, points)
     iterator = (
         fou.ProgressBar(samples_and_points) if progress else samples_and_points
@@ -714,7 +727,7 @@ class VisualizationConfig(fob.BrainMethodConfig):
         num_dims (2): the dimension of the visualization space
         point_field (None): the name of a field in which to store the
             visualization points, if desired
-        point_field_index (None): the name of the index field for the
+        point_field_index (None): the name of the point_field index
     """
 
     def __init__(

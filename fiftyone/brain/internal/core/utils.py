@@ -714,55 +714,6 @@ def parse_embeddings_field(samples, embeddings_field, patches_field=None):
     return embeddings_field, embeddings_exist
 
 
-# TODO: this impl duplicates the embeddings util, but its not yet well tested and likely wrong
-def parse_point_field(samples, point_field, patches_field=None):
-    if not etau.is_str(point_field):
-        raise ValueError(
-            "Invalid point_field=%s; expected a string field name"
-            % point_field
-        )
-
-    if patches_field is None:
-        _point_field, is_frame_field = samples._handle_frame_field(point_field)
-
-        if "." in _point_field:
-            root, _ = _point_field.rsplit(".", 1)
-            if not samples.has_field(root):
-                raise ValueError(
-                    "Invalid point_field=%s; root field=%s does not exist"
-                    % (point_field, root)
-                )
-
-        point_exist = samples.has_field(point_field)
-
-        return point_field, point_exist
-
-    if point_field.startswith(patches_field + "."):
-        _, root = samples._get_label_field_path(patches_field) + "."
-        if not point_field.startswith(root):
-            raise ValueError(
-                "Invalid point_field=%s for patches_field=%s"
-                % (point_field, patches_field)
-            )
-
-        point_field = point_field[len(root) + 1]
-
-    if "." in point_field:
-        _, root = samples._get_label_field_path(patches_field)
-        root += point_field.rsplit(".", 1)[0]
-        if not samples.has_field(root):
-            raise ValueError(
-                "Invalid point_field=%s; root field=%s does not exist"
-                % (point_field, root)
-            )
-
-    _, point_path = samples._get_label_field_path(patches_field, point_field)
-
-    point_exist = samples.has_field(point_path)
-
-    return point_field, point_exist
-
-
 def get_embeddings(
     samples,
     model=None,

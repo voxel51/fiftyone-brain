@@ -289,6 +289,12 @@ def test_points_field():
         point_field=point_field,
         seed=51,
     )
+    sample = dataset.first()
+    example_point = sample.get_values(point_field)
+    assert example_point is not None
+    assert len(example_point) == 2
+    assert isinstance(example_point[0], float)
+
     index_name = results.config.point_field_index
     points = results.get_points()
     assert len(points) == num_samples
@@ -303,9 +309,35 @@ def test_points_field():
 
 
 # TODO: add test for point_field with patches
+def test_points_field_patches():
+    brain_key = "test_points_field_brain_key"
+    dataset = _load_patches_dataset()
+    num_samples = len(dataset)
+    point_field = f"test_point_{rand.randint(0, 1000)}"
+    results = fob.compute_visualization(
+        dataset,
+        brain_key=brain_key,
+        point_field=point_field,
+        patches_field="ground_truth",
+        seed=51,
+    )
+    sample = dataset.first()
+    example_point = sample.ground_truth.detections[0][point_field]
+    assert example_point is not None
+    assert len(example_point) == 2
+    assert isinstance(example_point[0], float)
+
+    index_name = results.config.point_field_index
+    points = results.get_points()
+    assert len(points) == num_samples
+    assert len(points[0]) == 2
+
+    # cleanup
+    dataset.delete_brain_run(brain_key)
+
+
 # TODO: add test for point_field with labels
 # TODO: add assertions for ids, labels
-# TODO: add test for cleanup
 
 
 def _load_images_dataset():
