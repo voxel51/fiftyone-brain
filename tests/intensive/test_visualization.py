@@ -286,7 +286,7 @@ def test_points_field():
     results = fob.compute_visualization(
         dataset,
         brain_key=brain_key,
-        point_field=point_field,
+        points_field=point_field,
         seed=51,
     )
     sample = dataset.first()
@@ -296,30 +296,34 @@ def test_points_field():
     assert isinstance(example_point[0], float)
     assert len(results.sample_ids) == num_samples
     assert results.label_ids is None
-    assert np.array_equal(results.points, results.get_points())
 
-    index_name = results.config.point_field_index
-    points = results.get_points()
+    index_name = results.config.points_field
+    points = results.points
     assert len(points) == num_samples
     assert len(points[0]) == 2
+
+    fetched_points = dataset.values(point_field)
+    assert len(fetched_points) == num_samples
+    assert len(fetched_points[0]) == 2
+    assert np.array_equal(points, fetched_points)
 
     # cleanup
     dataset.delete_brain_run(brain_key)
 
     assert not dataset.has_sample_field(point_field)
     indexes = dataset.list_indexes()
-    assert index_name not in indexes
+    assert point_field not in indexes
 
 
 def test_points_field_patches():
     brain_key = "test_points_field_brain_key"
     dataset = _load_patches_dataset()
-    num_samples = len(dataset)
+    num_labels = dataset.count("ground_truth.detections")
     point_field = f"test_point_{rand.randint(0, 1000)}"
     results = fob.compute_visualization(
         dataset,
         brain_key=brain_key,
-        point_field=point_field,
+        points_field=point_field,
         patches_field="ground_truth",
         seed=51,
     )
@@ -329,10 +333,28 @@ def test_points_field_patches():
     assert len(example_point) == 2
     assert isinstance(example_point[0], float)
 
-    index_name = results.config.point_field_index
-    points = results.get_points()
-    assert len(points) == num_samples
+    points = results.points
+    assert len(points) == num_labels
     assert len(points[0]) == 2
+
+    # cleanup
+    dataset.delete_brain_run(brain_key)
+
+
+def test_index_points():
+    brain_key = "test_index_points"
+    dataset = _load_images_dataset()
+    num_samples = len(dataset)
+    num_dims = 2
+    points = np.random.rand(num_samples, num_dims)
+    results = fob.compute_visualization(
+        dataset,
+        points=points,
+        brain_key=brain_key,
+    )
+    results.index_points()
+    fetched_points = dataset.values(results.config.points_field)
+    assert np.array_equal(results.points, fetched_points)
 
     # cleanup
     dataset.delete_brain_run(brain_key)
