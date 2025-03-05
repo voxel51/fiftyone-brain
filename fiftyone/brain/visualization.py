@@ -75,7 +75,7 @@ def compute_visualization(
         points_field = brain_key
 
     if points_field is not None and num_dims != 2:
-        raise ValueError("`points_field` is only supported wehn `num_dims=2`")
+        raise ValueError("`points_field` is only supported when `num_dims=2`")
 
     if etau.is_str(embeddings):
         embeddings_field, embeddings_exist = fbu.parse_data_field(
@@ -647,7 +647,7 @@ class VisualizationResults(fob.BrainResults):
         dataset's samples.
 
         This method is useful if you want to add a spatial index to existing
-        visualization result that doesn't yet have one.
+        visualization results that don't yet have one.
 
         Spatial indexes are highly recommended for large datasets as they
         enable efficient querying when lassoing points in embeddings plots.
