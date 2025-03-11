@@ -279,85 +279,131 @@ def test_similarity_index():
 
 
 def test_points_field():
-    brain_key = "test_points_field_brain_key"
     dataset = _load_images_dataset()
-    num_samples = len(dataset)
-    point_field = f"test_point_{rand.randint(0, 1000)}"
-    results = fob.compute_visualization(
+
+    num_points = len(dataset)
+    points = np.random.randn(num_points, 2)
+
+    brain_key = "test_points"
+    points_field = brain_key
+
+    fob.compute_visualization(
         dataset,
         brain_key=brain_key,
-        points_field=point_field,
-        seed=51,
+        points=points,
+        create_index=True,
     )
-    sample = dataset.first()
-    example_point = sample[point_field]
-    assert example_point is not None
-    assert len(example_point) == 2
-    assert isinstance(example_point[0], float)
-    assert len(results.sample_ids) == num_samples
-    assert results.label_ids is None
 
-    index_name = results.config.points_field
+    dataset.clear_cache()
+    results = dataset.load_brain_results(brain_key)
+
+    assert results.config.points_field == points_field
+    assert dataset.has_sample_field(points_field)
+    assert points_field in dataset.list_indexes()
+
+    sample_points = dataset.first()[points_field]
+
+    assert isinstance(sample_points, list)
+    assert len(sample_points) == 2
+    assert isinstance(sample_points[0], float)
+
     points = results.points
-    assert len(points) == num_samples
+
+    assert len(points) == num_points
     assert len(points[0]) == 2
 
-    fetched_points = dataset.values(point_field)
-    assert len(fetched_points) == num_samples
-    assert len(fetched_points[0]) == 2
-    assert np.array_equal(points, fetched_points)
+    all_points = dataset.values(points_field)
 
-    # cleanup
+    assert np.allclose(points, all_points)
+
     dataset.delete_brain_run(brain_key)
 
-    assert not dataset.has_sample_field(point_field)
-    indexes = dataset.list_indexes()
-    assert point_field not in indexes
+    assert not dataset.has_sample_field(points_field)
+    assert points_field not in dataset.list_indexes()
 
 
 def test_points_field_patches():
-    brain_key = "test_points_field_brain_key"
     dataset = _load_patches_dataset()
-    num_labels = dataset.count("ground_truth.detections")
-    point_field = f"test_point_{rand.randint(0, 1000)}"
-    results = fob.compute_visualization(
+
+    num_points = dataset.count("ground_truth.detections")
+    points = np.random.randn(num_points, 2)
+
+    brain_key = "test_points"
+    points_field = brain_key
+    points_path = f"ground_truth.detections.{points_field}"
+
+    fob.compute_visualization(
         dataset,
         brain_key=brain_key,
-        points_field=point_field,
+        points=points,
         patches_field="ground_truth",
-        seed=51,
+        create_index=True,
     )
-    sample = dataset.first()
-    example_point = sample.ground_truth.detections[0][point_field]
-    assert example_point is not None
-    assert len(example_point) == 2
-    assert isinstance(example_point[0], float)
+
+    dataset.clear_cache()
+    results = dataset.load_brain_results(brain_key)
+
+    assert results.config.points_field == points_field
+    assert dataset.has_sample_field(points_path)
+    # Patch visualizations can't currently make use of database indexes
+    assert points_path not in dataset.list_indexes()
+
+    label_points = dataset.first().ground_truth.detections[0][points_field]
+
+    assert isinstance(label_points, list)
+    assert len(label_points) == 2
+    assert isinstance(label_points[0], float)
 
     points = results.points
-    assert len(points) == num_labels
+
+    assert len(points) == num_points
     assert len(points[0]) == 2
 
-    # cleanup
+    all_points = dataset.values(f"ground_truth.detections[].{points_field}")
+
+    assert np.allclose(points, all_points)
+
     dataset.delete_brain_run(brain_key)
+
+    assert not dataset.has_sample_field(points_path)
 
 
 def test_index_points():
-    brain_key = "test_index_points"
     dataset = _load_images_dataset()
-    num_samples = len(dataset)
-    num_dims = 2
-    points = np.random.rand(num_samples, num_dims)
-    results = fob.compute_visualization(
-        dataset,
-        points=points,
-        brain_key=brain_key,
-    )
-    results.index_points()
-    fetched_points = dataset.values(results.config.points_field)
-    assert np.array_equal(results.points, fetched_points)
 
-    # cleanup
+    num_points = len(dataset)
+    points = np.random.randn(num_points, 2)
+
+    brain_key = "test_points"
+    points_field = brain_key
+
+    fob.compute_visualization(dataset, brain_key=brain_key, points=points)
+
+    dataset.clear_cache()
+    results = dataset.load_brain_results(brain_key)
+
+    assert results.config.points_field is None
+    assert not dataset.has_sample_field(points_field)
+    assert points_field not in dataset.list_indexes()
+
+    results.index_points()
+
+    dataset.clear_cache()
+    results = dataset.load_brain_results(brain_key)
+
+    assert results.config.points_field == points_field
+    assert dataset.has_sample_field(points_field)
+    assert points_field in dataset.list_indexes()
+
+    points = results.points
+    all_points = dataset.values(points_field)
+
+    assert np.allclose(points, all_points)
+
     dataset.delete_brain_run(brain_key)
+
+    assert not dataset.has_sample_field(points_field)
+    assert points_field not in dataset.list_indexes()
 
 
 def _load_images_dataset():

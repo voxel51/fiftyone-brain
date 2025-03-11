@@ -165,6 +165,7 @@ def compute_visualization(
             label_ids=label_ids,
             patches_field=patches_field,
             create_index=create_index,
+            progress=progress,
         )
 
     results = VisualizationResults(
@@ -304,6 +305,7 @@ def _generate_spatial_index(
     label_ids=None,
     patches_field=None,
     create_index=True,
+    progress=False,
 ):
     # Indexes are not currently usable on patch visualizations
     if create_index and patches_field is not None:
@@ -328,10 +330,12 @@ def _generate_spatial_index(
     points = points.tolist()
     if patches_field is not None:
         values = dict(zip(label_ids, points))
-        samples.set_label_values(points_field, values)
+        samples.set_label_values(points_field, values, progress=progress)
     else:
         values = dict(zip(sample_ids, points))
-        samples.set_values(points_field, values, key_field="id")
+        samples.set_values(
+            points_field, values, key_field="id", progress=progress
+        )
 
 
 class VisualizationResults(fob.BrainResults):
@@ -642,7 +646,12 @@ class VisualizationResults(fob.BrainResults):
             **kwargs,
         )
 
-    def index_points(self, points_field=None, create_index=True):
+    def index_points(
+        self,
+        points_field=None,
+        create_index=True,
+        progress=None,
+    ):
         """Adds a spatial index for these visualization results to its
         dataset's samples.
 
@@ -657,6 +666,9 @@ class VisualizationResults(fob.BrainResults):
                 spatial index. The default is the result's ``brain_key``
             create_index (True): whether to create a database index for the
                 points
+            progress (None): whether to render a progress bar (True/False),
+                use the default value ``fiftyone.config.show_progress_bars``
+                (None), or a progress callback function to invoke instead
         """
         if points_field is None:
             if self.key is None:
@@ -675,6 +687,7 @@ class VisualizationResults(fob.BrainResults):
             label_ids=self.label_ids,
             patches_field=self.config.patches_field,
             create_index=create_index,
+            progress=progress,
         )
 
         if self.key is not None:
