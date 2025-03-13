@@ -323,6 +323,8 @@ def _generate_spatial_index(
         points_field, fof.ListField, subfield=fof.FloatField
     )
 
+    points = points.astype(float)
+
     if create_index:
         min_val, max_val = points.min(), points.max()
         dataset.create_index([(points_field, "2d")], min=min_val, max=max_val)
