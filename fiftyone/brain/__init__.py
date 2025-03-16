@@ -487,7 +487,9 @@ def compute_visualization(
             computed points on your dataset
         points_field (None): an optional field name in which to store the
             spatial index. When ``create_index=True``, this defaults to
-            ``points_field=brain_key``
+            ``points_field=brain_key``. When working with patches, you can
+            provide either the fully-qualified path to the points field or just
+            the name of the label attribute in ``patches_field``
         brain_key (None): a brain key under which to store the results of this
             method
         num_dims (2): the dimension of the visualization space

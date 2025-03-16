@@ -311,14 +311,14 @@ def _generate_spatial_index(
     if create_index and patches_field is not None:
         create_index = False
 
+    dataset = samples._root_dataset
     if patches_field is not None:
-        _, points_field = samples._get_label_field_path(
+        _, points_field = dataset._get_label_field_path(
             patches_field, points_field
         )
 
     logger.info("Generating spatial index in field '%s'...", points_field)
 
-    dataset = samples._dataset
     dataset.add_sample_field(
         points_field, fof.ListField, subfield=fof.FloatField
     )
@@ -332,10 +332,10 @@ def _generate_spatial_index(
     points = points.tolist()
     if patches_field is not None:
         values = dict(zip(label_ids, points))
-        samples.set_label_values(points_field, values, progress=progress)
+        dataset.set_label_values(points_field, values, progress=progress)
     else:
         values = dict(zip(sample_ids, points))
-        samples.set_values(
+        dataset.set_values(
             points_field, values, key_field="id", progress=progress
         )
 
@@ -696,6 +696,26 @@ class VisualizationResults(fob.BrainResults):
             self.config.points_field = points_field
             self.save_config()
 
+    def remove_index(self):
+        """Removes the spatial index from these visualization results, if one
+        exists.
+        """
+        points_field = self.config.points_field
+        if points_field is None:
+            return
+
+        dataset = self.samples._root_dataset
+        if self.config.patches_field is not None:
+            _, points_field = dataset._get_label_field_path(
+                self.config.patches_field, points_field
+            )
+
+        dataset.delete_sample_field(points_field, error_level=1)
+
+        if self.key is not None:
+            self.config.points_field = None
+            self.save_config()
+
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):
         points = np.array(d["points"])
@@ -784,12 +804,12 @@ class Visualization(fob.BrainMethod):
     def cleanup(self, samples, key):
         points_field = self.config.points_field
         if points_field is not None:
+            dataset = samples._root_dataset
             if self.config.patches_field is not None:
-                _, points_field = samples._get_label_field_path(
+                _, points_field = dataset._get_label_field_path(
                     self.config.patches_field, points_field
                 )
 
-            dataset = samples._dataset
             dataset.delete_sample_field(points_field, error_level=1)
 
 
