@@ -508,18 +508,18 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         if k is not None:
             inds = inds[:k]
 
-        if self.config.patches_field is not None:
-            ids = self.current_label_ids
-        else:
-            ids = self.current_sample_ids
+        sample_ids = list(self.current_sample_ids[inds])
 
-        ids = list(ids[inds])
+        if self.config.patches_field is not None:
+            label_ids = list(self.current_label_ids[inds])
+        else:
+            label_ids = None
 
         if return_dists:
             dists = list(dists[inds])
-            return ids, dists
+            return sample_ids, label_ids, dists
 
-        return ids
+        return sample_ids, label_ids
 
     def _parse_neighbors_query(self, query):
         # Full index
@@ -618,23 +618,32 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         self, inds, dists, full_index, single_query, return_dists
     ):
         if full_index:
-            return (inds, dists) if return_dists else inds
+            if return_dists:
+                return inds, dists
+
+            return inds
+
+        curr_sample_ids = self.current_sample_ids
+        sample_ids = [[curr_sample_ids[i] for i in _inds] for _inds in inds]
+        if single_query:
+            sample_ids = sample_ids[0]
 
         if self.config.patches_field is not None:
-            index_ids = self.current_label_ids
+            curr_label_ids = self.current_label_ids
+            label_ids = [[curr_label_ids[i] for i in _inds] for _inds in inds]
+            if single_query:
+                label_ids = label_ids[0]
         else:
-            index_ids = self.current_sample_ids
+            label_ids = None
 
-        ids = [[index_ids[i] for i in _inds] for _inds in inds]
         if return_dists:
             dists = [list(d) for d in dists]
-
-        if single_query:
-            ids = ids[0]
-            if return_dists:
+            if single_query:
                 dists = dists[0]
 
-        return (ids, dists) if return_dists else ids
+            return sample_ids, label_ids, dists
+
+        return sample_ids, label_ids
 
     @staticmethod
     def _parse_data(

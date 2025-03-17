@@ -593,30 +593,47 @@ class QdrantSimilarityIndex(SimilarityIndex):
         else:
             _filter = None
 
-        ids = []
+        sample_ids = []
+        label_ids = [] if self.config.patches_field is not None else None
         dists = []
         for q in query:
+            with_payload = self.config.patches_field is not None
             results = self._client.search(
                 collection_name=self.config.collection_name,
                 query_vector=q,
                 query_filter=_filter,
-                with_payload=False,
+                with_payload=with_payload,
                 limit=k,
             )
 
-            ids.append(self._to_fiftyone_ids([r.id for r in results]))
+            if self.config.patches_field is not None:
+                sample_ids.append(
+                    self._to_fiftyone_ids(
+                        [r.payload["sample_id"] for r in results]
+                    )
+                )
+                label_ids.append(
+                    self._to_fiftyone_ids([r.id for r in results])
+                )
+            else:
+                sample_ids.append(
+                    self._to_fiftyone_ids([r.id for r in results])
+                )
+
             if return_dists:
                 dists.append([r.score for r in results])
 
         if single_query:
-            ids = ids[0]
+            sample_ids = sample_ids[0]
+            if label_ids is not None:
+                label_ids = label_ids[0]
             if return_dists:
                 dists = dists[0]
 
         if return_dists:
-            return ids, dists
+            return sample_ids, label_ids, dists
 
-        return ids
+        return sample_ids, label_ids
 
     def _parse_neighbors_query(self, query):
         if etau.is_str(query):
