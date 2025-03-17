@@ -126,6 +126,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.11'
       - name: Install dependencies
         run: |
           pip3 install --upgrade importlib-metadata pip setuptools wheel typing-extensions packaging twine
