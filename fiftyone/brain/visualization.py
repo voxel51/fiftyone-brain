@@ -18,6 +18,7 @@ import eta.core.utils as etau
 import fiftyone.brain as fb
 import fiftyone.core.brain as fob
 import fiftyone.core.expressions as foe
+import fiftyone.core.fields as fof
 import fiftyone.core.plots as fop
 import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
@@ -38,6 +39,8 @@ def compute_visualization(
     patches_field,
     embeddings,
     points,
+    create_index,
+    points_field,
     brain_key,
     num_dims,
     method,
@@ -68,16 +71,31 @@ def compute_visualization(
         embeddings_field = None
         num_dims = _get_dimension(points)
 
+    if create_index and points_field is None:
+        points_field = brain_key
+
+    if points_field is not None and num_dims != 2:
+        raise ValueError("`points_field` is only supported when `num_dims=2`")
+
     if etau.is_str(embeddings):
-        embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
+        embeddings_field, embeddings_exist = fbu.parse_data_field(
             samples,
             embeddings,
             patches_field=patches_field,
+            data_type="embeddings",
         )
         embeddings = None
     else:
         embeddings_field = None
         embeddings_exist = None
+
+    if points_field is not None:
+        points_field, _ = fbu.parse_data_field(
+            samples,
+            points_field,
+            patches_field=patches_field,
+            data_type="points",
+        )
 
     if etau.is_str(similarity_index):
         similarity_index = samples.load_brain_results(similarity_index)
@@ -96,6 +114,7 @@ def compute_visualization(
     config = _parse_config(
         method,
         embeddings_field=embeddings_field,
+        points_field=points_field,
         similarity_index=similarity_index,
         model=model,
         model_kwargs=model_kwargs,
@@ -135,6 +154,18 @@ def compute_visualization(
             patches_field=patches_field,
             data=points,
             data_type="points",
+        )
+
+    if points_field is not None:
+        _generate_spatial_index(
+            samples,
+            points,
+            points_field,
+            sample_ids,
+            label_ids=label_ids,
+            patches_field=patches_field,
+            create_index=create_index,
+            progress=progress,
         )
 
     results = VisualizationResults(
@@ -264,6 +295,49 @@ def _get_dimension(points):
         return 2
 
     return points.shape[-1]
+
+
+def _generate_spatial_index(
+    samples,
+    points,
+    points_field,
+    sample_ids,
+    label_ids=None,
+    patches_field=None,
+    create_index=True,
+    progress=False,
+):
+    # Indexes are not currently usable on patch visualizations
+    if create_index and patches_field is not None:
+        create_index = False
+
+    dataset = samples._root_dataset
+    if patches_field is not None:
+        _, points_field = dataset._get_label_field_path(
+            patches_field, points_field
+        )
+
+    logger.info("Generating spatial index in field '%s'...", points_field)
+
+    dataset.add_sample_field(
+        points_field, fof.ListField, subfield=fof.FloatField
+    )
+
+    points = points.astype(float)
+
+    if create_index:
+        min_val, max_val = points.min(), points.max()
+        dataset.create_index([(points_field, "2d")], min=min_val, max=max_val)
+
+    points = points.tolist()
+    if patches_field is not None:
+        values = dict(zip(label_ids, points))
+        dataset.set_label_values(points_field, values, progress=progress)
+    else:
+        values = dict(zip(sample_ids, points))
+        dataset.set_values(
+            points_field, values, key_field="id", progress=progress
+        )
 
 
 class VisualizationResults(fob.BrainResults):
@@ -397,6 +471,15 @@ class VisualizationResults(fob.BrainResults):
         the collection on which the full index was generated.
         """
         return self._curr_view
+
+    @property
+    def has_spatial_index(self):
+        """Whether these results have a spatial index.
+
+        Use :meth:`index_points` to add a spatial index to an existing set of
+        visualization results.
+        """
+        return self.config.points_field is not None
 
     def use_view(
         self, sample_collection, allow_missing=True, warn_missing=False
@@ -565,6 +648,74 @@ class VisualizationResults(fob.BrainResults):
             **kwargs,
         )
 
+    def index_points(
+        self,
+        points_field=None,
+        create_index=True,
+        progress=None,
+    ):
+        """Adds a spatial index for these visualization results to its
+        dataset's samples.
+
+        This method is useful if you want to add a spatial index to existing
+        visualization results that don't yet have one.
+
+        Spatial indexes are highly recommended for large datasets as they
+        enable efficient querying when lassoing points in embeddings plots.
+
+        Args:
+            points_field (None): an optional field name in which to store the
+                spatial index. The default is the result's ``brain_key``
+            create_index (True): whether to create a database index for the
+                points
+            progress (None): whether to render a progress bar (True/False),
+                use the default value ``fiftyone.config.show_progress_bars``
+                (None), or a progress callback function to invoke instead
+        """
+        if points_field is None:
+            if self.key is None:
+                raise ValueError(
+                    "You must provide a `points_field` when indexing points "
+                    "that are not associated with a brain key"
+                )
+
+            points_field = self.key
+
+        _generate_spatial_index(
+            self.samples,
+            self.points,
+            points_field,
+            self.sample_ids,
+            label_ids=self.label_ids,
+            patches_field=self.config.patches_field,
+            create_index=create_index,
+            progress=progress,
+        )
+
+        if self.key is not None:
+            self.config.points_field = points_field
+            self.save_config()
+
+    def remove_index(self):
+        """Removes the spatial index from these visualization results, if one
+        exists.
+        """
+        points_field = self.config.points_field
+        if points_field is None:
+            return
+
+        dataset = self.samples._root_dataset
+        if self.config.patches_field is not None:
+            _, points_field = dataset._get_label_field_path(
+                self.config.patches_field, points_field
+            )
+
+        dataset.delete_sample_field(points_field, error_level=1)
+
+        if self.key is not None:
+            self.config.points_field = None
+            self.save_config()
+
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):
         points = np.array(d["points"])
@@ -593,6 +744,8 @@ class VisualizationConfig(fob.BrainMethodConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
+        points_field (None): the name of a field in which to store the
+            visualization points, if requested
         similarity_index (None): the similarity index containing the
             embeddings, if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
@@ -607,6 +760,7 @@ class VisualizationConfig(fob.BrainMethodConfig):
     def __init__(
         self,
         embeddings_field=None,
+        points_field=None,
         similarity_index=None,
         model=None,
         model_kwargs=None,
@@ -621,6 +775,7 @@ class VisualizationConfig(fob.BrainMethodConfig):
             model = None
 
         self.embeddings_field = embeddings_field
+        self.points_field = points_field
         self.similarity_index = similarity_index
         self.model = model
         self.model_kwargs = model_kwargs
@@ -641,8 +796,44 @@ class Visualization(fob.BrainMethod):
         fields = []
         if self.config.patches_field is not None:
             fields.append(self.config.patches_field)
+        elif self.config.points_field is not None:
+            fields.append(self.config.points_field)
 
         return fields
+
+    def rename(self, samples, key, new_key):
+        patches_field = self.config.patches_field
+        points_field = self.config.points_field
+        dataset = samples._root_dataset
+
+        if points_field is not None and points_field == key:
+            old_path = key
+            new_path = new_key
+            if patches_field is not None:
+                _, old_path = dataset._get_label_field_path(
+                    patches_field, old_path
+                )
+                _, new_path = dataset._get_label_field_path(
+                    patches_field, new_path
+                )
+
+            self.config.points_field = new_key
+            self.update_run_config(samples, key, self.config)
+
+            dataset.rename_sample_field(old_path, new_path)
+
+    def cleanup(self, samples, key):
+        patches_field = self.config.patches_field
+        points_field = self.config.points_field
+        dataset = samples._root_dataset
+
+        if points_field is not None:
+            if patches_field is not None:
+                _, points_field = dataset._get_label_field_path(
+                    patches_field, points_field
+                )
+
+            dataset.delete_sample_field(points_field, error_level=1)
 
 
 class UMAPVisualizationConfig(VisualizationConfig):
@@ -655,6 +846,8 @@ class UMAPVisualizationConfig(VisualizationConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
+        points_field (None): the name of a field in which to store the
+            visualization points, if requested
         similarity_index (None): the similarity index containing the
             embeddings, if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
@@ -683,6 +876,7 @@ class UMAPVisualizationConfig(VisualizationConfig):
     def __init__(
         self,
         embeddings_field=None,
+        points_field=None,
         similarity_index=None,
         model=None,
         model_kwargs=None,
@@ -697,6 +891,7 @@ class UMAPVisualizationConfig(VisualizationConfig):
     ):
         super().__init__(
             embeddings_field=embeddings_field,
+            points_field=points_field,
             similarity_index=similarity_index,
             model=model,
             model_kwargs=model_kwargs,
@@ -749,6 +944,8 @@ class TSNEVisualizationConfig(VisualizationConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
+        points_field (None): the name of a field in which to store the
+            visualization points, if requested
         similarity_index (None): the similarity index containing the
             embeddings, if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
@@ -788,6 +985,7 @@ class TSNEVisualizationConfig(VisualizationConfig):
     def __init__(
         self,
         embeddings_field=None,
+        points_field=None,
         similarity_index=None,
         model=None,
         model_kwargs=None,
@@ -805,6 +1003,7 @@ class TSNEVisualizationConfig(VisualizationConfig):
     ):
         super().__init__(
             embeddings_field=embeddings_field,
+            points_field=points_field,
             similarity_index=similarity_index,
             model=model,
             model_kwargs=model_kwargs,
@@ -863,6 +1062,8 @@ class PCAVisualizationConfig(VisualizationConfig):
     Args:
         embeddings_field (None): the sample field containing the embeddings,
             if one was provided
+        points_field (None): the name of a field in which to store the
+            visualization points, if requested
         similarity_index (None): the similarity index containing the
             embeddings, if one was provided
         model (None): the :class:`fiftyone.core.models.Model` or name of the
@@ -880,6 +1081,7 @@ class PCAVisualizationConfig(VisualizationConfig):
     def __init__(
         self,
         embeddings_field=None,
+        points_field=None,
         similarity_index=None,
         model=None,
         model_kwargs=None,
@@ -891,6 +1093,7 @@ class PCAVisualizationConfig(VisualizationConfig):
     ):
         super().__init__(
             embeddings_field=embeddings_field,
+            points_field=points_field,
             similarity_index=similarity_index,
             model=model,
             model_kwargs=model_kwargs,

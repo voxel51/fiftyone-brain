@@ -76,10 +76,11 @@ def compute_similarity(
             embeddings_field = embeddings
             embeddings = None
 
-        embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
+        embeddings_field, embeddings_exist = fbu.parse_data_field(
             samples,
             embeddings_field,
             patches_field=patches_field or roi_field,
+            data_type="embeddings",
         )
     else:
         embeddings_field = None

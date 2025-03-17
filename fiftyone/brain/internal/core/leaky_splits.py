@@ -47,8 +47,10 @@ def compute_leaky_splits(
     fov.validate_collection(samples)
 
     if etau.is_str(embeddings):
-        embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
-            samples, embeddings
+        embeddings_field, embeddings_exist = fbu.parse_data_field(
+            samples,
+            embeddings,
+            data_type="embeddings",
         )
         embeddings = None
     else:

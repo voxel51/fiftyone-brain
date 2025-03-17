@@ -72,10 +72,11 @@ def compute_uniqueness(
         )
 
     if etau.is_str(embeddings):
-        embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
+        embeddings_field, embeddings_exist = fbu.parse_data_field(
             samples,
             embeddings,
             patches_field=roi_field,
+            data_type="embeddings",
         )
         embeddings = None
     else:
