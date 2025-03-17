@@ -801,13 +801,36 @@ class Visualization(fob.BrainMethod):
 
         return fields
 
-    def cleanup(self, samples, key):
+    def rename(self, samples, key, new_key):
+        patches_field = self.config.patches_field
         points_field = self.config.points_field
+        dataset = samples._root_dataset
+
+        if points_field is not None and points_field == key:
+            old_path = key
+            new_path = new_key
+            if patches_field is not None:
+                _, old_path = dataset._get_label_field_path(
+                    patches_field, old_path
+                )
+                _, new_path = dataset._get_label_field_path(
+                    patches_field, new_path
+                )
+
+            self.config.points_field = new_key
+            self.update_run_config(samples, key, self.config)
+
+            dataset.rename_sample_field(old_path, new_path)
+
+    def cleanup(self, samples, key):
+        patches_field = self.config.patches_field
+        points_field = self.config.points_field
+        dataset = samples._root_dataset
+
         if points_field is not None:
-            dataset = samples._root_dataset
-            if self.config.patches_field is not None:
+            if patches_field is not None:
                 _, points_field = dataset._get_label_field_path(
-                    self.config.patches_field, points_field
+                    patches_field, points_field
                 )
 
             dataset.delete_sample_field(points_field, error_level=1)
