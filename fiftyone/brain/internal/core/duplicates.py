@@ -46,9 +46,10 @@ def compute_near_duplicates(
     fov.validate_collection(samples)
 
     if etau.is_str(embeddings):
-        embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
+        embeddings_field, embeddings_exist = fbu.parse_data_field(
             samples,
             embeddings,
+            data_type="embeddings",
         )
         embeddings = None
     else:

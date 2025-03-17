@@ -8,7 +8,7 @@
 <!-- prettier-ignore -->
 <a href="https://voxel51.com/fiftyone">FiftyOne Website</a> •
 <a href="https://voxel51.com/docs/fiftyone">FiftyOne Docs</a> •
-<a href="https://docs.voxel51.com/user_guide_brain.html">FiftyOne Brain Docs</a> •
+<a href="https://docs.voxel51.com/brain.html">FiftyOne Brain Docs</a> •
 <a href="https://voxel51.com/blog/">Blog</a> •
 <a href="https://slack.voxel51.com">Community</a>
 

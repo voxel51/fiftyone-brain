@@ -76,10 +76,11 @@ def compute_similarity(
             embeddings_field = embeddings
             embeddings = None
 
-        embeddings_field, embeddings_exist = fbu.parse_embeddings_field(
+        embeddings_field, embeddings_exist = fbu.parse_data_field(
             samples,
             embeddings_field,
             patches_field=patches_field or roi_field,
+            data_type="embeddings",
         )
     else:
         embeddings_field = None
@@ -114,13 +115,18 @@ def compute_similarity(
     brain_method = config.build()
     brain_method.ensure_requirements()
 
+    # Similarity indexes can be modified after creation, so we always register
+    # the index on the full dataset so that queries will always be performed
+    # against the full index by default
+    dataset = samples._root_dataset
+
     if brain_key is not None:
         # Don't allow overwriting an existing run with same key, since we
         # need the existing run in order to perform workflows like
         # automatically cleaning up the backend's index
-        brain_method.register_run(samples, brain_key, overwrite=False)
+        brain_method.register_run(dataset, brain_key, overwrite=False)
 
-    results = brain_method.initialize(samples, brain_key)
+    results = brain_method.initialize(dataset, brain_key)
 
     get_embeddings = embeddings is not False
     if not results.is_external and results.total_index_size > 0:
@@ -160,7 +166,7 @@ def compute_similarity(
     if embeddings is not None:
         results.add_to_index(embeddings, sample_ids, label_ids=label_ids)
 
-    brain_method.save_run_results(samples, brain_key, results)
+    brain_method.save_run_results(dataset, brain_key, results)
 
     return results
 

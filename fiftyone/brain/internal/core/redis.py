@@ -550,6 +550,7 @@ class RedisSimilarityIndex(SimilarityIndex):
                 .sort_by("score")
                 .return_fields("score", "foid")
                 .dialect(2)
+                .paging(0, k)
             )
             _q = q.astype(np.float32).tobytes()
             docs = self._index.search(_query, {"query": _q}).docs

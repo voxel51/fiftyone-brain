@@ -4,7 +4,7 @@ Similarity tests.
 Usage::
 
     # Optional: specific backends to test
-    export SIMILARITY_BACKENDS=qdrant,pinecone,milvus,lancedb,redis,elasticsearch
+    export SIMILARITY_BACKENDS=qdrant,pinecone,milvus,lancedb,redis,elasticsearch,mosaic,pgvector
 
     pytest tests/intensive/test_similarity.py -s -k test_XXX
 
@@ -55,6 +55,25 @@ Elasticsearch setup::
 
     pip install elasticsearch
 
+Mosaic setup::
+
+    # In your databricks workspace, generate a personal access token for authentication. You will also need to 
+    # create a catalog and schema in your workspace. You will have to create an endpoint under `compute` -> `vector search`
+
+    pip install databricks-vectorsearch
+
+PGVector Setup:
+
+    # Run a postgres instance locally with pgvector extension
+    docker pull pgvector/pgvector:pg17
+    docker run --name postgres -p 5432:5432 -e POSTGRES_PASSWORD=mysecretpassword -d pgvector/pgvector:pg17
+
+    # Enter the container and create the vector extension
+    docker exec -it postgres ./bin/psql -U postgres
+    CREATE EXTENSION IF NOT EXISTS vector; #Run in container
+
+    pip install psycopg2
+
 Brain config setup at `~/.fiftyone/brain_config.json`::
 
     {
@@ -82,8 +101,17 @@ Brain config setup at `~/.fiftyone/brain_config.json`::
                 "hosts": "http://localhost:9200",
                 "username": "elastic",
                 "password": "elastic"
+            },
+            "mosaic": {
+                "workspace_url": "https://<unique-url>.cloud.databricks.com/",
+                "personal_access_token": "<personal-access-token>",
+                "catalog_name": "<catalong_name>",
+                "schema_name": "<schema_name>",
+                "endpoint_name": "<endpoint_name>"
+            },
+            "pgvector": {
+                "connection_string": "postgresql://postgres:mysecretpassword@localhost:5432/postgres"
             }
-        }
     }
 
 | Copyright 2017-2025, Voxel51, Inc.
@@ -110,6 +138,8 @@ CUSTOM_BACKENDS = [
     "lancedb",
     "redis",
     "elasticsearch",
+    "mosaic",
+    "pgvector",
 ]
 
 
