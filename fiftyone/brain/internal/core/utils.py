@@ -690,14 +690,14 @@ def parse_data_field(
         return data_field, data_exists
 
     if data_field.startswith(patches_field + "."):
-        _, root = samples._get_label_field_path(patches_field) + "."
-        if not data_field.startswith(root):
+        _, root = samples._get_label_field_path(patches_field)
+        if not data_field.startswith(root + "."):
             raise ValueError(
                 "Invalid %s field '%s' for patches field '%s'"
                 % (data_type, data_field, patches_field)
             )
 
-        data_field = data_field[len(root) + 1]
+        data_field = data_field[len(root) + 1 :]
 
     if "." in data_field:
         _, root = samples._get_label_field_path(patches_field)
