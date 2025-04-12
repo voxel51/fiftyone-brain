@@ -570,9 +570,9 @@ class MosaicSimilarityIndex(SimilarityIndex):
 
         if self.has_view:
             if self.config.patches_field is not None:
-                index_ids = list(self.current_label_ids)
+                index_ids = self.current_label_ids
             else:
-                index_ids = list(self.current_sample_ids)
+                index_ids = self.current_sample_ids
 
             # @todo apply filtering in similarity_search(), not post-hoc
             # As of this writing, filtering is supported in Mosaic but it is

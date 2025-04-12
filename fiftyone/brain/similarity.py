@@ -18,6 +18,7 @@ import eta.core.utils as etau
 import fiftyone.brain as fb
 import fiftyone.core.brain as fob
 import fiftyone.core.context as foc
+import fiftyone.core.dataset as fod
 import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
 import fiftyone.core.patches as fop
@@ -399,6 +400,16 @@ class SimilarityIndex(fob.BrainResults):
         Use :meth:`use_view` to restrict the index to a view, and use
         :meth:`clear_view` to reset to the full index.
         """
+        if isinstance(self._curr_view, fod.Dataset):
+            return False
+
+        if (
+            self.config.patches_field is not None
+            and isinstance(self._curr_view, fop.PatchesView)
+            and len(self._curr_view._all_stages) == 1
+        ):
+            return False
+
         return self._curr_view.view() != self._samples.view()
 
     @property
@@ -417,6 +428,10 @@ class SimilarityIndex(fob.BrainResults):
 
         If :meth:`use_view` has been called, this may be a subset of the full
         index.
+
+        If the index does not support full sample ID lists (ie if
+        :meth:`sample_ids` is ``None``), then this will be all sample IDs in
+        the current :meth:`view` regardless of whether all samples are indexed.
         """
         self._apply_view_if_necessary()
         return self._curr_sample_ids
@@ -428,6 +443,10 @@ class SimilarityIndex(fob.BrainResults):
 
         If :meth:`use_view` has been called, this may be a subset of the full
         index.
+
+        If the index does not support full label ID lists (ie if
+        :meth:`label_ids` is ``None``), then this will be all label IDs in
+        the current :meth:`view` regardless of whether all labels are indexed.
         """
         self._apply_view_if_necessary()
         return self._curr_label_ids
@@ -609,14 +628,21 @@ class SimilarityIndex(fob.BrainResults):
         return self
 
     def _apply_view(self):
-        sample_ids, label_ids, keep_inds, good_inds = fbu.filter_ids(
-            self._curr_view,
-            self.sample_ids,
-            self.label_ids,
-            patches_field=self.config.patches_field,
-            allow_missing=self._curr_view_allow_missing,
-            warn_missing=self._curr_view_warn_missing,
-        )
+        sample_ids = self.sample_ids
+        label_ids = self.label_ids
+
+        if sample_ids is not None and not self.has_view:
+            keep_inds = None
+            good_inds = None
+        else:
+            sample_ids, label_ids, keep_inds, good_inds = fbu.filter_ids(
+                self._curr_view,
+                sample_ids,
+                label_ids,
+                patches_field=self.config.patches_field,
+                allow_missing=self._curr_view_allow_missing,
+                warn_missing=self._curr_view_warn_missing,
+            )
 
         if good_inds is not None:
             missing_size = good_inds.size - np.count_nonzero(good_inds)

@@ -131,10 +131,10 @@ class PgVectorSimilarity(Similarity):
     """
 
     def ensure_requirements(self):
-        fou.ensure_package("psycopg2-binary")
+        fou.ensure_package("psycopg2|psycopg2-binary")
 
     def ensure_usage_requirements(self):
-        fou.ensure_package("psycopg2-binary")
+        fou.ensure_package("psycopg2|psycopg2-binary")
 
     def initialize(self, samples, brain_key):
         return PgVectorSimilarityIndex(

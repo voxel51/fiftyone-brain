@@ -789,7 +789,7 @@ class NeighborsHelper(object):
         return neighbors, dists
 
     def _build_dists(self, embeddings):
-        logger.info("Generating index for %d embeddings...", len(embeddings))
+        logger.debug("Generating index for %d embeddings...", len(embeddings))
 
         # Center embeddings
         embeddings = np.asarray(embeddings)
@@ -798,12 +798,12 @@ class NeighborsHelper(object):
         dists = skm.pairwise_distances(embeddings, metric=self.metric)
         np.fill_diagonal(dists, np.nan)
 
-        logger.info("Index complete")
+        logger.debug("Index complete")
 
         return dists
 
     def _build_neighbors(self, embeddings):
-        logger.info(
+        logger.debug(
             "Generating neighbors graph for %d embeddings...",
             len(embeddings),
         )
@@ -828,7 +828,7 @@ class NeighborsHelper(object):
 
         setattr(neighbors, _COSINE_HACK_ATTR, cosine_hack)
 
-        logger.info("Index complete")
+        logger.debug("Index complete")
 
         return neighbors
 
