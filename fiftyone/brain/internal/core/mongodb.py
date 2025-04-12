@@ -242,7 +242,11 @@ class MongoDBSimilarityIndex(SimilarityIndex):
                 "numDimensions": dimension,
                 "path": self.config.embeddings_field,
                 "similarity": metric,
-            }
+            },
+            {
+                "type": "filter",
+                "path": "_id",
+            },
         ]
 
         if self._dataset.media_type == fom.GROUP:
@@ -491,17 +495,9 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             query = [query]
 
         if self.has_view:
-            # https://www.mongodb.com/community/forums/t/258494
-            logger.warning(
-                "The MongoDB backend does not yet support views; the full "
-                "index will instead be queried, which may result in fewer "
-                "matches in your current view"
-            )
-            index_ids = None
+            index_ids = self.current_sample_ids
             # if self.config.patches_field is not None:
             #     index_ids = self.current_label_ids
-            # else:
-            #     index_ids = self.current_sample_ids
         else:
             index_ids = None
 
@@ -535,9 +531,23 @@ class MongoDBSimilarityIndex(SimilarityIndex):
 
             # https://www.mongodb.com/docs/atlas/atlas-vector-search/vector-search-stage
             pipeline = [{"$vectorSearch": search}, {"$project": project}]
-            matches = list(
-                dataset._aggregate(pipeline=pipeline, manual_group_select=True)
-            )
+
+            try:
+                matches = list(
+                    dataset._aggregate(
+                        pipeline=pipeline, manual_group_select=True
+                    )
+                )
+            except OperationFailure as e:
+                if index_ids is not None:
+                    raise OperationFailure(
+                        "This legacy search index does not yet support views. "
+                        "Please follow the instructions at "
+                        "https://github.com/voxel51/fiftyone-brain/pull/248 "
+                        "to upgrade it"
+                    ) from e
+                else:
+                    raise e
 
             ids.append([str(m["_id"]) for m in matches])
             if return_dists:
