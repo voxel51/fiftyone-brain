@@ -21,10 +21,12 @@ import fiftyone.core.context as foc
 import fiftyone.core.dataset as fod
 import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
+import fiftyone.core.media as fom
 import fiftyone.core.patches as fop
 import fiftyone.core.stages as fos
 import fiftyone.core.utils as fou
-import fiftyone.core.validation as fov
+import fiftyone.core.view as fov
+import fiftyone.core.validation as fova
 import fiftyone.zoo as foz
 from fiftyone import ViewField as F
 
@@ -63,10 +65,10 @@ def compute_similarity(
 ):
     """See ``fiftyone/brain/__init__.py``."""
 
-    fov.validate_collection(samples)
+    fova.validate_collection(samples)
 
     if roi_field is not None:
-        fov.validate_collection_label_fields(
+        fova.validate_collection_label_fields(
             samples, roi_field, _ALLOWED_ROI_FIELD_TYPES
         )
 
@@ -400,9 +402,22 @@ class SimilarityIndex(fob.BrainResults):
         Use :meth:`use_view` to restrict the index to a view, and use
         :meth:`clear_view` to reset to the full index.
         """
+
+        # Full dataset
         if isinstance(self._curr_view, fod.Dataset):
             return False
 
+        # Full group slices view
+        if (
+            isinstance(self._curr_view, fov.DatasetView)
+            and self._curr_view._root_dataset.media_type == fom.GROUP
+            and len(self._curr_view._stages) == 1
+            and isinstance(self._curr_view._stages[0], fos.SelectGroupSlices)
+            and self._curr_view._pipeline() == []
+        ):
+            return False
+
+        # Full patches view
         if (
             self.config.patches_field is not None
             and isinstance(self._curr_view, fop.PatchesView)
