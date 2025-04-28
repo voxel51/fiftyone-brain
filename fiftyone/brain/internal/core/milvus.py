@@ -701,16 +701,24 @@ class MilvusSimilarityIndex(SimilarityIndex):
         label_ids = [] if self.config.patches_field is not None else None
         dists = []
         for q in query:
+            if self.config.patches_field is not None:
+                output_fields = ["sample_id"]
+            else:
+                output_fields = None
+
             response = self._collection.search(
                 data=[q.tolist()],
                 anns_field="vector",
                 limit=k,
                 expr=expr,
                 param=self.config.search_params,
+                output_fields=output_fields,
             )
 
             if self.config.patches_field is not None:
-                sample_ids.append([r.sample_id for r in response[0]])
+                sample_ids.append(
+                    [r.entity.get("sample_id") for r in response[0]]
+                )
                 label_ids.append([r.id for r in response[0]])
             else:
                 sample_ids.append([r.id for r in response[0]])

@@ -572,13 +572,17 @@ class PineconeSimilarityIndex(SimilarityIndex):
         label_ids = [] if self.config.patches_field is not None else None
         dists = []
         for q in query:
+            include_metadata = self.config.patches_field is not None
             response = self._index.query(
-                vector=q.tolist(), top_k=k, filter=_filter
+                vector=q.tolist(),
+                top_k=k,
+                filter=_filter,
+                include_metadata=include_metadata,
             )
 
             if self.config.patches_field is not None:
                 sample_ids.append(
-                    [r["sample_id"] for r in response["matches"]]
+                    [r["metadata"]["sample_id"] for r in response["matches"]]
                 )
                 label_ids.append([r["id"] for r in response["matches"]])
             else:
