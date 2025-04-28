@@ -345,6 +345,7 @@ class PineconeSimilarityIndex(SimilarityIndex):
                 list(zip(_ids, _embeddings, _id_dicts)),
                 namespace=namespace,
             )
+
         if reload:
             self.reload()
 

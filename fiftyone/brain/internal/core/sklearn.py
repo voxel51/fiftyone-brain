@@ -14,6 +14,7 @@ import sklearn.preprocessing as skp
 
 import eta.core.utils as etau
 
+import fiftyone.core.media as fom
 from fiftyone.brain.similarity import (
     DuplicatesMixin,
     SimilarityConfig,
@@ -654,8 +655,12 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         label_ids=None,
     ):
         if embeddings is None:
+            samples = samples._dataset
+            if samples.media_type == fom.GROUP:
+                samples = samples.select_group_slices(_allow_mixed=True)
+
             embeddings, sample_ids, label_ids = fbu.get_embeddings(
-                samples._dataset,
+                samples,
                 patches_field=config.patches_field,
                 embeddings_field=config.embeddings_field,
             )
