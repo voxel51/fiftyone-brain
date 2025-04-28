@@ -129,7 +129,8 @@ class MongoDBSimilarityIndex(SimilarityIndex):
 
     def __init__(self, samples, config, brain_key, backend=None):
         dataset = samples._dataset
-        sample_ids, label_ids = self._parse_data(dataset, config)
+        view_all = _get_view_all(dataset)
+        sample_ids, label_ids = self._parse_data(view_all, config)
 
         self._dataset = dataset
         self._sample_ids = sample_ids
@@ -383,8 +384,9 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         allow_missing=True,
         warn_missing=False,
     ):
+        view_all = _get_view_all(self._dataset)
         _embeddings, _sample_ids, _label_ids = fbu.get_embeddings(
-            self._dataset,
+            view_all,
             patches_field=self.config.patches_field,
             embeddings_field=self.config.embeddings_field,
         )
@@ -440,7 +442,8 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         return embeddings, sample_ids, label_ids
 
     def reload(self):
-        sample_ids, label_ids = self._parse_data(self._dataset, self.config)
+        view_all = _get_view_all(self._dataset)
+        sample_ids, label_ids = self._parse_data(view_all, self.config)
         self._sample_ids = sample_ids
         self._label_ids = label_ids
 
@@ -519,11 +522,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
                     "_id": {"$in": [ObjectId(_id) for _id in index_ids]}
                 }
             elif dataset.media_type == fom.GROUP:
-                # $vectorSearch must be the first stage in all pipelines, so we
-                # have to incorporate slice selection as a $filter
-                name_field = dataset.group_field + ".name"
-                group_slice = self.view.group_slice or dataset.group_slice
-                search["filter"] = {name_field: {"$eq": group_slice}}
+                pass
 
             project = {"_id": 1}
             if return_dists:
@@ -599,18 +598,19 @@ class MongoDBSimilarityIndex(SimilarityIndex):
 
     def _get_embeddings(self, query_ids):
         dataset = self._dataset
+        view_all = _get_view_all(dataset)
         patches_field = self.config.patches_field
         embeddings_field = self.config.embeddings_field
         if patches_field is not None:
             _, embeddings_path = dataset._get_label_field_path(
                 patches_field, embeddings_field
             )
-            view = dataset.filter_labels(
+            view = view_all.filter_labels(
                 patches_field, F("_id").is_in(query_ids)
             )
             embeddings = view.values(embeddings_path, unwind=True)
         else:
-            view = dataset.select(query_ids)
+            view = view_all.select(query_ids)
             embeddings = view.values(embeddings_field)
 
         return embeddings
@@ -664,3 +664,12 @@ def _get_inds(ids, index_ids, ftype, allow_missing, warn_missing):
             )
 
     return np.array(inds)
+
+
+def _get_view_all(dataset):
+    if dataset.media_type == fom.GROUP:
+        view_all = dataset.select_group_slices(_allow_mixed=True)
+    else:
+        view_all = dataset
+
+    return view_all

@@ -523,6 +523,8 @@ def add_embeddings(
         dataset.set_label_values(embeddings_path, values, dynamic=True)
     else:
         values = dict(zip(sample_ids, embeddings))
+        # Note: this can/does set values across slices if dataset is
+        # a grouped dataset and values contains appropriate values
         dataset.set_values(embeddings_field, values, key_field="id")
 
 
