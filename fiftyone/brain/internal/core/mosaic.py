@@ -546,7 +546,6 @@ class MosaicSimilarityIndex(SimilarityIndex):
         aggregation=None,
         return_dists=False,
     ):
-
         if query is None:
             raise ValueError("Mosaic does not support full index neighbors")
 
@@ -571,49 +570,56 @@ class MosaicSimilarityIndex(SimilarityIndex):
 
         if self.has_view:
             if self.config.patches_field is not None:
-                index_ids = list(self.current_label_ids)
+                index_ids = self.current_label_ids
             else:
-                index_ids = list(self.current_sample_ids)
+                index_ids = self.current_sample_ids
 
-            _filter = {"foid": list(index_ids)}
-            # NOTE: Filtering is supported in Mosaic but is not robust and cannot handle a large number of filters
-            # so we apply the filter after the search
+            # @todo apply filtering in similarity_search(), not post-hoc
+            # As of this writing, filtering is supported in Mosaic but it is
+            # not robust and cannot handle a large number of IDs
+            logger.warning(
+                "The Mosaic backend does not yet support view filters; the "
+                "full index will instead be queried, which may result in "
+                "fewer matches in your current view"
+            )
+
+            _filter = {"foid": set(index_ids)}
         else:
             _filter = None
 
-        ids = []
+        sample_ids = []
+        label_ids = [] if self.config.patches_field is not None else None
         dists = []
         for q in query:
             results = self._index.similarity_search(
-                columns=["foid"],
+                columns=["foid", "sample_id"],
                 query_vector=[float(i) for i in list(q)],
                 num_results=k,
-            )
+            )["result"]["data_array"]
 
-            if _filter:
-                ids.append(
-                    [
-                        res[0]
-                        for res in results["result"]["data_array"]
-                        if res[0] in _filter["foid"]
-                    ]
-                )
+            if _filter is not None:
+                results = [r for r in results if r[0] in _filter["foid"]]
+
+            if self.config.patches_field is not None:
+                sample_ids.append([r[1] for r in results])
+                label_ids.append([r[0] for r in results])
             else:
-                ids.append([res[0] for res in results["result"]["data_array"]])
+                sample_ids.append([r[0] for r in results])
+
             if return_dists:
-                dists.append(
-                    [res[1] for res in results["result"]["data_array"]]
-                )
+                dists.append([r[2] for r in results])
 
         if single_query:
-            ids = ids[0]
+            sample_ids = sample_ids[0]
+            if label_ids is not None:
+                label_ids = label_ids[0]
             if return_dists:
                 dists = dists[0]
 
         if return_dists:
-            return ids, dists
+            return sample_ids, label_ids, dists
 
-        return ids
+        return sample_ids, label_ids
 
     def _parse_neighbors_query(self, query):
         if etau.is_str(query):

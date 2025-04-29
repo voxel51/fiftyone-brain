@@ -131,10 +131,10 @@ class PgVectorSimilarity(Similarity):
     """
 
     def ensure_requirements(self):
-        fou.ensure_package("psycopg2-binary")
+        fou.ensure_package("psycopg2|psycopg2-binary")
 
     def ensure_usage_requirements(self):
-        fou.ensure_package("psycopg2-binary")
+        fou.ensure_package("psycopg2|psycopg2-binary")
 
     def initialize(self, samples, brain_key):
         return PgVectorSimilarityIndex(
@@ -588,9 +588,9 @@ class PgVectorSimilarityIndex(SimilarityIndex):
         index_ids = None
         if self.has_view:
             if self.config.patches_field is not None:
-                index_ids = self.current_label_ids
+                index_ids = list(self.current_label_ids)
             else:
-                index_ids = self.current_sample_ids
+                index_ids = list(self.current_sample_ids)
 
             _filter = True
         else:
@@ -598,51 +598,57 @@ class PgVectorSimilarityIndex(SimilarityIndex):
 
         sort_order = "DESC" if reverse else "ASC"
 
-        ids = []
+        sample_ids = []
+        label_ids = [] if self.config.patches_field is not None else None
         dists = []
         for q in query:
-            q = q.tolist()
             if _filter:
                 self._cur.execute(
                     f"""
-                    SELECT id, embedding_vector <-> %s::vector AS distance
+                    SELECT id, sample_id, embedding_vector <-> %s::vector AS distance
                     FROM "{self.config.table_name}"
                     WHERE id = ANY(%s)
                     ORDER BY distance {sort_order}
                     LIMIT %s;
                     """,
-                    (q, list(index_ids), k),
+                    (q.tolist(), index_ids, k),
                 )
             else:
                 self._cur.execute(
                     f"""
-                    SELECT id, embedding_vector <-> %s::vector AS distance
+                    SELECT id, sample_id, embedding_vector <-> %s::vector AS distance
                     FROM "{self.config.table_name}"
                     ORDER BY distance {sort_order}
                     LIMIT %s;
                     """,
-                    (q, k),
+                    (q.tolist(), k),
                 )
 
             results = self._cur.fetchall()
-            ids.append([r[0] for r in results])
-            distances = [r[1] for r in results]
+
+            if self.config.patches_field is not None:
+                sample_ids.append([r[1] for r in results])
+                label_ids.append([r[0] for r in results])
+            else:
+                sample_ids.append([r[0] for r in results])
 
             if return_dists:
-                dists.append(distances)
-
-        if single_query:
-            ids = ids[0]
-            if return_dists:
-                dists = dists[0]
+                dists.append([r[2] for r in results])
 
         if close_conn:
             self.close_connections()
 
-        if return_dists:
-            return ids, dists
+        if single_query:
+            sample_ids = sample_ids[0]
+            if label_ids is not None:
+                label_ids = label_ids[0]
+            if return_dists:
+                dists = dists[0]
 
-        return ids
+        if return_dists:
+            return sample_ids, label_ids, dists
+
+        return sample_ids, label_ids
 
     def _parse_neighbors_query(self, query):
         if etau.is_str(query):

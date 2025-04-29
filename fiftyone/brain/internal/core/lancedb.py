@@ -441,23 +441,32 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         metric = _SUPPORTED_METRICS[self.config.metric]
 
-        ids = []
+        sample_ids = []
+        label_ids = [] if self.config.patches_field is not None else None
         dists = []
         for q in query:
             results = table.search(q).metric(metric).limit(k).to_df()
-            ids.append(results.id.tolist())
+
+            if self.config.patches_field is not None:
+                sample_ids.append(results.sample_id.tolist())
+                label_ids.append(results.id.tolist())
+            else:
+                sample_ids.append(results.id.tolist())
+
             if return_dists:
                 dists.append(results._distance.tolist())
 
         if single_query:
-            ids = ids[0]
+            sample_ids = sample_ids[0]
+            if label_ids is not None:
+                label_ids = label_ids[0]
             if return_dists:
                 dists = dists[0]
 
         if return_dists:
-            return ids, dists
+            return sample_ids, label_ids, dists
 
-        return ids
+        return sample_ids, label_ids
 
     def _parse_neighbors_query(self, query):
         if etau.is_str(query):
