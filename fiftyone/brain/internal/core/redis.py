@@ -542,32 +542,40 @@ class RedisSimilarityIndex(SimilarityIndex):
         else:
             filter = "*"
 
-        ids = []
+        sample_ids = []
+        label_ids = [] if self.config.patches_field is not None else None
         dists = []
         for q in query:
             _query = (
                 Query(f"({filter})=>[KNN {k} @vector $query AS score]")
                 .sort_by("score")
-                .return_fields("score", "foid")
+                .return_fields("score", "foid", "sample_id")
                 .dialect(2)
                 .paging(0, k)
             )
             _q = q.astype(np.float32).tobytes()
             docs = self._index.search(_query, {"query": _q}).docs
 
-            ids.append([doc.foid for doc in docs])
+            if self.config.patches_field is not None:
+                sample_ids.append([doc.sample_id for doc in docs])
+                label_ids.append([doc.foid for doc in docs])
+            else:
+                sample_ids.append([doc.foid for doc in docs])
+
             if return_dists:
                 dists.append([doc.score for doc in docs])
 
         if single_query:
-            ids = ids[0]
+            sample_ids = sample_ids[0]
+            if label_ids is not None:
+                label_ids = label_ids[0]
             if return_dists:
                 dists = dists[0]
 
         if return_dists:
-            return ids, dists
+            return sample_ids, label_ids, dists
 
-        return ids
+        return sample_ids, label_ids
 
     def _parse_neighbors_query(self, query):
         if etau.is_str(query):

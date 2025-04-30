@@ -118,7 +118,7 @@ jobs:
           pytest --verbose tests/ --ignore tests/intensive/
 
   publish:
-    needs: [build]
+    needs: [build, test]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:

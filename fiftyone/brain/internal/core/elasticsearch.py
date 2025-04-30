@@ -710,7 +710,8 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
         else:
             _filter = None
 
-        ids = []
+        sample_ids = []
+        label_ids = [] if self.config.patches_field is not None else None
         dists = []
         for q in query:
             if self._get_metric() == _SUPPORTED_METRICS["dotproduct"]:
@@ -725,24 +726,39 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
             if _filter:
                 knn["filter"] = _filter
 
+            source = self.config.patches_field is not None
             response = self._client.search(
                 index=self.config.index_name,
                 knn=knn,
                 size=k,
+                source=source,
             )
-            ids.append([r["_id"] for r in response["hits"]["hits"]])
+
+            if self.config.patches_field is not None:
+                sample_ids.append(
+                    [
+                        r["_source"]["sample_id"]
+                        for r in response["hits"]["hits"]
+                    ]
+                )
+                label_ids.append([r["_id"] for r in response["hits"]["hits"]])
+            else:
+                sample_ids.append([r["_id"] for r in response["hits"]["hits"]])
+
             if return_dists:
                 dists.append([r["_score"] for r in response["hits"]["hits"]])
 
         if single_query:
-            ids = ids[0]
+            sample_ids = sample_ids[0]
+            if label_ids is not None:
+                label_ids = label_ids[0]
             if return_dists:
                 dists = dists[0]
 
         if return_dists:
-            return ids, dists
+            return sample_ids, label_ids, dists
 
-        return ids
+        return sample_ids, label_ids
 
     def _parse_neighbors_query(self, query):
         if etau.is_str(query):

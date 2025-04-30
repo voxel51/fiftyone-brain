@@ -128,15 +128,11 @@ class MongoDBSimilarityIndex(SimilarityIndex):
     """
 
     def __init__(self, samples, config, brain_key, backend=None):
-        dataset = samples._dataset
-        sample_ids, label_ids = self._parse_data(dataset, config)
-
-        self._dataset = dataset
-        self._sample_ids = sample_ids
-        self._label_ids = label_ids
-
         super().__init__(samples, config, brain_key, backend=backend)
 
+        self._dataset = samples._dataset
+        self._sample_ids = None
+        self._label_ids = None
         self._index = None
         self._initialize()
 
@@ -145,16 +141,31 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         return False
 
     @property
-    def sample_ids(self):
-        return self._sample_ids
-
-    @property
-    def label_ids(self):
-        return self._label_ids
-
-    @property
     def total_index_size(self):
-        return len(self._sample_ids)
+        if self._sample_ids is not None:
+            return len(self._sample_ids)
+
+        if self._dataset.media_type == fom.GROUP:
+            samples = self._dataset.select_group_slices(_allow_mixed=True)
+        else:
+            samples = self._dataset
+
+        patches_field = self.config.patches_field
+        embeddings_field = self.config.embeddings_field
+
+        if patches_field is not None:
+            _, embeddings_path = self._dataset._get_label_field_path(
+                patches_field, embeddings_field
+            )
+            samples = samples.filter_labels(
+                patches_field, F(embeddings_field).exists()
+            )
+            return samples.count(embeddings_path)
+
+        if samples.has_field(embeddings_field):
+            return samples.exists(embeddings_field).count()
+
+        return 0
 
     def _initialize(self):
         coll = self._dataset._sample_collection
@@ -208,19 +219,31 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             pass
 
     def _get_dimension(self):
-        if self.total_index_size == 0:
+        if self._dataset.media_type == fom.GROUP:
+            samples = self._dataset.select_group_slices(_allow_mixed=True)
+        else:
+            samples = self._dataset
+
+        patches_field = self.config.patches_field
+        embeddings_field = self.config.embeddings_field
+
+        if patches_field is not None:
+            _, embeddings_path = self._dataset._get_label_field_path(
+                patches_field, embeddings_field
+            )
+            view = samples.filter_labels(
+                patches_field, F(embeddings_field).exists()
+            ).limit(1)
+            embeddings = view.values(embeddings_path, unwind=True)
+        else:
+            view = samples.exists(embeddings_field).limit(1)
+            embeddings = view.values(embeddings_field)
+
+        embedding = next(iter(embeddings), None)
+        if embedding is None:
             return None
 
-        if self.config.patches_field is not None:
-            embeddings, _, _ = self.get_embeddings(
-                label_ids=self._label_ids[:1]
-            )
-        else:
-            embeddings, _, _ = self.get_embeddings(
-                sample_ids=self._sample_ids[:1]
-            )
-
-        return embeddings.shape[1]
+        return len(embedding)  # MongoDB requires list fields
 
     def _create_index(self, dimension):
         # https://www.mongodb.com/docs/atlas/atlas-vector-search/vector-search-stage
@@ -242,9 +265,14 @@ class MongoDBSimilarityIndex(SimilarityIndex):
                 "numDimensions": dimension,
                 "path": self.config.embeddings_field,
                 "similarity": metric,
-            }
+            },
+            {
+                "type": "filter",
+                "path": "_id",
+            },
         ]
 
+        """
         if self._dataset.media_type == fom.GROUP:
             fields.append(
                 {
@@ -252,6 +280,7 @@ class MongoDBSimilarityIndex(SimilarityIndex):
                     "path": self._dataset.group_field + ".name",
                 }
             )
+        """
 
         model = SearchIndexModel(
             name=self.config.index_name,
@@ -301,34 +330,52 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         sample_ids = np.asarray(sample_ids)
         label_ids = np.asarray(label_ids) if label_ids is not None else None
 
-        _sample_ids, _label_ids, ii, _ = fbu.add_ids(
-            sample_ids,
-            label_ids,
-            self._sample_ids,
-            self._label_ids,
-            patches_field=self.config.patches_field,
-            overwrite=overwrite,
-            allow_existing=allow_existing,
-            warn_existing=warn_existing,
-        )
+        if not overwrite or not allow_existing or warn_existing:
+            if self._sample_ids is not None:
+                _sample_ids, _label_ids = self._sample_ids, self._label_ids
+            else:
+                _sample_ids, _label_ids = self._parse_data(
+                    self._dataset, self.config
+                )
 
-        if ii.size == 0:
-            return
+            index_sample_ids, index_label_ids, ii, _ = fbu.add_ids(
+                sample_ids,
+                label_ids,
+                _sample_ids,
+                _label_ids,
+                patches_field=self.config.patches_field,
+                overwrite=overwrite,
+                allow_existing=allow_existing,
+                warn_existing=warn_existing,
+            )
+
+            self._sample_ids = index_sample_ids
+            self._label_ids = index_label_ids
+
+            if ii.size == 0:
+                return
+
+            embeddings = embeddings[ii, :]
+            sample_ids = sample_ids[ii]
+            label_ids = label_ids[ii] if label_ids is not None else None
+        else:
+            index_sample_ids = None
+            index_label_ids = None
 
         fbu.add_embeddings(
             self._dataset,
-            embeddings[ii, :].tolist(),  # MongoDB requires list fields
-            sample_ids[ii],
-            label_ids[ii] if label_ids is not None else None,
+            embeddings.tolist(),  # MongoDB requires list fields
+            sample_ids,
+            label_ids,
             self.config.embeddings_field,
             patches_field=self.config.patches_field,
         )
 
-        self._sample_ids = _sample_ids
-        self._label_ids = _label_ids
-
         if reload:
             super().reload()
+
+        self._sample_ids = index_sample_ids
+        self._label_ids = index_label_ids
 
     def remove_from_index(
         self,
@@ -338,39 +385,53 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         warn_missing=False,
         reload=True,
     ):
-        _sample_ids, _label_ids, rm_inds = fbu.remove_ids(
-            sample_ids,
-            label_ids,
-            self._sample_ids,
-            self._label_ids,
-            patches_field=self.config.patches_field,
-            allow_missing=allow_missing,
-            warn_missing=warn_missing,
-        )
+        if not allow_missing or warn_missing:
+            if self._sample_ids is not None:
+                _sample_ids, _label_ids = self._sample_ids, self._label_ids
+            else:
+                _sample_ids, _label_ids = self._parse_data(
+                    self._dataset, self.config
+                )
 
-        if rm_inds.size == 0:
-            return
+            index_sample_ids, index_label_ids, rm_inds = fbu.remove_ids(
+                sample_ids,
+                label_ids,
+                _sample_ids,
+                _label_ids,
+                patches_field=self.config.patches_field,
+                allow_missing=allow_missing,
+                warn_missing=warn_missing,
+            )
 
-        if self.config.patches_field is not None:
-            rm_sample_ids = None
-            rm_label_ids = self._label_ids[rm_inds]
+            self._sample_ids = index_sample_ids
+            self._label_ids = index_label_ids
+
+            if rm_inds.size == 0:
+                return
+
+            if self.config.patches_field is not None:
+                sample_ids = None
+                label_ids = _label_ids[rm_inds]
+            else:
+                sample_ids = _sample_ids[rm_inds]
+                label_ids = None
         else:
-            rm_sample_ids = self._sample_ids[rm_inds]
-            rm_label_ids = None
+            index_sample_ids = None
+            index_label_ids = None
 
         fbu.remove_embeddings(
             self._dataset,
             self.config.embeddings_field,
-            sample_ids=rm_sample_ids,
-            label_ids=rm_label_ids,
+            sample_ids=sample_ids,
+            label_ids=label_ids,
             patches_field=self.config.patches_field,
         )
 
-        self._sample_ids = _sample_ids
-        self._label_ids = _label_ids
-
         if reload:
             super().reload()
+
+        self._sample_ids = index_sample_ids
+        self._label_ids = index_label_ids
 
     def get_embeddings(
         self,
@@ -379,13 +440,14 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         allow_missing=True,
         warn_missing=False,
     ):
-        _embeddings, _sample_ids, _label_ids = fbu.get_embeddings(
-            self._dataset,
-            patches_field=self.config.patches_field,
-            embeddings_field=self.config.embeddings_field,
-        )
+        if self._dataset.media_type == fom.GROUP:
+            samples = self._dataset.select_group_slices(_allow_mixed=True)
+        else:
+            samples = self._dataset
 
-        if label_ids is not None:
+        if sample_ids is not None:
+            samples = samples.select(sample_ids)
+        elif label_ids is not None:
             if self.config.patches_field is None:
                 raise ValueError("This index does not support label IDs")
 
@@ -394,6 +456,17 @@ class MongoDBSimilarityIndex(SimilarityIndex):
                     "Ignoring sample IDs when label IDs are provided"
                 )
 
+            samples = samples.select_labels(
+                ids=label_ids, fields=self.config.patches_field
+            )
+
+        _embeddings, _sample_ids, _label_ids = fbu.get_embeddings(
+            samples,
+            patches_field=self.config.patches_field,
+            embeddings_field=self.config.embeddings_field,
+        )
+
+        if label_ids is not None:
             inds = _get_inds(
                 label_ids,
                 _label_ids,
@@ -436,9 +509,8 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         return embeddings, sample_ids, label_ids
 
     def reload(self):
-        sample_ids, label_ids = self._parse_data(self._dataset, self.config)
-        self._sample_ids = sample_ids
-        self._label_ids = label_ids
+        self._sample_ids = None
+        self._label_ids = None
 
         super().reload()
 
@@ -491,24 +563,20 @@ class MongoDBSimilarityIndex(SimilarityIndex):
             query = [query]
 
         if self.has_view:
-            # https://www.mongodb.com/community/forums/t/258494
-            logger.warning(
-                "The MongoDB backend does not yet support views; the full "
-                "index will instead be queried, which may result in fewer "
-                "matches in your current view"
-            )
-            index_ids = None
+            index_ids = self.current_sample_ids
             # if self.config.patches_field is not None:
             #     index_ids = self.current_label_ids
-            # else:
-            #     index_ids = self.current_sample_ids
         else:
             index_ids = None
 
         dataset = self._dataset
 
-        ids = []
+        sample_ids = []
+        label_ids = None
+        # if self.config.patches_field is not None:
+        #     label_ids = []
         dists = []
+
         for q in query:
             search = {
                 "index": self.config.index_name,
@@ -522,36 +590,61 @@ class MongoDBSimilarityIndex(SimilarityIndex):
                 search["filter"] = {
                     "_id": {"$in": [ObjectId(_id) for _id in index_ids]}
                 }
+
+            """
             elif dataset.media_type == fom.GROUP:
                 # $vectorSearch must be the first stage in all pipelines, so we
                 # have to incorporate slice selection as a $filter
                 name_field = dataset.group_field + ".name"
                 group_slice = self.view.group_slice or dataset.group_slice
                 search["filter"] = {name_field: {"$eq": group_slice}}
+            """
 
             project = {"_id": 1}
+            # if self.config.patches_field is not None:
+            #     project["_sample_id"] = 1
             if return_dists:
                 project["score"] = {"$meta": "vectorSearchScore"}
 
             # https://www.mongodb.com/docs/atlas/atlas-vector-search/vector-search-stage
             pipeline = [{"$vectorSearch": search}, {"$project": project}]
-            matches = list(
-                dataset._aggregate(pipeline=pipeline, manual_group_select=True)
-            )
 
-            ids.append([str(m["_id"]) for m in matches])
+            try:
+                matches = list(
+                    dataset._aggregate(
+                        pipeline=pipeline, manual_group_select=True
+                    )
+                )
+            except OperationFailure as e:
+                if index_ids is not None:
+                    raise OperationFailure(
+                        "This legacy search index does not yet support views. "
+                        "Please follow the instructions at "
+                        "https://github.com/voxel51/fiftyone-brain/pull/248 "
+                        "to upgrade it"
+                    ) from e
+                else:
+                    raise e
+
+            sample_ids.append([str(m["_id"]) for m in matches])
+            # if self.config.patches_field is not None:
+            #     sample_ids.append([str(m["_sample_id"]) for m in matches])
+            #     label_ids.append([str(m["_id"]) for m in matches])
+
             if return_dists:
                 dists.append([m["score"] for m in matches])
 
         if single_query:
-            ids = ids[0]
+            sample_ids = sample_ids[0]
+            if label_ids is not None:
+                label_ids = label_ids[0]
             if return_dists:
                 dists = dists[0]
 
         if return_dists:
-            return ids, dists
+            return sample_ids, label_ids, dists
 
-        return ids
+        return sample_ids, label_ids
 
     def _parse_neighbors_query(self, query):
         if etau.is_str(query):
@@ -588,25 +681,32 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         return query
 
     def _get_embeddings(self, query_ids):
-        dataset = self._dataset
+        if self._dataset.media_type == fom.GROUP:
+            samples = self._dataset.select_group_slices(_allow_mixed=True)
+        else:
+            samples = self._dataset
+
         patches_field = self.config.patches_field
         embeddings_field = self.config.embeddings_field
         if patches_field is not None:
-            _, embeddings_path = dataset._get_label_field_path(
+            _, embeddings_path = self._dataset._get_label_field_path(
                 patches_field, embeddings_field
             )
-            view = dataset.filter_labels(
+            view = samples.filter_labels(
                 patches_field, F("_id").is_in(query_ids)
             )
             embeddings = view.values(embeddings_path, unwind=True)
         else:
-            view = dataset.select(query_ids)
+            view = samples.select(query_ids)
             embeddings = view.values(embeddings_field)
 
         return embeddings
 
     @staticmethod
     def _parse_data(samples, config):
+        if samples.media_type == fom.GROUP:
+            samples = samples.select_group_slices(_allow_mixed=True)
+
         if config.patches_field is not None:
             samples = samples.filter_labels(
                 config.patches_field, F(config.embeddings_field).exists()

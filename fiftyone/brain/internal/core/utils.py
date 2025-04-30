@@ -513,6 +513,10 @@ def add_embeddings(
     patches_field=None,
 ):
     dataset = samples._dataset
+    if dataset.media_type == fomm.GROUP:
+        view = dataset.select_group_slices(_allow_mixed=True)
+    else:
+        view = dataset
 
     if patches_field is not None:
         _, embeddings_path = dataset._get_label_field_path(
@@ -520,10 +524,10 @@ def add_embeddings(
         )
 
         values = dict(zip(label_ids, embeddings))
-        dataset.set_label_values(embeddings_path, values, dynamic=True)
+        view.set_label_values(embeddings_path, values, dynamic=True)
     else:
         values = dict(zip(sample_ids, embeddings))
-        dataset.set_values(embeddings_field, values, key_field="id")
+        view.set_values(embeddings_field, values, key_field="id")
 
 
 def remove_ids(
@@ -610,6 +614,10 @@ def remove_embeddings(
     patches_field=None,
 ):
     dataset = samples._dataset
+    if dataset.media_type == fomm.GROUP:
+        view = dataset.select_group_slices(_allow_mixed=True)
+    else:
+        view = dataset
 
     if patches_field is not None:
         _, embeddings_path = dataset._get_label_field_path(
@@ -618,14 +626,14 @@ def remove_embeddings(
 
         if sample_ids is not None and label_ids is None:
             _, id_path = dataset._get_label_field_path(patches_field, "id")
-            label_ids = dataset.select(sample_ids).values(id_path, unwind=True)
+            label_ids = view.select(sample_ids).values(id_path, unwind=True)
 
         if label_ids is not None:
             values = dict(zip(label_ids, itertools.repeat(None)))
-            dataset.set_label_values(embeddings_path, values)
+            view.set_label_values(embeddings_path, values)
     elif sample_ids is not None:
         values = dict(zip(sample_ids, itertools.repeat(None)))
-        dataset.set_values(embeddings_field, values, key_field="id")
+        view.set_values(embeddings_field, values, key_field="id")
 
 
 def filter_values(values, keep_inds, patches_field=None):

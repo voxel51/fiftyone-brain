@@ -14,6 +14,7 @@ import sklearn.preprocessing as skp
 
 import eta.core.utils as etau
 
+import fiftyone.core.media as fom
 from fiftyone.brain.similarity import (
     DuplicatesMixin,
     SimilarityConfig,
@@ -508,18 +509,18 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         if k is not None:
             inds = inds[:k]
 
-        if self.config.patches_field is not None:
-            ids = self.current_label_ids
-        else:
-            ids = self.current_sample_ids
+        sample_ids = list(self.current_sample_ids[inds])
 
-        ids = list(ids[inds])
+        if self.config.patches_field is not None:
+            label_ids = list(self.current_label_ids[inds])
+        else:
+            label_ids = None
 
         if return_dists:
             dists = list(dists[inds])
-            return ids, dists
+            return sample_ids, label_ids, dists
 
-        return ids
+        return sample_ids, label_ids
 
     def _parse_neighbors_query(self, query):
         # Full index
@@ -618,23 +619,32 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         self, inds, dists, full_index, single_query, return_dists
     ):
         if full_index:
-            return (inds, dists) if return_dists else inds
+            if return_dists:
+                return inds, dists
+
+            return inds
+
+        curr_sample_ids = self.current_sample_ids
+        sample_ids = [[curr_sample_ids[i] for i in _inds] for _inds in inds]
+        if single_query:
+            sample_ids = sample_ids[0]
 
         if self.config.patches_field is not None:
-            index_ids = self.current_label_ids
+            curr_label_ids = self.current_label_ids
+            label_ids = [[curr_label_ids[i] for i in _inds] for _inds in inds]
+            if single_query:
+                label_ids = label_ids[0]
         else:
-            index_ids = self.current_sample_ids
+            label_ids = None
 
-        ids = [[index_ids[i] for i in _inds] for _inds in inds]
         if return_dists:
             dists = [list(d) for d in dists]
-
-        if single_query:
-            ids = ids[0]
-            if return_dists:
+            if single_query:
                 dists = dists[0]
 
-        return (ids, dists) if return_dists else ids
+            return sample_ids, label_ids, dists
+
+        return sample_ids, label_ids
 
     @staticmethod
     def _parse_data(
@@ -645,8 +655,12 @@ class SklearnSimilarityIndex(SimilarityIndex, DuplicatesMixin):
         label_ids=None,
     ):
         if embeddings is None:
+            samples = samples._dataset
+            if samples.media_type == fom.GROUP:
+                samples = samples.select_group_slices(_allow_mixed=True)
+
             embeddings, sample_ids, label_ids = fbu.get_embeddings(
-                samples._dataset,
+                samples,
                 patches_field=config.patches_field,
                 embeddings_field=config.embeddings_field,
             )
@@ -780,7 +794,7 @@ class NeighborsHelper(object):
         return neighbors, dists
 
     def _build_dists(self, embeddings):
-        logger.info("Generating index for %d embeddings...", len(embeddings))
+        logger.debug("Generating index for %d embeddings...", len(embeddings))
 
         # Center embeddings
         embeddings = np.asarray(embeddings)
@@ -789,12 +803,12 @@ class NeighborsHelper(object):
         dists = skm.pairwise_distances(embeddings, metric=self.metric)
         np.fill_diagonal(dists, np.nan)
 
-        logger.info("Index complete")
+        logger.debug("Index complete")
 
         return dists
 
     def _build_neighbors(self, embeddings):
-        logger.info(
+        logger.debug(
             "Generating neighbors graph for %d embeddings...",
             len(embeddings),
         )
@@ -819,7 +833,7 @@ class NeighborsHelper(object):
 
         setattr(neighbors, _COSINE_HACK_ATTR, cosine_hack)
 
-        logger.info("Index complete")
+        logger.debug("Index complete")
 
         return neighbors
 
