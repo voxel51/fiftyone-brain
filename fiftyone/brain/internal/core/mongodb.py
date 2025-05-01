@@ -616,15 +616,24 @@ class MongoDBSimilarityIndex(SimilarityIndex):
                     )
                 )
             except OperationFailure as e:
-                if index_ids is not None:
-                    raise OperationFailure(
-                        "This legacy search index does not yet support views. "
-                        "Please follow the instructions at "
-                        "https://github.com/voxel51/fiftyone-brain/pull/248 "
-                        "to upgrade it"
-                    ) from e
-                else:
+                if index_ids is None:
                     raise e
+
+                logger.warning(
+                    "This legacy search index does not yet support views. "
+                    "Please follow the instructions at "
+                    "https://github.com/voxel51/fiftyone-brain/pull/248 "
+                    "to upgrade it.\n\nIn the meantime, the full index will "
+                    "instead be queried, which may result in fewer "
+                    "matches in your current view"
+                )
+
+                search.pop("filter")
+                matches = list(
+                    dataset._aggregate(
+                        pipeline=pipeline, manual_group_select=True
+                    )
+                )
 
             sample_ids.append([str(m["_id"]) for m in matches])
             # if self.config.patches_field is not None:
