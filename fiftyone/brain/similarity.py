@@ -23,11 +23,13 @@ import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
 import fiftyone.core.media as fom
 import fiftyone.core.patches as fop
+import fiftyone.core.media as fomm
 import fiftyone.core.stages as fos
 import fiftyone.core.utils as fou
 import fiftyone.core.view as fov
 import fiftyone.core.validation as fova
 import fiftyone.zoo as foz
+import fiftyone.brain.internal.core.duplicates as fbd
 from fiftyone import ViewField as F
 
 fbu = fou.lazy_import("fiftyone.brain.internal.core.utils")
@@ -54,6 +56,7 @@ def compute_similarity(
     brain_key,
     model,
     model_kwargs,
+    hash_method,
     force_square,
     alpha,
     batch_size,
@@ -70,6 +73,17 @@ def compute_similarity(
     if roi_field is not None:
         fova.validate_collection_label_fields(
             samples, roi_field, _ALLOWED_ROI_FIELD_TYPES
+        )
+
+    if hash_method is not None and backend != "sklearn":
+        raise ValueError(
+            "The `hash_method` parameter is only supported by the 'sklearn' "
+            "backend"
+        )
+
+    if hash_method is not None and samples.media_type != fomm.IMAGE:
+        raise ValueError(
+            "The `hash_method` parameter is only supported for image datasets"
         )
 
     # Allow for `embeddings_field=XXX` and `embeddings=False` together
@@ -90,9 +104,10 @@ def compute_similarity(
         embeddings_exist = None
 
     if model is None and embeddings is None and not embeddings_exist:
-        model = _DEFAULT_MODEL
-        if batch_size is None:
-            batch_size = _DEFAULT_BATCH_SIZE
+        if hash_method is None:
+            model = _DEFAULT_MODEL
+            if batch_size is None:
+                batch_size = _DEFAULT_BATCH_SIZE
 
     if etau.is_str(model):
         _model_kwargs = model_kwargs or {}
@@ -105,6 +120,10 @@ def compute_similarity(
         _model = model
         supports_prompts = None
 
+    metric = "cosine"
+    if hash_method is not None:
+        metric = "manhattan"
+
     config = _parse_config(
         backend,
         embeddings_field=embeddings_field,
@@ -112,6 +131,7 @@ def compute_similarity(
         roi_field=roi_field,
         model=model,
         model_kwargs=model_kwargs,
+        metric=metric,
         supports_prompts=supports_prompts,
         **kwargs,
     )
@@ -148,21 +168,35 @@ def compute_similarity(
             handle_missing = "skip"
             agg_fcn = None
 
-        embeddings, sample_ids, label_ids = fbu.get_embeddings(
-            samples,
-            model=_model,
-            patches_field=patches_field or roi_field,
-            embeddings=embeddings,
-            embeddings_field=embeddings_field,
-            force_square=force_square,
-            alpha=alpha,
-            handle_missing=handle_missing,
-            agg_fcn=agg_fcn,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            skip_failures=skip_failures,
-            progress=progress,
-        )
+        if model is not None:
+            embeddings, sample_ids, label_ids = fbu.get_embeddings(
+                samples,
+                model=_model,
+                patches_field=patches_field or roi_field,
+                embeddings=embeddings,
+                embeddings_field=embeddings_field,
+                force_square=force_square,
+                alpha=alpha,
+                handle_missing=handle_missing,
+                agg_fcn=agg_fcn,
+                batch_size=batch_size,
+                num_workers=num_workers,
+                skip_failures=skip_failures,
+                progress=progress,
+            )
+        else:
+            assert hash_method is not None
+            hashes = fbd._compute_filehashes(samples, hash_method, progress)
+            sample_ids, label_ids = fbu.get_ids(
+                samples,
+                patches_field=patches_field or roi_field,
+                data=hashes,
+                data_type="hash",
+                handle_missing=handle_missing,
+                ref_sample_ids=None,
+            )
+            embeddings = np.asarray(list(hashes.values())).astype(np.float64)
+
     else:
         embeddings = None
 
