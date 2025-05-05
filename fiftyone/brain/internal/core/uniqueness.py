@@ -171,7 +171,7 @@ def _compute_uniqueness(
         dists = []
         with fou.ProgressBar(total=num_embeddings, progress=progress) as pb:
             for _embeddings in fou.iter_slices(embeddings, batch_size):
-                _, _dists = similarity_index._kneighbors(
+                _, _, _dists = similarity_index._kneighbors(
                     query=_embeddings, k=K + 1, return_dists=True
                 )
                 dists.extend(_dists)
