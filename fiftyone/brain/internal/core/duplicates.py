@@ -19,11 +19,16 @@ import fiftyone.core.validation as fov
 import fiftyone.brain as fb
 import fiftyone.brain.similarity as fbs
 import fiftyone.brain.internal.core.utils as fbu
+import fiftyone.brain.internal.core.perceptual_hash as fbh
+
+from sklearn.metrics.pairwise import pairwise_distances
+import numpy as np
 
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = "resnet18-imagenet-torch"
+FILE_HASH_TYPES = ["md5", "sha1", "sha256", "sha512"]
 
 
 def compute_near_duplicates(
@@ -34,6 +39,7 @@ def compute_near_duplicates(
     similarity_index=None,
     model=None,
     model_kwargs=None,
+    hash_method=None,
     force_square=False,
     alpha=None,
     batch_size=None,
@@ -63,6 +69,7 @@ def compute_near_duplicates(
         model is None
         and embeddings is None
         and similarity_index is None
+        and hash_method is None
         and not embeddings_exist
     ):
         model = _DEFAULT_MODEL
@@ -75,6 +82,7 @@ def compute_near_duplicates(
             embeddings=embeddings_field or embeddings,
             model=model,
             model_kwargs=model_kwargs,
+            hash_method=hash_method,
             force_square=force_square,
             alpha=alpha,
             batch_size=batch_size,
@@ -140,6 +148,7 @@ def compute_exact_duplicates(samples, num_workers, skip_failures, progress):
 
 def _compute_filehashes(samples, method, progress):
     ids, filepaths = samples.values(["id", "filepath"])
+    # I need embeddings, sample_ids, label_ids
 
     with fou.ProgressBar(total=len(ids), progress=progress) as pb:
         return {
@@ -167,7 +176,10 @@ def _compute_filehashes_multi(samples, method, num_workers, progress):
 
 def _compute_filehash(filepath, method):
     try:
-        filehash = fou.compute_filehash(filepath, method=method)
+        if method is None or method in FILE_HASH_TYPES:
+            filehash = fou.compute_filehash(filepath, method=method)
+        else:
+            filehash = fbh.compute_image_hash(filepath, method=method)
     except:
         filehash = None
 
@@ -177,7 +189,10 @@ def _compute_filehash(filepath, method):
 def _do_compute_filehash(args):
     _id, filepath, method = args
     try:
-        filehash = fou.compute_filehash(filepath, method=method)
+        if method is None or method in FILE_HASH_TYPES:
+            filehash = fou.compute_filehash(filepath, method=method)
+        else:
+            filehash = fbh.compute_image_hash(filepath, method=method)
     except:
         filehash = None
 
