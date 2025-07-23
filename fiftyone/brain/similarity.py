@@ -1455,7 +1455,9 @@ class DuplicatesMixin(object):
                 % (sort_by, ("distance", "count"))
             )
 
-        existing_ids = set(samples.values("id"))
+        existing_ids = set(samples.values("id", _enforce_natural_order=False))
+
+        # can we move the below to the aggregation itself?
         neighbors = [
             (k, v) for k, v in neighbors_map.items() if k in existing_ids
         ]

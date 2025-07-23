@@ -156,7 +156,9 @@ def get_embeddings_from_index(
         else:
             sample_id_path = "id"
 
-        sample_ids = samples.values(sample_id_path)
+        sample_ids = samples.values(
+            sample_id_path, _enforce_natural_order=False
+        )
         label_ids = None
     else:
         if samples._is_patches:
@@ -167,7 +169,9 @@ def get_embeddings_from_index(
             )
 
         sample_ids = None
-        label_ids = samples.values(label_id_path, unwind=True)
+        label_ids = samples.values(
+            label_id_path, unwind=True, _enforce_natural_order=False
+        )
 
     logger.info("Retrieving embeddings from similarity index...")
     return similarity_index.get_embeddings(
@@ -192,7 +196,7 @@ def get_ids(
         if ref_sample_ids is not None:
             sample_ids = ref_sample_ids
         else:
-            sample_ids = samples.values("id")
+            sample_ids = samples.values("id", _enforce_natural_order=False)
 
         if data is not None and len(sample_ids) != len(data):
             raise ValueError(
@@ -202,7 +206,7 @@ def get_ids(
                 % (data_type, len(data), len(sample_ids))
             )
 
-        return np.array(sample_ids), None
+        return np.asarray(sample_ids), None
 
     sample_ids, label_ids = _get_patch_ids(
         samples,
@@ -219,7 +223,7 @@ def get_ids(
             % (data_type, len(data), len(sample_ids), patches_field)
         )
 
-    return np.array(sample_ids), np.array(label_ids)
+    return np.asarray(sample_ids), np.asarray(label_ids)
 
 
 def filter_ids(
@@ -234,18 +238,18 @@ def filter_ids(
 
     if patches_field is None:
         if samples._is_patches:
-            sample_ids = np.array(
-                samples.values("sample_id", _enforce_natural_order=False),
-                copy=False,
+            sample_ids = np.asarray(
+                samples.values("sample_id", _enforce_natural_order=False)
             )
         else:
-            sample_ids = np.array(
-                samples.values("id", _enforce_natural_order=False), copy=False
+            sample_ids = np.asarray(
+                samples.values("id", _enforce_natural_order=False)
             )
 
         if index_sample_ids is None:
             return sample_ids, None, None, None
 
+        # list of index pos in sample_ids, mask of good indices, and list of bad ids
         keep_inds, good_inds, bad_ids = _parse_ids(
             sample_ids,
             index_sample_ids,
@@ -264,6 +268,7 @@ def filter_ids(
     if index_label_ids is None:
         return sample_ids, label_ids, None, None
 
+    # do the same as above, but for label IDs
     keep_inds, good_inds, bad_ids = _parse_ids(
         label_ids,
         index_label_ids,
@@ -292,19 +297,38 @@ def _get_patch_ids(
     )
     is_list_field = issubclass(label_type, fol._LABEL_LIST_FIELDS)
 
-    sample_ids, label_ids = samples.values([sample_id_path, label_id_path])
+    # potential bottleneck here if the dataset is large
+    # sample_ids, label_ids = samples.values([sample_id_path, label_id_path])
+    #
+    # if ref_sample_ids is not None:
+    #     sample_ids, label_ids = _apply_ref_sample_ids(
+    #         sample_ids, label_ids, ref_sample_ids
+    #     )
+    #
+    # if is_list_field:
+    #     ssample_ids, llabel_ids = _flatten_list_ids(
+    #         sample_ids, label_ids, handle_missing
+    #     )
+    # Above section can be optimized with iter_values
+    sample_ids = []
+    label_ids = []
+    for sample_id, labels in samples._iter_values(
+        [sample_id_path, label_id_path]
+    ):
+        # TODO: ref_sample_ids?
+        if not labels:
+            if handle_missing == "image":
+                sample_ids.append(sample_id)
+                label_ids.append(None)
+            continue
+        if is_list_field:
+            label_ids.extend(labels)
+            sample_ids.extend([sample_id] * len(labels))
+        else:
+            label_ids.append(labels)
+            sample_ids.append(sample_id)
 
-    if ref_sample_ids is not None:
-        sample_ids, label_ids = _apply_ref_sample_ids(
-            sample_ids, label_ids, ref_sample_ids
-        )
-
-    if is_list_field:
-        sample_ids, label_ids = _flatten_list_ids(
-            sample_ids, label_ids, handle_missing
-        )
-
-    return np.array(sample_ids), np.array(label_ids)
+    return np.asarray(sample_ids), np.asarray(label_ids)
 
 
 def _apply_ref_sample_ids(sample_ids, label_ids, ref_sample_ids):
@@ -314,7 +338,7 @@ def _apply_ref_sample_ids(sample_ids, label_ids, ref_sample_ids):
         idx = inds_map.get(_id, None)
         if idx is not None:
             ref_label_ids[idx] = _lid
-
+    # return list of label IDs aligned to `ref_sample_ids`, with `None` for missing values.
     return ref_sample_ids, ref_label_ids
 
 
@@ -336,6 +360,9 @@ def _flatten_list_ids(sample_ids, label_ids, handle_missing):
 
 
 def _parse_ids(ids, index_ids, ftype, allow_missing, warn_missing):
+    # ids are the existing sample ids
+    # index_ids are the ids of samples that are in the index
+
     if np.array_equal(ids, index_ids):
         return None, None, None
 
@@ -384,7 +411,7 @@ def _parse_ids(ids, index_ids, ftype, allow_missing, warn_missing):
                 ftype,
             )
 
-        bad_inds = np.array(bad_inds, dtype=np.int64)
+        bad_inds = np.asarray(bad_inds, dtype=np.int64)
 
         good_inds = np.full(ids.shape, True)
         good_inds[bad_inds] = False
@@ -392,8 +419,9 @@ def _parse_ids(ids, index_ids, ftype, allow_missing, warn_missing):
         good_inds = None
         bad_ids = None
 
-    keep_inds = np.array(keep_inds, dtype=np.int64)
+    keep_inds = np.asarray(keep_inds, dtype=np.int64)
 
+    # returns a list of index positions to keep relative to ids, mask of good indices over ids, list of ids that are not in the index
     return keep_inds, good_inds, bad_ids
 
 
@@ -816,7 +844,8 @@ def get_embeddings(
     else:
         if isinstance(embeddings, dict):
             embeddings = [
-                embeddings.get(_id, None) for _id in samples.values("id")
+                embeddings.get(_id, None)
+                for _id in samples.values("id", _enforce_natural_order=False)
             ]
 
         embeddings, ref_sample_ids = _handle_missing_embeddings(
@@ -1028,6 +1057,10 @@ def _handle_missing_embeddings(embeddings, samples):
         return embeddings, None
 
     embeddings = [e for e in embeddings if e is not None]
-    ref_sample_ids = list(np.delete(samples.values("id"), missing_inds))
+    ref_sample_ids = list(
+        np.delete(
+            samples.values("id", _enforce_natural_order=False), missing_inds
+        )
+    )
 
     return embeddings, ref_sample_ids
