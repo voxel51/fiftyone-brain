@@ -122,6 +122,8 @@ def compute_similarity(
     # the index on the full dataset so that queries will always be performed
     # against the full index by default
     dataset = samples._root_dataset
+    if samples._is_frames:
+        dataset = samples._base_view
 
     if brain_key is not None:
         # Don't allow overwriting an existing run with same key, since we
