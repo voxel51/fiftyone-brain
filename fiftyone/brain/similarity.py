@@ -123,7 +123,7 @@ def compute_similarity(
     # against the full index by default
     dataset = samples._root_dataset
     if samples._is_frames:
-        dataset = samples
+        dataset = samples._base_view
 
     if brain_key is not None:
         # Don't allow overwriting an existing run with same key, since we
