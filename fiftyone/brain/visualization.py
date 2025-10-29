@@ -1045,7 +1045,7 @@ class TSNEVisualization(Visualization):
             learning_rate=self.config.learning_rate,
             metric=self.config.metric,
             init="pca",  # "random" or "pca"
-            n_iter=self.config.max_iters,
+            max_iter=self.config.max_iters,
             random_state=self.config.seed,
             verbose=verbose,
         )
