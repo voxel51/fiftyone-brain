@@ -8,7 +8,6 @@ Visualization interface.
 from copy import deepcopy
 import inspect
 import logging
-import functools
 from tabnanny import verbose
 from packaging import version
 
@@ -1044,18 +1043,13 @@ class TSNEVisualization(Visualization):
         verbose = 2 if self.config.verbose else 0
 
         sklearn_version = version.parse(sklearn.__version__)
-
         iter_param = (
             "max_iter"
             if sklearn_version >= version.parse("1.5.0")
             else "n_iter"
         )
 
-        tsne_partial = functools.partial(
-            skm.TSNE, **{iter_param: self.config.max_iters}
-        )
-
-        _tsne = tsne_partial(
+        _tsne = skm.TSNE(
             n_components=self.config.num_dims,
             perplexity=self.config.perplexity,
             learning_rate=self.config.learning_rate,
@@ -1063,6 +1057,7 @@ class TSNEVisualization(Visualization):
             init="pca",
             random_state=self.config.seed,
             verbose=verbose,
+            **{iter_param: self.config.max_iters}
         )
         return _tsne.fit_transform(embeddings)
 
