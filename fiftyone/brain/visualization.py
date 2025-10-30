@@ -8,7 +8,6 @@ Visualization interface.
 from copy import deepcopy
 import inspect
 import logging
-from tabnanny import verbose
 from packaging import version
 
 import numpy as np
