@@ -10,7 +10,7 @@ import os
 from setuptools import setup
 
 
-VERSION = "0.21.3"
+VERSION = "0.21.4"
 
 
 def get_version():
