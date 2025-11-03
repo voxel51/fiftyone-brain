@@ -77,7 +77,8 @@ jobs:
       - name: Download fiftyone-brain wheel
         uses: actions/download-artifact@v6
         with:
-          path: dist
+          name: dist
+          path: dist/
       - name: Install fiftyone
         run: |
           git clone https://${{ secrets.FIFTYONE_GITHUB_TOKEN }}@github.com/voxel51/fiftyone fiftyone-src --depth 1 --branch develop
