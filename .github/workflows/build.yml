@@ -44,7 +44,8 @@ jobs:
       - name: Upload wheel
         uses: actions/upload-artifact@v5
         with:
-          path: dist
+          name: dist
+          path: dist/
           retention-days: 1
 
   test:
