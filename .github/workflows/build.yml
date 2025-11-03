@@ -16,11 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone fiftyone-brain
-        uses: actions/checkout@v1
+        uses: actions/checkout@v5
         with:
           submodules: true
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v6
         with:
           python-version: 3.9
       - name: Check Python version
@@ -42,9 +42,10 @@ jobs:
         run: |
           python setup.py sdist bdist_wheel
       - name: Upload wheel
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
-          path: dist
+          name: dist
+          path: dist/
           retention-days: 1
 
   test:
@@ -63,20 +64,21 @@ jobs:
           - "3.11"
     steps:
       - name: Clone fiftyone-brain
-        uses: actions/checkout@v1
+        uses: actions/checkout@v5
         with:
           submodules: true
       - name: Set up Python ${{ matrix.python }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
       - name: Install dependencies
         run: |
           pip install --upgrade pip setuptools wheel
       - name: Download fiftyone-brain wheel
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
-          path: dist
+          name: dist
+          path: dist/
       - name: Install fiftyone
         run: |
           git clone https://${{ secrets.FIFTYONE_GITHUB_TOKEN }}@github.com/voxel51/fiftyone fiftyone-src --depth 1 --branch develop
@@ -94,7 +96,7 @@ jobs:
           pip install ./dist/*.whl --force-reinstall
       - name: Reinstall fiftyone-brain
         run: |
-          pip install --force-reinstall --no-deps dist/artifact/*.whl
+          pip install --force-reinstall --no-deps dist/*.whl
       - name: Set up ETA credentials
         env:
           FIFTYONE_GOOGLE_CREDENTIALS: ${{ secrets.FIFTYONE_GOOGLE_CREDENTIALS }}
@@ -127,9 +129,10 @@ jobs:
       id-token: write
     steps:
       - name: Download wheels
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
-          path: dist
+          name: dist
+          path: dist/
       # Utilize
       # [trusted publishers](https://docs.pypi.org/trusted-publishers/)
       # This will use OIDC to publish the dists/ package to pypi.
