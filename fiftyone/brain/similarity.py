@@ -97,13 +97,21 @@ def compute_similarity(
     if etau.is_str(model):
         _model_kwargs = model_kwargs or {}
         _model = foz.load_zoo_model(model, **_model_kwargs)
-        try:
-            supports_prompts = _model.can_embed_prompts
-        except:
-            supports_prompts = None
     else:
         _model = model
-        supports_prompts = None
+
+    try:
+        supports_prompts = _model.can_embed_prompts
+    except:
+        supports_prompts = False
+
+    if brain_key is not None and supports_prompts and not etau.is_str(model):
+        logger.warning(
+            "This index will not support prompt queries in the App or in "
+            "future Python sessions. You can support this by providing the "
+            "string name of a zoo model rather than a Model instance to "
+            "compute_similarity(model=)."
+        )
 
     config = _parse_config(
         backend,
@@ -132,6 +140,9 @@ def compute_similarity(
         brain_method.register_run(dataset, brain_key, overwrite=False)
 
     results = brain_method.initialize(dataset, brain_key)
+
+    results._model = _model
+    results._supports_prompts = supports_prompts
 
     get_embeddings = embeddings is not False
     if not results.is_external and results.total_index_size > 0:
@@ -167,6 +178,8 @@ def compute_similarity(
         )
     else:
         embeddings = None
+        sample_ids = None
+        label_ids = None
 
     if embeddings is not None:
         results.add_to_index(embeddings, sample_ids, label_ids=label_ids)
@@ -237,6 +250,10 @@ class SimilarityConfig(fob.BrainMethodConfig):
     ):
         if model is not None and not etau.is_str(model):
             model = None
+
+            # We can't declare permanent support for prompts because we don't
+            # know how to load the model in future sessions
+            supports_prompts = None
 
         self.embeddings_field = embeddings_field
         self.model = model
@@ -339,6 +356,7 @@ class SimilarityIndex(fob.BrainResults):
         super().__init__(samples, config, brain_key, backend=backend)
 
         self._model = None
+        self._supports_prompts = None
         self._last_view = None
         self._last_views = []
         self._curr_view = None
@@ -367,6 +385,14 @@ class SimilarityIndex(fob.BrainResults):
     def config(self):
         """The :class:`SimilarityConfig` for these results."""
         return self._config
+
+    @property
+    def supports_prompts(self):
+        """Whether this similarity index supports prompt queries."""
+        if self._supports_prompts is not None:
+            return self._supports_prompts
+
+        return self.config.supports_prompts or False
 
     @property
     def is_external(self):
@@ -877,7 +903,7 @@ class SimilarityIndex(fob.BrainResults):
             is_prompts = True
 
         if is_prompts:
-            if not self.config.supports_prompts:
+            if not self.supports_prompts:
                 raise ValueError(
                     "Invalid query '%s'; this model does not support prompts"
                     % query[0]

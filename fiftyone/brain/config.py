@@ -41,7 +41,6 @@ class BrainConfig(EnvConfig):
         "pgvector": {
             "config_cls": "fiftyone.brain.internal.core.pgvector.PgVectorSimilarityConfig",
         },
-
         "mosaic": {
             "config_cls": "fiftyone.brain.internal.core.mosaic.MosaicSimilarityConfig",
         },
