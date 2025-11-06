@@ -24,8 +24,9 @@ repository:
 1. Select `Create new tag` with the appropriate version and set the target to
    `main`.
 
-    1. The tag format is `v<semantic-version>`. For example, `v0.21.4`. This
-       should match the `setup.py` and release branch.
+    1. The tag format is `v<semantic-version>`.
+       For example, `v0.21.4`. 
+       This should match the `setup.py` and release branch.
 
 1. Select `Generate release notes`.
 
