@@ -38,3 +38,6 @@ This will create a new tag in the repository and will trigger the
 [build/publish workflow](https://github.com/voxel51/fiftyone-brain/actions/workflows/build.yml).
 This workflow will build the `.whl` artifacts and publish them to
 [PyPI](https://pypi.org/project/fiftyone-brain/).
+
+Once the build are finished, submit a PR from `main` to `develop` to complete
+the `Gitflow` process.
