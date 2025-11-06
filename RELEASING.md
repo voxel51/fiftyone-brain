@@ -1,28 +1,29 @@
 # Releasing the Brain package
 
-> [!NOTE]
-> These steps are to be performed by authorized Voxel51 engineers.
+> [!NOTE] These steps are to be performed by authorized Voxel51 engineers.
 
-The `fiftyone-brain` repository follows `Gitflow`.
-Releases will be initiated when a teammate submits a pull request from their
-respective `release/v*` branch to `main`.
-We can see an example PR for [version 0.21.4](https://github.com/voxel51/fiftyone-brain/pull/265).
-Reviewers should always check that the version in the `setup.py` matches the branch version. 
+The `fiftyone-brain` repository follows `Gitflow`. Releases will be initiated
+when a teammate submits a pull request from their respective `release/v*`
+branch to `main`. We can see an example PR for
+[version 0.21.4](https://github.com/voxel51/fiftyone-brain/pull/265). Reviewers
+should always check that the version in the `setup.py` matches the branch
+version.
 
 The pull request can be merged once it is approved.
 
-The PyPI uploads will be triggered when a release tag is pushed to the repository:
+The PyPI uploads will be triggered when a release tag is pushed to the
+repository:
 
-1. Navigate to the 
+1. Navigate to the
    [releases page](https://github.com/voxel51/fiftyone-brain/pull/265).
 
 1. Select `Draft a new release`.
 
-1. Select `Create new tag` with the appropriate version and set the target to `main`.
+1. Select `Create new tag` with the appropriate version and set the target to
+   `main`.
 
-    1. The tag format is `v<semantic-version>`. 
-       For example, `v0.21.4`. 
-       This should match the `setup.py` and release branch.
+    1. The tag format is `v<semantic-version>`. For example, `v0.21.4`. This
+       should match the `setup.py` and release branch.
 
 1. Select `Generate release notes`.
 

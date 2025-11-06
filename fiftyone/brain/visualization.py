@@ -1056,7 +1056,7 @@ class TSNEVisualization(Visualization):
             init="pca",
             random_state=self.config.seed,
             verbose=verbose,
-            **{iter_param: self.config.max_iters}
+            **{iter_param: self.config.max_iters},
         )
         return _tsne.fit_transform(embeddings)
 
