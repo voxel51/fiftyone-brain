@@ -962,3 +962,67 @@ def compute_leaky_splits(
         skip_failures=skip_failures,
         progress=progress,
     )
+
+
+def create_redaction(
+    samples,
+    label_field=None,
+    label_classes=None,
+    redaction_type="bounding_box",
+    redaction_method="gaussian_blur",
+    force_recreate=False,
+    create_as_new_sample=False,
+    num_workers=None,
+    progress=None,
+):
+    """Creates a redacted media file for the specified label classes in the specified label field.
+
+    TODO: Add detailed docstring describing what redaction does.
+
+    .. note::
+
+        Runs of this method can be referenced later via brain key
+        ``redaction_field``.
+
+    Args:
+        samples: a :class:`fiftyone.core.collections.SampleCollection`
+        label_field: the name of the label field to process. Can be of type
+            :class:`fiftyone.core.labels.Detections`,
+            :class:`fiftyone.core.labels.Polylines`,
+            :class:`fiftyone.core.labels.Keypoints`, or
+            :class:`fiftyone.core.labels.TemporalDetections`
+        label_classes: the comma-separated string of the list of label classes to redact, containing sensitive data
+        redaction_type: the area in which to perform the redaction. Can be one of the following:
+            "bounding_box": apply to the bounding box of the label class
+            "segmentation_mask": apply to the segmentation mask of the label class
+        redaction_method: the method to use to perform the redaction. Can be one of the following:
+            "mask": mask the sensitive data
+            "gaussian_blur": blur the sensitive data using a Gaussian blur
+            "stack_blur": blur the sensitive data using a moving stack of colors
+            "pixelate": pixelate the sensitive data region
+        force_recreate: whether to force the redaction to be recreated even if it already exists
+        create_as_new_sample: whether to create a new sample with the redaction.
+            If False: the path to the redacted media will be added
+                to the redaction_field of the original sample.
+            If True: a new sample will be created with the redaction;
+                the redaction_field will point to its ID
+                and the new sample's original_sample_id will point to the original sample
+            Note: The redaction_field will be unique function of the label, method & type args
+        num_workers: the number of workers to use when performing the redaction
+        progress: whether to render a progress bar (True/False), use the
+            default value ``fiftyone.config.show_progress_bars`` (None), or a
+            progress callback function to invoke instead
+    """
+    import fiftyone.brain.internal.core.redaction as fbr
+
+    return fbr.create_redaction(
+        samples,
+        label_field,
+        label_classes,
+        redaction_type,
+        redaction_method,
+        force_recreate,
+        create_as_new_sample,
+        num_workers,
+        progress,
+    )
