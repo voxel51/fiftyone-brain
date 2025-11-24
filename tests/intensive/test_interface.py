@@ -114,6 +114,30 @@ def test_hardness():
     print(dataset)
 
 
+def test_redaction():
+    dataset = foz.load_zoo_dataset("quickstart").clone()
+    test_view = dataset.take(10, seed=42)
+
+    fob.create_redaction(
+        test_view,
+        label_field="ground_truth",
+        label_classes="person,car",
+        redaction_type="bounding_box",
+        redaction_method="stack_blur",
+    )
+    print(dataset.list_brain_runs())
+    print(
+        dataset.get_brain_info(
+            "redacted_ground_truth_person_car_bounding_box_stack_blur"
+        )
+    )
+    # redacted_image_path = test_view.first()["redacted_ground_truth_person_car_bounding_box_stack_blur_filepath"]
+    # assert os.path.exists(redacted_image_path)
+
+    dataset.delete_brain_runs()
+    print(dataset)
+
+
 if __name__ == "__main__":
     fo.config.show_progress_bars = True
     unittest.main(verbosity=2)
