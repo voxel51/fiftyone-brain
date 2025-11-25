@@ -976,13 +976,13 @@ def create_redaction(
     progress=None,
 ):
     """Creates a redacted media file for the specified label classes in the specified label field.
+    Requires the label field to already be present in the samples.
 
-    TODO: Add detailed docstring describing what redaction does.
+    Replaces the regions (based on the redaction_type = bounding_box/segmentation_mask)
+    with a blurred/masked image based on the redaction_method.
 
-    .. note::
-
-        Runs of this method can be referenced later via brain key
-        ``redaction_field``.
+    The redacted media is added as a new media field by default,
+    with an option to add it as a new sample.
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`

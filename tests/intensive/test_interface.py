@@ -131,8 +131,6 @@ def test_redaction():
             "redacted_ground_truth_person_car_bounding_box_stack_blur"
         )
     )
-    # redacted_image_path = test_view.first()["redacted_ground_truth_person_car_bounding_box_stack_blur_filepath"]
-    # assert os.path.exists(redacted_image_path)
 
     dataset.delete_brain_runs()
     print(dataset)

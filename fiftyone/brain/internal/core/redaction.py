@@ -263,7 +263,7 @@ class Redaction(fob.BrainMethod):
             if self.redaction_field not in redacted_sample.tags:
                 redacted_sample.tags.append(self.redaction_field)
             redacted_sample["original_sample_id"] = sample.id
-            logger.info(
+            logger.debug(
                 f"Adding redacted sample at filepath: {redacted_media_path}"
             )
             sample._dataset.add_sample(redacted_sample)
