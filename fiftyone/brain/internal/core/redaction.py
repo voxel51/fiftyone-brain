@@ -145,7 +145,7 @@ class RedactionConfig(fob.BrainMethodConfig):
                     f"Invalid label classes type: {type(self.label_classes)}"
                 )
         redaction_labels = "_".join(self.label_classes)
-        redaction_field = f"redacted_{self.label_field}_{redaction_labels}_{self.redaction_type}_{self.redaction_method}"
+        redaction_field = f"redacted_{self.label_field.replace('.', '_')}_{redaction_labels}_{self.redaction_type}_{self.redaction_method}"
         self.redaction_field = redaction_field
 
     @property
@@ -244,9 +244,13 @@ class Redaction(fob.BrainMethod):
         shutil.copy(sample.filepath, redacted_media_path)
 
         if self.processing_frames:
-            # TODO(neeraja): handle this for frame fields
-            # images = sample.frames.values()
-            raise NotImplementedError("Frame fields are not supported yet")
+            detections_object_list = [
+                frame[self.label_field.replace("frames.", "")]
+                for frame in sample.frames.values()
+            ]
+            self.redact_video_file_at(
+                redacted_media_path, detections_object_list
+            )
         else:
             self.redact_file_at(redacted_media_path, sample[self.label_field])
 
@@ -281,6 +285,34 @@ class Redaction(fob.BrainMethod):
 
     def redact_file_at(self, redacted_path, detections_object):
         image = cv2.imread(redacted_path)
+        redacted_image = self._redact_entire_image(image)
+        image = self._apply_redaction_to_image(
+            image, redacted_image, detections_object
+        )
+        cv2.imwrite(redacted_path, image)
+
+    def redact_video_file_at(self, redacted_path, detections_object_list):
+        video_frames, fps, (width, height) = read_video_frames(redacted_path)
+        if len(video_frames) != len(detections_object_list):
+            raise ValueError(
+                f"Number of video frames ({len(video_frames)}) does not match the number of detections ({len(detections_object_list)})"
+            )
+
+        redacted_video_frames = []
+        for video_frame, detections_object in zip(
+            video_frames, detections_object_list
+        ):
+            redacted_image = self._redact_entire_image(video_frame)
+            redacted_image = self._apply_redaction_to_image(
+                video_frame, redacted_image, detections_object
+            )
+            redacted_video_frames.append(redacted_image)
+
+        write_video_frames(
+            redacted_path, redacted_video_frames, fps, (width, height)
+        )
+
+    def _redact_entire_image(self, image):
         if self.redaction_method == "gaussian_blur":
             ksize = int(
                 _GAUSSIAN_BLUR_KERNEL_SIZE(min(image.shape[0], image.shape[1]))
@@ -297,7 +329,11 @@ class Redaction(fob.BrainMethod):
             raise ValueError(
                 f"Unimplemented redaction method: {self.redaction_method}"
             )
+        return redacted_image
 
+    def _apply_redaction_to_image(
+        self, image, redacted_image, detections_object
+    ):
         for detection in self.filter_detections(detections_object).detections:
             x1, y1, x2, y2 = get_corners_from_bbox(
                 detection.bounding_box, image.shape
@@ -315,8 +351,7 @@ class Redaction(fob.BrainMethod):
                 raise ValueError(
                     f"Unknown redaction type: {self.redaction_type}"
                 )
-
-        cv2.imwrite(redacted_path, image)
+        return image
 
     def filter_detections(
         self, detections_object: fol.Detections, keep_matching: bool = True
@@ -426,3 +461,32 @@ def _get_outpath(inpath, rel_output_dir):
     dir_path = os.path.join(dir_path, rel_output_dir)
     os.makedirs(dir_path, exist_ok=True)
     return os.path.join(dir_path, filename)
+
+
+def read_video_frames(filepath):
+    cap = cv2.VideoCapture(filepath)
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    frames = []
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frames.append(frame)
+    cap.release()
+    return frames, fps, (width, height)
+
+
+def write_video_frames(
+    filepath, frames, fps: int, frame_width_height: Tuple[int, int]
+):
+    video_file = cv2.VideoWriter(
+        filepath, cv2.VideoWriter_fourcc(*"mp4v"), fps, frame_width_height
+    )
+    for frame in frames:
+        video_file.write(frame)
+    video_file.release()
+    return
