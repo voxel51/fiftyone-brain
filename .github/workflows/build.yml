@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone fiftyone-brain
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           submodules: true
       - name: Set up Python
@@ -64,7 +64,7 @@ jobs:
           - "3.11"
     steps:
       - name: Clone fiftyone-brain
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           submodules: true
       - name: Set up Python ${{ matrix.python }}
