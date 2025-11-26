@@ -12,20 +12,23 @@ from typing import Tuple
 import numpy as np
 import cv2
 
+# from eta.core.video import VideoProcessor
+
 import fiftyone as fo
 import fiftyone.core.storage as fos
 import fiftyone.core.brain as fob
 import fiftyone.core.labels as fol
 import fiftyone.core.validation as fov
+from fiftyone import ViewField as F
 
 
 logger = logging.getLogger(__name__)
 
 
 _ALLOWED_TYPES = (
+    fol.Detection,
     fol.Detections,
-    fol.Polylines,
-    fol.Keypoints,
+    fol.TemporalDetection,
     fol.TemporalDetections,
 )
 
@@ -39,6 +42,7 @@ def create_redaction(
     label_classes,
     redaction_type,
     redaction_method,
+    redaction_field,
     force_recreate,
     create_as_new_sample,
     num_workers,
@@ -63,6 +67,7 @@ def create_redaction(
         label_classes,
         redaction_type,
         redaction_method,
+        redaction_field,
         force_recreate,
         create_as_new_sample,
     )
@@ -84,25 +89,21 @@ def create_redaction(
     view = samples.select_fields(select_fields)
 
     logger.info("Computing redaction...")
-    view._dataset.persistent = True
     for sample in view.iter_samples(progress=progress):
         brain_method.process_sample(sample)
         sample.save()
 
-    if not create_as_new_sample:
-        logger.info(f"Adding redacted media field: {brain_key}_filepath")
-        if (
-            f"{brain_key}_filepath"
-            not in view._dataset.app_config.media_fields
-        ):
-            view._dataset.app_config.media_fields.append(
-                f"{brain_key}_filepath"
-            )
+    logger.info(f"Adding redacted media field: {brain_key}_filepath")
+    if f"{brain_key}_filepath" not in view._dataset.app_config.media_fields:
+        view._dataset.app_config.media_fields.append(f"{brain_key}_filepath")
 
     view._dataset.save()
-    brain_method.save_run_results(samples, brain_key, None)
+
+    results = RedactionResults(samples, config, brain_key, brain_method)
+    brain_method.save_run_results(samples, brain_key, results)
 
     logger.info("Redaction computation complete")
+    return results
 
 
 # @todo move to `fiftyone/brain/redaction.py`
@@ -115,6 +116,7 @@ class RedactionConfig(fob.BrainMethodConfig):
         label_classes,
         redaction_type,
         redaction_method,
+        redaction_field,
         force_recreate,
         create_as_new_sample,
         **kwargs,
@@ -124,9 +126,9 @@ class RedactionConfig(fob.BrainMethodConfig):
         self.label_classes = label_classes
         self.redaction_type = redaction_type
         self.redaction_method = redaction_method
+        self.redaction_field = redaction_field
         self.force_recreate = force_recreate
         self.create_as_new_sample = create_as_new_sample
-        self.redaction_field = None
         self.make_redaction_field()
 
     def make_redaction_field(self):
@@ -139,14 +141,18 @@ class RedactionConfig(fob.BrainMethodConfig):
             ]
         else:
             try:
-                self.label_classes = list(self.label_classes)
+                self.label_classes = list(map(str, self.label_classes))
             except:
                 raise ValueError(
                     f"Invalid label classes type: {type(self.label_classes)}"
                 )
         redaction_labels = "_".join(self.label_classes)
-        redaction_field = f"redacted_{self.label_field.replace('.', '_')}_{redaction_labels}_{self.redaction_type}_{self.redaction_method}"
-        self.redaction_field = redaction_field
+        redaction_field_string = f"redacted_{self.label_field.replace('.', '_')}_{redaction_labels}_{self.redaction_type}_{self.redaction_method}"
+        self.redaction_field = (
+            redaction_field_string
+            if self.redaction_field is None
+            else self.redaction_field
+        )
 
     @property
     def type(self):
@@ -196,50 +202,46 @@ class Redaction(fob.BrainMethod):
             sample.filepath,
             rel_output_dir=self.redaction_field,
         )
-        if self.create_as_new_sample:
-            if (
-                ("redacted_sample_ids" in sample)
-                and (sample["redacted_sample_ids"] is not None)
-                and (self.redaction_field in sample["redacted_sample_ids"])
-                and (
-                    os.path.exists(
-                        sample._dataset[
-                            sample["redacted_sample_ids"][self.redaction_field]
-                        ]["filepath"]
-                    )
-                )
-            ):
-                logger.debug(
-                    f"Redaction already exists for sample {sample.id} --> {sample['redacted_sample_ids'][self.redaction_field]}"
-                )
-                if self.force_recreate:
-                    sample._dataset.delete_sample(
-                        sample["redacted_sample_ids"][self.redaction_field]
-                    )
-                    sample["redacted_sample_ids"].pop(self.redaction_field)
-                else:
-                    return
-            if self.redaction_field in sample.tags:
-                logger.debug(
-                    f"This is a redaction of sample {sample['original_sample_id']}"
-                )
+        # if self.create_as_new_sample:
+        #     if (
+        #         ("redacted_sample_ids" in sample)
+        #         and (sample["redacted_sample_ids"] is not None)
+        #         and (self.redaction_field in sample["redacted_sample_ids"])
+        #         and (
+        #             os.path.exists(
+        #                 sample._dataset[
+        #                     sample["redacted_sample_ids"][self.redaction_field]
+        #                 ]["filepath"]
+        #             )
+        #         )
+        #     ):
+        #         logger.debug(
+        #             f"Redaction already exists for sample {sample.id} --> {sample['redacted_sample_ids'][self.redaction_field]}"
+        #         )
+        #         if self.force_recreate:
+        #             sample._dataset.delete_sample(
+        #                 sample["redacted_sample_ids"][self.redaction_field]
+        #             )
+        #             sample["redacted_sample_ids"].pop(self.redaction_field)
+        #         else:
+        #             return
+        #     if self.redaction_field in sample.tags:
+        #         logger.debug(
+        #             f"This is a redaction of sample {sample['original_sample_id']}"
+        #         )
+        #         return
+
+        if (
+            (f"{self.redaction_field}_filepath" in sample)
+            and (sample[f"{self.redaction_field}_filepath"] is not None)
+            and (os.path.exists(sample[f"{self.redaction_field}_filepath"]))
+        ):
+            logger.debug(f"Redaction already exists for sample {sample.id}")
+            if self.force_recreate:
+                sample[f"{self.redaction_field}_filepath"] = None
+                sample.tags.remove(self.redaction_field)
+            else:
                 return
-        else:
-            if (
-                (f"{self.redaction_field}_filepath" in sample)
-                and (sample[f"{self.redaction_field}_filepath"] is not None)
-                and (
-                    os.path.exists(sample[f"{self.redaction_field}_filepath"])
-                )
-            ):
-                logger.debug(
-                    f"Redaction already exists for sample {sample.id}"
-                )
-                if self.force_recreate:
-                    sample[f"{self.redaction_field}_filepath"] = None
-                    sample.tags.remove(self.redaction_field)
-                else:
-                    return
 
         shutil.copy(sample.filepath, redacted_media_path)
 
@@ -254,31 +256,31 @@ class Redaction(fob.BrainMethod):
         else:
             self.redact_file_at(redacted_media_path, sample[self.label_field])
 
-        if self.create_as_new_sample:
-            redacted_sample = sample.copy()
-            redacted_sample[self.label_field] = self.filter_detections(
-                sample[self.label_field], keep_matching=False
-            )
-            redacted_sample["filepath"] = redacted_media_path
-            if self.redaction_field not in redacted_sample.tags:
-                redacted_sample.tags.append(self.redaction_field)
-            redacted_sample["original_sample_id"] = sample.id
-            logger.debug(
-                f"Adding redacted sample at filepath: {redacted_media_path}"
-            )
-            sample._dataset.add_sample(redacted_sample)
-            if ("redacted_sample_ids" not in sample) or (
-                sample["redacted_sample_ids"] is None
-            ):
-                sample["redacted_sample_ids"] = {}
-            sample["redacted_sample_ids"][
-                self.redaction_field
-            ] = redacted_sample.id
-        else:
-            # add the redacted filepath to the sample
-            if self.redaction_field not in sample.tags:
-                sample.tags.append(self.redaction_field)
-            sample[f"{self.redaction_field}_filepath"] = redacted_media_path
+        # if self.create_as_new_sample:
+        #     redacted_sample = sample.copy()
+        #     redacted_sample[self.label_field] = self.filter_detections(
+        #         sample[self.label_field], keep_matching=False
+        #     )
+        #     redacted_sample["filepath"] = redacted_media_path
+        #     if self.redaction_field not in redacted_sample.tags:
+        #         redacted_sample.tags.append(self.redaction_field)
+        #     redacted_sample["original_sample_id"] = sample.id
+        #     logger.debug(
+        #         f"Adding redacted sample at filepath: {redacted_media_path}"
+        #     )
+        #     sample._dataset.add_sample(redacted_sample)
+        #     if ("redacted_sample_ids" not in sample) or (
+        #         sample["redacted_sample_ids"] is None
+        #     ):
+        #         sample["redacted_sample_ids"] = {}
+        #     sample["redacted_sample_ids"][
+        #         self.redaction_field
+        #     ] = redacted_sample.id
+
+        # add the redacted filepath to the sample
+        if self.redaction_field not in sample.tags:
+            sample.tags.append(self.redaction_field)
+        sample[f"{self.redaction_field}_filepath"] = redacted_media_path
 
         sample.save()
         return
@@ -385,32 +387,87 @@ class Redaction(fob.BrainMethod):
     def get_fields(self, samples, brain_key):
         fields = [
             self.label_field,
-            self.redaction_field,
-            "original_sample_id",
-            "redacted_sample_ids",
+            f"{brain_key}_filepath",
+            # "original_sample_id",
+            # "redacted_sample_ids",
         ]
 
-        if samples._is_frame_field(self.label_field):
-            fields.append(samples._FRAMES_PREFIX + self.redaction_field)
+        # if samples._is_frame_field(self.label_field):
+        #     fields.append(samples._FRAMES_PREFIX + f"{brain_key}_filepath")
 
         return fields
 
     def cleanup(self, samples, brain_key):
         label_field = self.label_field
-        redaction_field = self.redaction_field
 
-        samples._dataset.delete_sample_fields(redaction_field, error_level=1)
+        # samples._dataset.delete_sample_fields(brain_key, error_level=1)
+        samples._dataset.delete_sample_fields(
+            f"{brain_key}_filepath", error_level=1
+        )
 
         if samples._is_frame_field(label_field):
-            samples._dataset.delete_frame_fields(
-                redaction_field, error_level=1
-            )
+            samples._dataset.delete_frame_fields(brain_key, error_level=1)
 
     def _validate_run(self, samples, brain_key, existing_info):
         self._validate_fields_match(brain_key, "label_field", existing_info)
         self._validate_fields_match(
             brain_key, "redaction_field", existing_info
         )
+
+
+class RedactionResults(fob.BrainResults):
+    """Class for storing the results of :meth:`fiftyone.brain.create_redaction`.
+
+    Args:
+        samples: the :class:`fiftyone.core.collections.SampleCollection` used
+        config: the :class:`RedactionConfig` used
+        brain_key: the brain key
+        backend (None): a :class:`Redaction` backend
+    """
+
+    def __init__(self, samples, config, brain_key, backend=None):
+        super().__init__(samples, config, brain_key, backend=backend)
+
+    def generate_redacted_dataset(self, name=None, overwrite=False):
+        """
+        Generates a new dataset with the redacted media only.
+        Args:
+            name: name of the redacted dataset
+            overwrite: whether to overwrite the redacted dataset if it already exists
+        Returns:
+            fo.Dataset
+        """
+        redacted_dataset_name = (
+            name
+            if name is not None
+            else f"{self.samples._dataset.name}_{self.samples.name}_redacted"
+        )
+        redacted_dataset = fo.Dataset(
+            name=redacted_dataset_name, overwrite=overwrite
+        )
+
+        select_fields = self.backend.get_fields(self.samples, self.key)
+        redacted_view = self.samples.select_fields(select_fields)
+
+        for redacted_sample in redacted_view.iter_samples():
+            redacted_sample["filepath"] = redacted_sample[
+                f"{self.key}_filepath"
+            ]
+            redacted_sample[
+                self.backend.label_field
+            ] = self.backend.filter_detections(
+                redacted_sample[self.backend.label_field], keep_matching=False
+            )
+
+            redacted_sample.tags.append(self.key)
+            redacted_dataset.add_sample(redacted_sample)
+
+        redacted_dataset.delete_sample_fields(
+            f"{self.key}_filepath", error_level=1
+        )
+        logger.info(f"Redacted dataset {redacted_dataset.name} created")
+
+        return redacted_dataset
 
 
 def fit_mask_to_bbox(
