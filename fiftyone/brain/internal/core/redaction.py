@@ -12,7 +12,7 @@ from typing import Tuple
 import numpy as np
 import cv2
 
-# from eta.core.video import VideoProcessor
+from eta.core.video import VideoProcessor
 
 import fiftyone as fo
 import fiftyone.core.storage as fos
@@ -294,25 +294,31 @@ class Redaction(fob.BrainMethod):
         cv2.imwrite(redacted_path, image)
 
     def redact_video_file_at(self, redacted_path, detections_object_list):
-        video_frames, fps, (width, height) = read_video_frames(redacted_path)
-        if len(video_frames) != len(detections_object_list):
-            raise ValueError(
-                f"Number of video frames ({len(video_frames)}) does not match the number of detections ({len(detections_object_list)})"
-            )
-
-        redacted_video_frames = []
-        for video_frame, detections_object in zip(
-            video_frames, detections_object_list
-        ):
-            redacted_image = self._redact_entire_image(video_frame)
-            redacted_image = self._apply_redaction_to_image(
-                video_frame, redacted_image, detections_object
-            )
-            redacted_video_frames.append(redacted_image)
-
-        write_video_frames(
-            redacted_path, redacted_video_frames, fps, (width, height)
+        suffix = redacted_path.split(".")[-1]
+        temp_redacted_path = redacted_path.replace(
+            f".{suffix}", f"_temp.{suffix}"
         )
+        with VideoProcessor(
+            redacted_path,
+            out_video_path=temp_redacted_path,
+            out_opts=[
+                "-pix_fmt",
+                "yuv420p",
+                "-c:v",
+                "libopenh264",  # this increases the video quality
+            ],
+        ) as vp:
+            if vp.total_frame_count != len(detections_object_list):
+                raise ValueError(
+                    f"Number of video frames ({vp.total_frame_count}) does not match the number of detections ({len(detections_object_list)})"
+                )
+            for frame, detections_object in zip(vp, detections_object_list):
+                redacted_image = self._redact_entire_image(frame)
+                redacted_image = self._apply_redaction_to_image(
+                    frame, redacted_image, detections_object
+                )
+                vp.write(redacted_image)
+        shutil.move(temp_redacted_path, redacted_path)
 
     def _redact_entire_image(self, image):
         if self.redaction_method == "gaussian_blur":
@@ -518,32 +524,3 @@ def _get_outpath(inpath, rel_output_dir):
     dir_path = os.path.join(dir_path, rel_output_dir)
     os.makedirs(dir_path, exist_ok=True)
     return os.path.join(dir_path, filename)
-
-
-def read_video_frames(filepath):
-    cap = cv2.VideoCapture(filepath)
-
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-    frames = []
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frames.append(frame)
-    cap.release()
-    return frames, fps, (width, height)
-
-
-def write_video_frames(
-    filepath, frames, fps: int, frame_width_height: Tuple[int, int]
-):
-    video_file = cv2.VideoWriter(
-        filepath, cv2.VideoWriter_fourcc(*"mp4v"), fps, frame_width_height
-    )
-    for frame in frames:
-        video_file.write(frame)
-    video_file.release()
-    return
