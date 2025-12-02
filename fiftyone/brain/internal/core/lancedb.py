@@ -433,8 +433,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 index_ids = list(self.current_sample_ids)
 
             df = table.to_pandas()
-            df.set_index("id", drop=False, inplace=True)
-            df = df.loc[df.index.isin(set(index_ids))]
+            df = df[df["id"].isin(index_ids)]
             table = self._db.create_table(
                 self.config.table_name + "_filter", df, mode="overwrite"
             )
@@ -484,8 +483,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         # Query by ID(s)
         df = self._table.to_pandas()
-        df.set_index("id", drop=False, inplace=True)
-        df = df.loc[df.index.isin(set(query_ids))]
+        df = df[df["id"].isin(query_ids)]
         query = np.array([v for v in df["vector"]])
         if query.size == 0:
             raise ValueError(
