@@ -487,7 +487,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         query = np.array([v for v in df["vector"]])
         if query.size == 0:
             raise ValueError(
-                "Sample ids %s were not found in the LanceDB index" % query_ids
+                "Query ids %s were not found in the LanceDB index" % query_ids
             )
         if single_query:
             query = query[0, :]
