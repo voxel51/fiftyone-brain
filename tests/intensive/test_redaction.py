@@ -11,6 +11,7 @@ import os
 import fiftyone as fo
 import fiftyone.brain as fob
 import fiftyone.zoo as foz
+from fiftyone import ViewField as F
 
 
 def test_create_redaction_fields():
@@ -99,7 +100,6 @@ def test_create_redaction_samples():
         redaction_type="bounding_box",
         redaction_method="mask",
         redaction_field=brain_key,
-        create_as_new_sample=False,
     )
     redacted_dataset = results.generate_redacted_dataset(
         name="test_10_redacted_dataset", overwrite=True
@@ -108,6 +108,15 @@ def test_create_redaction_samples():
         assert brain_key in redacted_sample.tags
         assert redacted_sample["filepath"] is not None
         assert os.path.exists(redacted_sample["filepath"])
+
+    assert (
+        len(
+            redacted_dataset.match(
+                F("ground_truth.detections.label").contains(["person", "car"])
+            )
+        )
+        == 0
+    )
 
     dataset.delete_brain_run(brain_key)
 

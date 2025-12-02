@@ -972,7 +972,6 @@ def create_redaction(
     redaction_method="gaussian_blur",
     redaction_field=None,
     force_recreate=False,
-    create_as_new_sample=False,
     num_workers=None,
     progress=None,
 ):
@@ -982,8 +981,8 @@ def create_redaction(
     Replaces the regions (based on the redaction_type = bounding_box/segmentation_mask)
     with a blurred/masked image based on the redaction_method.
 
-    The redacted media is added as a new media field by default,
-    with an option to add it as a new sample.
+    The redacted media is added as a new media field specified by the redaction_field
+    and also added to the tags of the sample for easy filtering.
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
@@ -1016,6 +1015,9 @@ def create_redaction(
         progress: whether to render a progress bar (True/False), use the
             default value ``fiftyone.config.show_progress_bars`` (None), or a
             progress callback function to invoke instead
+    Returns:
+        a :class:`fiftyone.brain.redaction.RedactionResults`
+        This has a method generate_redacted_dataset() to generate a new dataset with the redaction.
     """
     import fiftyone.brain.internal.core.redaction as fbr
 
@@ -1027,7 +1029,6 @@ def create_redaction(
         redaction_method,
         redaction_field,
         force_recreate,
-        create_as_new_sample,
         num_workers,
         progress,
     )
