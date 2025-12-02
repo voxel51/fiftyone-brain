@@ -620,9 +620,10 @@ class PineconeSimilarityIndex(SimilarityIndex):
         # Query by ID(s)
         response = self._index.fetch(query_ids)["vectors"]
         query = np.array([response[_id]["values"] for _id in query_ids])
+
         if query.size == 0:
             raise ValueError(
-                "Query ids %s were not found in the index" % query_ids
+                "Query IDs %s were not found in the index" % query_ids
             )
 
         if single_query:

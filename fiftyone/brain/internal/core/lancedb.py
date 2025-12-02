@@ -485,10 +485,12 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         df = self._table.to_pandas()
         df = df[df["id"].isin(query_ids)]
         query = np.array([v for v in df["vector"]])
+
         if query.size == 0:
             raise ValueError(
-                "Query ids %s were not found in the LanceDB index" % query_ids
+                "Query IDs %s were not found in the index" % query_ids
             )
+
         if single_query:
             query = query[0, :]
 

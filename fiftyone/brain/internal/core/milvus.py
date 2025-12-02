@@ -755,9 +755,10 @@ class MilvusSimilarityIndex(SimilarityIndex):
         # Query by ID(s)
         response = self._get_embeddings(query_ids)
         query = np.array([x["vector"] for x in response])
+
         if query.size == 0:
             raise ValueError(
-                "Query ids %s were not found in the index" % query_ids
+                "Query IDs %s were not found in the index" % query_ids
             )
 
         if single_query:
