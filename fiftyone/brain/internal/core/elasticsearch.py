@@ -782,6 +782,11 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
             [r["_source"]["vector"] for r in response["docs"] if r["found"]]
         )
 
+        if query.size == 0:
+            raise ValueError(
+                "Query IDs %s were not found in the index" % query_ids
+            )
+
         if single_query:
             query = query[0, :]
 
