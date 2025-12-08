@@ -28,8 +28,6 @@ logger = logging.getLogger(__name__)
 _ALLOWED_TYPES = (
     fol.Detection,
     fol.Detections,
-    fol.TemporalDetection,
-    fol.TemporalDetections,
 )
 
 _GAUSSIAN_BLUR_KERNEL_SIZE = lambda w: (w // 10) * 2 + 1  # ensure ksize is odd
@@ -44,7 +42,6 @@ def create_redaction(
     redaction_method,
     redaction_field,
     force_recreate,
-    num_workers,
     progress,
 ):
     """See ``fiftyone/brain/__init__.py``."""
@@ -96,10 +93,9 @@ def create_redaction(
         sample.save()
 
     logger.info(f"Adding redacted media field: {brain_key}_filepath")
-    if f"{brain_key}_filepath" not in view._dataset.app_config.media_fields:
-        view._dataset.app_config.media_fields.append(f"{brain_key}_filepath")
-
-    view._dataset.save()
+    if f"{brain_key}_filepath" not in samples.app_config.media_fields:
+        samples.app_config.media_fields.append(f"{brain_key}_filepath")
+        samples.save()
 
     results = RedactionResults(samples, config, brain_key, brain_method)
     brain_method.save_run_results(samples, brain_key, results)
@@ -108,9 +104,6 @@ def create_redaction(
     return results
 
 
-# @todo move to `fiftyone/brain/redaction.py`
-# Don't do this hastily; `get_brain_info()` on existing datasets has this
-# class's full path in it and may need migration
 class RedactionConfig(fob.BrainMethodConfig):
     def __init__(
         self,
@@ -129,9 +122,10 @@ class RedactionConfig(fob.BrainMethodConfig):
         self.redaction_method = redaction_method
         self.redaction_field = redaction_field
         self.force_recreate = force_recreate
+        self.validate_label_classes()
         self.make_redaction_field()
 
-    def make_redaction_field(self):
+    def validate_label_classes(self):
         if isinstance(self.label_classes, str):
             self.label_classes = [
                 label_name.strip()
@@ -146,8 +140,9 @@ class RedactionConfig(fob.BrainMethodConfig):
                 raise ValueError(
                     f"Invalid label classes type: {type(self.label_classes)}"
                 )
-        redaction_labels = "_".join(self.label_classes)
-        redaction_field_string = f"redacted_{self.label_field.replace('.', '_')}_{redaction_labels}_{self.redaction_type}_{self.redaction_method}"
+
+    def make_redaction_field(self):
+        redaction_field_string = f"redacted_{self.label_field.replace('.', '_')}_{self.redaction_type}_{self.redaction_method}"
         self.redaction_field = (
             redaction_field_string
             if self.redaction_field is None
@@ -160,7 +155,7 @@ class RedactionConfig(fob.BrainMethodConfig):
 
     @property
     def method(self):
-        return self.redaction_field
+        return self.redaction_method
 
 
 class Redaction(fob.BrainMethod):
@@ -168,30 +163,21 @@ class Redaction(fob.BrainMethod):
         super().__init__(config)
         self.label_field = None
         self.label_type = None
-        self.label_classes = None
-        self.redaction_type = None
-        self.redaction_method = None
-        self.force_recreate = None
-        self.redaction_field = None
+        self.label_classes = self.config.label_classes
+        self.redaction_type = self.config.redaction_type
+        self.redaction_method = self.config.redaction_method
+        self.redaction_field = self.config.redaction_field
+        self.force_recreate = self.config.force_recreate
         self.processing_frames = False
 
     def ensure_requirements(self):
         pass
 
     def register_samples(self, samples):
-        self.label_field, _ = samples._handle_frame_field(
+        self.label_field, self.processing_frames = samples._handle_frame_field(
             self.config.label_field
         )
         self.label_type = samples._get_label_field_type(
-            self.config.label_field
-        )
-        self.label_classes = self.config.label_classes
-
-        self.redaction_type = self.config.redaction_type
-        self.redaction_method = self.config.redaction_method
-        self.redaction_field = self.config.redaction_field
-        self.force_recreate = self.config.force_recreate
-        self.processing_frames = samples._is_frame_field(
             self.config.label_field
         )
 
@@ -296,21 +282,21 @@ class Redaction(fob.BrainMethod):
                 detection.bounding_box, image.shape
             )
             mask = detection.get_mask()
-            if self.redaction_type == "segmentation_mask" and mask is not None:
+            if self.redaction_type == "segmentation_mask":
+                if mask is None:
+                    logger.warning(f"No mask found for detection: {detection}")
+                    continue
                 mask = fit_mask_to_bbox(mask, (y2 - y1, x2 - x1))
                 image[y1:y2, x1:x2][mask] = redacted_image[y1:y2, x1:x2][mask]
             elif self.redaction_type == "bounding_box":
                 image[y1:y2, x1:x2] = redacted_image[y1:y2, x1:x2]
-            elif self.redaction_type == "segmentation_mask" and mask is None:
-                logger.warning(f"No mask found for detection: {detection}")
-                continue
             else:
                 raise ValueError(
                     f"Unknown redaction type: {self.redaction_type}"
                 )
         return image
 
-    def get_fields(self, samples, brain_key):
+    def get_fields(self, brain_key):
         fields = [
             self.label_field,
             f"{brain_key}_filepath",
@@ -365,9 +351,9 @@ class RedactionResults(fob.BrainResults):
             name=redacted_dataset_name, overwrite=overwrite
         )
 
-        select_fields = self.backend.get_fields(self.samples, self.key)
+        select_fields = self.backend.get_fields(self.key)
         redacted_view = self.samples.select_fields(select_fields)
-        # exclude detetions of type label_field from the redacted dataset
+        # exclude detections of type label_field from the redacted dataset
         redacted_view = redacted_view.filter_labels(
             f"{self.backend.label_field}.detections",
             ~F("label").is_in(self.backend.label_classes),

@@ -972,7 +972,6 @@ def create_redaction(
     redaction_method="gaussian_blur",
     redaction_field=None,
     force_recreate=False,
-    num_workers=None,
     progress=None,
 ):
     """Creates a redacted media file for the specified label classes in the specified label field.
@@ -987,10 +986,8 @@ def create_redaction(
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
         label_field: the name of the label field to process. Can be of type
-            :class:`fiftyone.core.labels.Detections`,
-            :class:`fiftyone.core.labels.Polylines`,
-            :class:`fiftyone.core.labels.Keypoints`, or
-            :class:`fiftyone.core.labels.TemporalDetections`
+            :class:`fiftyone.core.labels.Detection` or
+            :class:`fiftyone.core.labels.Detections`
         label_classes: a list or a comma-separated string of the label classes to redact, containing sensitive data
         redaction_type: the area in which to perform the redaction. Can be one of the following:
             "bounding_box": apply to the bounding box of the label class
@@ -1011,7 +1008,6 @@ def create_redaction(
                 the redaction_field will point to its ID
                 and the new sample's original_sample_id will point to the original sample
             Note: The redaction_field will be unique function of the label, method & type args
-        num_workers: the number of workers to use when performing the redaction
         progress: whether to render a progress bar (True/False), use the
             default value ``fiftyone.config.show_progress_bars`` (None), or a
             progress callback function to invoke instead
@@ -1029,6 +1025,5 @@ def create_redaction(
         redaction_method,
         redaction_field,
         force_recreate,
-        num_workers,
         progress,
     )

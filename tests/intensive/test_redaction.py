@@ -46,9 +46,7 @@ def test_recreate_redaction_fields():
         redaction_type="bounding_box",
         redaction_method="stack_blur",
     )
-    expected_brain_key = (
-        "redacted_ground_truth_person_car_bounding_box_stack_blur"
-    )
+    expected_brain_key = "redacted_ground_truth_bounding_box_stack_blur"
 
     for sample in test_view.iter_samples():
         redacted_image_path = sample[expected_brain_key + "_filepath"]
