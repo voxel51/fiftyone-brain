@@ -88,8 +88,17 @@ def create_redaction(
         only_matches=False,
     )
 
-    for sample in redaction_view.iter_samples(progress=progress):
-        brain_method.process_sample(sample)
+    if brain_method.processing_frames:
+        detections_object_list = samples.values(config.label_field)
+    else:
+        detections_object_list = [
+            sample[config.label_field]
+            for sample in redaction_view.iter_samples()
+        ]
+    for sample, sample_detections in zip(
+        redaction_view.iter_samples(progress=progress), detections_object_list
+    ):
+        brain_method.process_sample(sample, sample_detections)
         sample.save()
 
     logger.info(f"Adding redacted media field: {brain_key}_filepath")
@@ -181,36 +190,41 @@ class Redaction(fob.BrainMethod):
             self.config.label_field
         )
 
-    def process_sample(self, sample):
-        redacted_media_path = _get_outpath(
-            sample.filepath,
-            rel_output_dir=self.redaction_field,
-        )
-
-        if (
-            (f"{self.redaction_field}_filepath" in sample)
-            and (sample[f"{self.redaction_field}_filepath"] is not None)
-            and (os.path.exists(sample[f"{self.redaction_field}_filepath"]))
-        ):
-            logger.debug(f"Redaction already exists for sample {sample.id}")
-            if self.force_recreate:
-                sample[f"{self.redaction_field}_filepath"] = None
-                sample.tags.remove(self.redaction_field)
-            else:
-                return
-
-        shutil.copy(sample.filepath, redacted_media_path)
-
-        if self.processing_frames:
-            detections_object_list = [
-                frame[self.label_field.replace("frames.", "")]
-                for frame in sample.frames.values()
-            ]
-            self.redact_video_file_at(
-                redacted_media_path, detections_object_list
-            )
+    def process_sample(self, sample, sample_detections):
+        if len(sample_detections) == 0:
+            redacted_media_path = sample.filepath
         else:
-            self.redact_file_at(redacted_media_path, sample[self.label_field])
+            redacted_media_path = _get_outpath(
+                sample.filepath,
+                rel_output_dir=self.redaction_field,
+            )
+
+            if (
+                (f"{self.redaction_field}_filepath" in sample)
+                and (sample[f"{self.redaction_field}_filepath"] is not None)
+                and (
+                    os.path.exists(sample[f"{self.redaction_field}_filepath"])
+                )
+            ):
+                logger.debug(
+                    f"Redaction already exists for sample {sample.id}"
+                )
+                if self.force_recreate:
+                    sample[f"{self.redaction_field}_filepath"] = None
+                    sample.tags.remove(self.redaction_field)
+                else:
+                    return
+
+            shutil.copy(sample.filepath, redacted_media_path)
+
+            if self.processing_frames:
+                self.redact_video_file_at(
+                    redacted_media_path, sample_detections
+                )
+            else:
+                self.redact_image_file_at(
+                    redacted_media_path, sample_detections
+                )
 
         # add the redacted filepath to the sample
         if self.redaction_field not in sample.tags:
@@ -220,7 +234,7 @@ class Redaction(fob.BrainMethod):
         sample.save()
         return
 
-    def redact_file_at(self, redacted_path, detections_object):
+    def redact_image_file_at(self, redacted_path, detections_object):
         image = cv2.imread(redacted_path)
         redacted_image = self._redact_entire_image(image)
         image = self._apply_redaction_to_image(
