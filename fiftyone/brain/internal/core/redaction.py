@@ -82,19 +82,18 @@ def create_redaction(
     view = samples.select_fields(select_fields)
 
     logger.info("Computing redaction...")
+
+    for sample in view.iter_samples():
+        sample[f"{config.redaction_field}_filepath"] = sample.filepath
+        sample.save()
+
     redaction_view = view.filter_labels(
         f"{config.label_field}.detections",
         F("label").is_in(config.label_classes),
-        only_matches=False,
+        only_matches=True,
     )
+    detections_object_list = redaction_view.values(config.label_field)
 
-    if brain_method.processing_frames:
-        detections_object_list = samples.values(config.label_field)
-    else:
-        detections_object_list = [
-            sample[config.label_field]
-            for sample in redaction_view.iter_samples()
-        ]
     for sample, sample_detections in zip(
         redaction_view.iter_samples(progress=progress), detections_object_list
     ):
@@ -135,20 +134,12 @@ class RedactionConfig(fob.BrainMethodConfig):
         self.make_redaction_field()
 
     def validate_label_classes(self):
-        if isinstance(self.label_classes, str):
-            self.label_classes = [
-                label_name.strip()
-                for label_name in self.label_classes.strip("[")
-                .strip("]")
-                .split(",")
-            ]
-        else:
-            try:
-                self.label_classes = list(map(str, self.label_classes))
-            except:
-                raise ValueError(
-                    f"Invalid label classes type: {type(self.label_classes)}"
-                )
+        try:
+            self.label_classes = list(map(str.strip, self.label_classes))
+        except:
+            raise ValueError(
+                f"Invalid label classes type: {type(self.label_classes)}"
+            )
 
     def make_redaction_field(self):
         redaction_field_string = f"redacted_{self.label_field.replace('.', '_')}_{self.redaction_type}_{self.redaction_method}"
@@ -170,8 +161,8 @@ class RedactionConfig(fob.BrainMethodConfig):
 class Redaction(fob.BrainMethod):
     def __init__(self, config):
         super().__init__(config)
-        self.label_field = None
         self.label_type = None
+        self.label_field = self.config.label_field
         self.label_classes = self.config.label_classes
         self.redaction_type = self.config.redaction_type
         self.redaction_method = self.config.redaction_method
@@ -183,7 +174,7 @@ class Redaction(fob.BrainMethod):
         pass
 
     def register_samples(self, samples):
-        self.label_field, self.processing_frames = samples._handle_frame_field(
+        _, self.processing_frames = samples._handle_frame_field(
             self.config.label_field
         )
         self.label_type = samples._get_label_field_type(
@@ -191,40 +182,29 @@ class Redaction(fob.BrainMethod):
         )
 
     def process_sample(self, sample, sample_detections):
-        if len(sample_detections) == 0:
-            redacted_media_path = sample.filepath
-        else:
-            redacted_media_path = _get_outpath(
-                sample.filepath,
-                rel_output_dir=self.redaction_field,
-            )
+        redacted_media_path = _get_outpath(
+            sample.filepath,
+            rel_output_dir=self.redaction_field,
+        )
 
-            if (
-                (f"{self.redaction_field}_filepath" in sample)
-                and (sample[f"{self.redaction_field}_filepath"] is not None)
-                and (
-                    os.path.exists(sample[f"{self.redaction_field}_filepath"])
-                )
-            ):
-                logger.debug(
-                    f"Redaction already exists for sample {sample.id}"
-                )
-                if self.force_recreate:
-                    sample[f"{self.redaction_field}_filepath"] = None
-                    sample.tags.remove(self.redaction_field)
-                else:
-                    return
-
-            shutil.copy(sample.filepath, redacted_media_path)
-
-            if self.processing_frames:
-                self.redact_video_file_at(
-                    redacted_media_path, sample_detections
-                )
+        if (
+            (f"{self.redaction_field}_filepath" in sample)
+            and (sample[f"{self.redaction_field}_filepath"] is not None)
+            and (os.path.exists(sample[f"{self.redaction_field}_filepath"]))
+        ):
+            logger.debug(f"Redaction already exists for sample {sample.id}")
+            if self.force_recreate:
+                sample[f"{self.redaction_field}_filepath"] = None
+                sample.tags.remove(self.redaction_field)
             else:
-                self.redact_image_file_at(
-                    redacted_media_path, sample_detections
-                )
+                return
+
+        shutil.copy(sample.filepath, redacted_media_path)
+
+        if self.processing_frames:
+            self.redact_video_file_at(redacted_media_path, sample_detections)
+        else:
+            self.redact_image_file_at(redacted_media_path, sample_detections)
 
         # add the redacted filepath to the sample
         if self.redaction_field not in sample.tags:
@@ -235,6 +215,9 @@ class Redaction(fob.BrainMethod):
         return
 
     def redact_image_file_at(self, redacted_path, detections_object):
+        if len(detections_object.detections) == 0:
+            return
+
         image = cv2.imread(redacted_path)
         redacted_image = self._redact_entire_image(image)
         image = self._apply_redaction_to_image(
@@ -243,6 +226,14 @@ class Redaction(fob.BrainMethod):
         cv2.imwrite(redacted_path, image)
 
     def redact_video_file_at(self, redacted_path, detections_object_list):
+        if all(
+            [
+                len(detections_object.detections) == 0
+                for detections_object in detections_object_list
+            ]
+        ):
+            return
+
         suffix = redacted_path.split(".")[-1]
         temp_redacted_path = redacted_path.replace(
             f".{suffix}", f"_temp.{suffix}"
@@ -312,13 +303,13 @@ class Redaction(fob.BrainMethod):
 
     def get_fields(self, brain_key):
         fields = [
-            self.label_field,
+            self.config.label_field,
             f"{brain_key}_filepath",
         ]
         return fields
 
     def cleanup(self, samples, brain_key):
-        label_field = self.label_field
+        label_field = self.config.label_field
 
         samples._dataset.delete_sample_field(
             f"{brain_key}_filepath", error_level=1
@@ -369,7 +360,7 @@ class RedactionResults(fob.BrainResults):
         redacted_view = self.samples.select_fields(select_fields)
         # exclude detections of type label_field from the redacted dataset
         redacted_view = redacted_view.filter_labels(
-            f"{self.backend.label_field}.detections",
+            f"{self.backend.config.label_field}.detections",
             ~F("label").is_in(self.backend.label_classes),
             only_matches=False,
         )
@@ -433,7 +424,6 @@ def get_corners_from_bbox(
 
 def _get_outpath(inpath, rel_output_dir):
     dir_path = os.path.dirname(inpath)
-    # dir_path = fos.normalize_path(dir_path)
     filename = os.path.basename(inpath)
     dir_path = os.path.join(dir_path, rel_output_dir)
     os.makedirs(dir_path, exist_ok=True)

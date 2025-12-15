@@ -988,7 +988,7 @@ def create_redaction(
         label_field: the name of the label field to process. Can be of type
             :class:`fiftyone.core.labels.Detection` or
             :class:`fiftyone.core.labels.Detections`
-        label_classes: a list or a comma-separated string of the label classes to redact, containing sensitive data
+        label_classes: a list of the label classes to redact, containing sensitive data
         redaction_type: the area in which to perform the redaction. Can be one of the following:
             "bounding_box": apply to the bounding box of the label class
             "segmentation_mask": apply to the segmentation mask of the label class
@@ -996,10 +996,9 @@ def create_redaction(
             "mask": mask the sensitive data
             "gaussian_blur": blur the sensitive data using a Gaussian blur
             "stack_blur": blur the sensitive data using a moving stack of colors
-            "pixelate": pixelate the sensitive data region
         redaction_field: the name of the field to store the redaction in.
             If None: the redaction will be stored in a new field with the name
-            "redacted_{label_field}_{label_classes}_{redaction_type}_{redaction_method}"
+            "redacted_{label_field}_{redaction_type}_{redaction_method}"
         force_recreate: whether to force the redaction to be recreated even if it already exists
         create_as_new_sample: whether to create a new sample with the redaction.
             If False: the path to the redacted media will be added

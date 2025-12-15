@@ -121,7 +121,7 @@ def test_redaction():
     _ = fob.create_redaction(
         test_view,
         label_field="ground_truth",
-        label_classes="person,car",
+        label_classes=["person", "car"],
         redaction_type="bounding_box",
         redaction_method="stack_blur",
         redaction_field="test_interface",
@@ -140,7 +140,7 @@ def test_redaction_video():
     _ = fob.create_redaction(
         test_view,
         label_field="frames.detections",
-        label_classes="person,car",
+        label_classes=["person", "car"],
         redaction_type="bounding_box",
         redaction_method="stack_blur",
         redaction_field="test_interface_video",

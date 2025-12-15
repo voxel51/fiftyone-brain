@@ -22,7 +22,7 @@ def test_create_redaction_fields():
     results = fob.create_redaction(
         test_view,
         label_field="ground_truth",
-        label_classes="person,car",
+        label_classes=["person", "car"],
         redaction_type="bounding_box",
         redaction_method="stack_blur",
         redaction_field=brain_key,
@@ -42,7 +42,7 @@ def test_recreate_redaction_fields():
     _ = fob.create_redaction(
         test_view,
         label_field="ground_truth",
-        label_classes="person,car",
+        label_classes=["person", "car"],
         redaction_type="bounding_box",
         redaction_method="stack_blur",
     )
@@ -50,13 +50,16 @@ def test_recreate_redaction_fields():
 
     for sample in test_view.iter_samples():
         redacted_image_path = sample[expected_brain_key + "_filepath"]
-        if os.path.exists(redacted_image_path):
+        original_image_path = sample["filepath"]
+        if (original_image_path != redacted_image_path) and os.path.exists(
+            redacted_image_path
+        ):
             os.remove(redacted_image_path)
 
     _ = fob.create_redaction(
         test_view,
         label_field="ground_truth",
-        label_classes="person,car",
+        label_classes=["person", "car"],
         redaction_type="bounding_box",
         redaction_method="stack_blur",
         force_recreate=False,
@@ -73,7 +76,7 @@ def test_recreate_redaction_fields():
     _ = fob.create_redaction(
         test_view,
         label_field="ground_truth",
-        label_classes="person,car",
+        label_classes=["person", "car"],
         redaction_type="bounding_box",
         redaction_method="stack_blur",
         force_recreate=True,
@@ -86,6 +89,41 @@ def test_recreate_redaction_fields():
     dataset.delete_brain_run(expected_brain_key)
 
 
+def test_create_redaction_samples_video():
+    dataset = foz.load_zoo_dataset("quickstart-video").clone()
+    test_view = dataset.take(1, seed=42)
+
+    brain_key = "test_create_redaction_samples_video"
+    results = fob.create_redaction(
+        test_view,
+        label_field="frames.detections",
+        label_classes=["person", "car"],
+        redaction_type="bounding_box",
+        redaction_method="mask",
+        redaction_field=brain_key,
+    )
+    redacted_dataset = results.generate_redacted_dataset(
+        name="test_1_redacted_dataset", overwrite=True
+    )
+    for redacted_sample in redacted_dataset.iter_samples():
+        assert brain_key in redacted_sample.tags
+        assert redacted_sample["filepath"] is not None
+        assert os.path.exists(redacted_sample["filepath"])
+
+    assert (
+        len(
+            redacted_dataset.match(
+                F("frames.detections.detections.label").contains(
+                    ["person", "car"]
+                )
+            )
+        )
+        == 0
+    )
+
+    dataset.delete_brain_run(brain_key)
+
+
 def test_create_redaction_samples():
     dataset = foz.load_zoo_dataset("quickstart").clone()
     test_view = dataset.take(10, seed=42)
@@ -94,7 +132,7 @@ def test_create_redaction_samples():
     results = fob.create_redaction(
         test_view,
         label_field="ground_truth",
-        label_classes="person,car",
+        label_classes=["person", "car"],
         redaction_type="bounding_box",
         redaction_method="mask",
         redaction_field=brain_key,
