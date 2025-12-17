@@ -75,7 +75,7 @@ jobs:
         run: |
           pip install --upgrade pip setuptools wheel
       - name: Download fiftyone-brain wheel
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: dist
           path: dist/
@@ -129,7 +129,7 @@ jobs:
       id-token: write
     steps:
       - name: Download wheels
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: dist
           path: dist/
