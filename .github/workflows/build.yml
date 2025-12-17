@@ -110,7 +110,7 @@ jobs:
           pip install imageio pytest torch torchvision
       - name: Cache Zoo
         id: fiftyone-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             .fiftyone
