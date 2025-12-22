@@ -88,14 +88,29 @@ def create_redaction(
         only_matches=True,
     )
 
-    redaction_view.map_samples(
-        brain_method.process_sample_fn,
-    )
+    redaction_view.map_samples(brain_method.process_sample_fn, save=True)
 
-    logger.info(f"Adding redacted media field: {brain_key}_filepath")
-    if f"{brain_key}_filepath" not in samples.app_config.media_fields:
-        samples.app_config.media_fields.append(f"{brain_key}_filepath")
+    logger.info(f"Adding redacted media field: {redacted_filepath_field}")
+    if redacted_filepath_field not in samples.app_config.media_fields:
+        samples.app_config.media_fields.append(redacted_filepath_field)
         samples.save()
+
+    # upload the redacted media to the cloud
+    cloud_view = redaction_view.match(F("local_path").exists())
+    remote_base_dirs = list(
+        set([os.path.dirname(f) for f in cloud_view.values("filepath")])
+    )
+    for remote_base_dir in remote_base_dirs:
+        fos.ensure_dir(remote_base_dir)
+        fos.upload_media(
+            cloud_view.match(F("filepath").contains_str(remote_base_dir)),
+            remote_dir=config.redaction_field,
+            rel_dir=remote_base_dir,
+            media_field=redacted_filepath_field,
+            update_filepaths=True,
+            cache=False,
+            overwrite=True,
+        )
 
     results = RedactionResults(samples, config, brain_key, brain_method)
     brain_method.save_run_results(samples, brain_key, results)
@@ -169,11 +184,16 @@ class Redaction(fob.BrainMethod):
         self.label_type = samples._get_label_field_type(self.label_field)
 
     def process_sample_fn(self, sample):
-        redacted_media_path = _get_outpath(
-            sample.filepath,
+        local_media_path = (
+            sample.filepath
+            if fos.is_local(sample.filepath)
+            else sample.local_path
+        )
+        redacted_media_path = _get_outpath_local(
+            local_media_path,
             rel_output_dir=self.redaction_field,
         )
-        fos.copy_file(sample.filepath, redacted_media_path)
+        fos.copy_file(local_media_path, redacted_media_path)
         if self.processing_frames:
             self.redact_video_file_at(redacted_media_path, self.label_field)
         else:
@@ -285,6 +305,7 @@ class Redaction(fob.BrainMethod):
 
     def _validate_run(self, samples, brain_key, existing_info):
         self._validate_fields_match(brain_key, "label_field", existing_info)
+        self._validate_fields_match(brain_key, "label_classes", existing_info)
         self._validate_fields_match(
             brain_key, "redaction_field", existing_info
         )
@@ -384,9 +405,9 @@ def get_corners_from_bbox(
     return (x1, y1, x2, y2)
 
 
-def _get_outpath(inpath, rel_output_dir):
-    dir_path = os.path.dirname(inpath)
+def _get_outpath_local(inpath, rel_output_dir):
     filename = os.path.basename(inpath)
-    dir_path = os.path.join(dir_path, rel_output_dir)
-    os.makedirs(dir_path, exist_ok=True)
-    return os.path.join(dir_path, filename)
+    dir_path = os.path.dirname(inpath)
+    out_dir_path = fos.join(dir_path, rel_output_dir)
+    fos.ensure_dir(out_dir_path)
+    return fos.join(out_dir_path, filename)
