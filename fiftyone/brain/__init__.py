@@ -1000,13 +1000,6 @@ def create_redaction(
             If None: the redaction will be stored in a new field with the name
             "redacted_{label_field}_{redaction_type}_{redaction_method}"
         force_recreate: whether to force the redaction to be recreated even if it already exists
-        create_as_new_sample: whether to create a new sample with the redaction.
-            If False: the path to the redacted media will be added
-                to the redaction_field of the original sample.
-            If True: a new sample will be created with the redaction;
-                the redaction_field will point to its ID
-                and the new sample's original_sample_id will point to the original sample
-            Note: The redaction_field will be unique function of the label, method & type args
         progress: whether to render a progress bar (True/False), use the
             default value ``fiftyone.config.show_progress_bars`` (None), or a
             progress callback function to invoke instead

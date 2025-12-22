@@ -17,6 +17,7 @@ from eta.core.video import VideoProcessor
 import fiftyone as fo
 import fiftyone.core.storage as fos
 import fiftyone.core.brain as fob
+import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
 import fiftyone.core.validation as fov
 from fiftyone import ViewField as F
@@ -72,21 +73,18 @@ def create_redaction(
     brain_method.register_run(samples, brain_key, cleanup=False)
     brain_method.register_samples(samples)
 
-    select_fields = [
-        label_field,
-        brain_key,
-    ]
-    select_fields = [
-        ff for ff in select_fields if samples.get_field(ff) is not None
-    ]
+    redacted_filepath_field = f"{config.redaction_field}_filepath"
+    if samples.get_field(redacted_filepath_field) is None:
+        samples._dataset.add_sample_field(
+            redacted_filepath_field, fof.StringField
+        )
+
+    select_fields = [label_field, "filepath", redacted_filepath_field]
     view = samples.select_fields(select_fields)
 
     logger.info("Computing redaction...")
 
-    for sample in view.iter_samples():
-        sample[f"{config.redaction_field}_filepath"] = sample.filepath
-        sample.save()
-
+    view.set_values(redacted_filepath_field, view.values("filepath"))
     redaction_view = view.filter_labels(
         f"{config.label_field}.detections",
         F("label").is_in(config.label_classes),
@@ -94,6 +92,7 @@ def create_redaction(
     )
     detections_object_list = redaction_view.values(config.label_field)
 
+    # TODO(neeraja): use set_values()
     for sample, sample_detections in zip(
         redaction_view.iter_samples(progress=progress), detections_object_list
     ):
@@ -190,7 +189,7 @@ class Redaction(fob.BrainMethod):
         if (
             (f"{self.redaction_field}_filepath" in sample)
             and (sample[f"{self.redaction_field}_filepath"] is not None)
-            and (os.path.exists(sample[f"{self.redaction_field}_filepath"]))
+            and (fos.exists(sample[f"{self.redaction_field}_filepath"]))
         ):
             logger.debug(f"Redaction already exists for sample {sample.id}")
             if self.force_recreate:
@@ -199,7 +198,7 @@ class Redaction(fob.BrainMethod):
             else:
                 return
 
-        shutil.copy(sample.filepath, redacted_media_path)
+        fos.copy_file(sample.filepath, redacted_media_path)
 
         if self.processing_frames:
             self.redact_video_file_at(redacted_media_path, sample_detections)
@@ -215,7 +214,7 @@ class Redaction(fob.BrainMethod):
         return
 
     def redact_image_file_at(self, redacted_path, detections_object):
-        if len(detections_object.detections) == 0:
+        if not detections_object.detections:
             return
 
         image = cv2.imread(redacted_path)
@@ -228,7 +227,7 @@ class Redaction(fob.BrainMethod):
     def redact_video_file_at(self, redacted_path, detections_object_list):
         if all(
             [
-                len(detections_object.detections) == 0
+                not detections_object.detections
                 for detections_object in detections_object_list
             ]
         ):
@@ -258,7 +257,7 @@ class Redaction(fob.BrainMethod):
                     frame, redacted_image, detections_object
                 )
                 vp.write(frame)
-        shutil.move(temp_redacted_path, redacted_path)
+        fos.move_file(temp_redacted_path, redacted_path)
 
     def _redact_entire_image(self, image):
         if self.redaction_method == "gaussian_blur":
@@ -352,9 +351,6 @@ class RedactionResults(fob.BrainResults):
             if name is not None
             else f"{self.samples._dataset.name}_{self.samples.name}_redacted"
         )
-        redacted_dataset = fo.Dataset(
-            name=redacted_dataset_name, overwrite=overwrite
-        )
 
         select_fields = self.backend.get_fields(self.key)
         redacted_view = self.samples.select_fields(select_fields)
@@ -365,12 +361,12 @@ class RedactionResults(fob.BrainResults):
             only_matches=False,
         )
 
-        for redacted_sample in redacted_view.iter_samples():
-            redacted_sample["filepath"] = redacted_sample[
-                f"{self.key}_filepath"
-            ]
-            redacted_sample.tags.append(self.key)
-            redacted_dataset.add_sample(redacted_sample)
+        if overwrite and redacted_dataset_name in fo.list_datasets():
+            fo.delete_dataset(redacted_dataset_name)
+        redacted_dataset = redacted_view.clone(name=redacted_dataset_name)
+        redacted_dataset.set_values(
+            "filepath", redacted_view.values(f"{self.key}_filepath")
+        )
 
         # remove the redacted field from the redacted dataset
         redacted_dataset.delete_sample_field(
