@@ -35,60 +35,6 @@ def test_create_redaction_fields():
     dataset.delete_brain_run(brain_key)
 
 
-# def test_recreate_redaction_fields():
-#     dataset = foz.load_zoo_dataset("quickstart").clone()
-#     test_view = dataset.take(5, seed=42)
-
-#     _ = fob.create_redaction(
-#         test_view,
-#         label_field="ground_truth",
-#         label_classes=["person", "car"],
-#         redaction_type="bounding_box",
-#         redaction_method="stack_blur",
-#     )
-#     expected_brain_key = "redacted_ground_truth_bounding_box_stack_blur"
-
-#     for sample in test_view.iter_samples():
-#         redacted_image_path = sample[expected_brain_key + "_filepath"]
-#         original_image_path = sample["filepath"]
-#         if (original_image_path != redacted_image_path) and os.path.exists(
-#             redacted_image_path
-#         ):
-#             os.remove(redacted_image_path)
-
-#     _ = fob.create_redaction(
-#         test_view,
-#         label_field="ground_truth",
-#         label_classes=["person", "car"],
-#         redaction_type="bounding_box",
-#         redaction_method="stack_blur",
-#         force_recreate=False,
-#         # still recreates since the files are missing
-#     )
-#     for sample in test_view.iter_samples():
-#         redacted_image_path = sample[expected_brain_key + "_filepath"]
-#         assert redacted_image_path is not None
-#         assert os.path.exists(redacted_image_path)
-#     modification_time = os.path.getmtime(
-#         test_view.first()[expected_brain_key + "_filepath"]
-#     )
-
-#     _ = fob.create_redaction(
-#         test_view,
-#         label_field="ground_truth",
-#         label_classes=["person", "car"],
-#         redaction_type="bounding_box",
-#         redaction_method="stack_blur",
-#         force_recreate=True,
-#     )
-#     new_modification_time = os.path.getmtime(
-#         test_view.first()[expected_brain_key + "_filepath"]
-#     )
-#     assert new_modification_time > modification_time
-
-#     dataset.delete_brain_run(expected_brain_key)
-
-
 def test_create_redaction_samples_video():
     dataset = foz.load_zoo_dataset("quickstart-video").clone()
     test_view = dataset.take(1, seed=42)
@@ -106,8 +52,6 @@ def test_create_redaction_samples_video():
         name="test_1_redacted_dataset", overwrite=True
     )
     for redacted_sample in redacted_dataset.iter_samples():
-        # TODO(neeraja): revisit the tags functionality
-        # assert brain_key in redacted_sample.tags
         assert redacted_sample["filepath"] is not None
         assert os.path.exists(redacted_sample["filepath"])
 
@@ -142,8 +86,6 @@ def test_create_redaction_samples():
         name="test_10_redacted_dataset", overwrite=True
     )
     for redacted_sample in redacted_dataset.iter_samples():
-        # TODO(neeraja): revisit the tags functionality
-        # assert brain_key in redacted_sample.tags
         assert redacted_sample["filepath"] is not None
         assert os.path.exists(redacted_sample["filepath"])
 

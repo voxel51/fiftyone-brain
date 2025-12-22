@@ -971,7 +971,6 @@ def create_redaction(
     redaction_type="bounding_box",
     redaction_method="gaussian_blur",
     redaction_field=None,
-    force_recreate=False,
     progress=None,
 ):
     """Creates a redacted media file for the specified label classes in the specified label field.
@@ -980,8 +979,7 @@ def create_redaction(
     Replaces the regions (based on the redaction_type = bounding_box/segmentation_mask)
     with a blurred/masked image based on the redaction_method.
 
-    The redacted media is added as a new media field specified by the redaction_field
-    and also added to the tags of the sample for easy filtering.
+    The redacted media is added as a new media field specified by the redaction_field.
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
@@ -999,7 +997,6 @@ def create_redaction(
         redaction_field: the name of the field to store the redaction in.
             If None: the redaction will be stored in a new field with the name
             "redacted_{label_field}_{redaction_type}_{redaction_method}"
-        force_recreate: whether to force the redaction to be recreated even if it already exists
         progress: whether to render a progress bar (True/False), use the
             default value ``fiftyone.config.show_progress_bars`` (None), or a
             progress callback function to invoke instead
@@ -1016,6 +1013,5 @@ def create_redaction(
         redaction_type,
         redaction_method,
         redaction_field,
-        force_recreate,
         progress,
     )
