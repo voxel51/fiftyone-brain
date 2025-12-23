@@ -11,6 +11,7 @@ import os
 import fiftyone as fo
 import fiftyone.brain as fob
 import fiftyone.zoo as foz
+import fiftyone.core.storage as fos
 from fiftyone import ViewField as F
 
 
@@ -30,7 +31,11 @@ def test_create_redaction_fields():
     assert brain_key in dataset.list_brain_runs()
     redacted_image_path = test_view.first()[brain_key + "_filepath"]
     assert redacted_image_path is not None
-    assert os.path.exists(redacted_image_path)
+    assert fos.exists(redacted_image_path)
+    assert (
+        test_view.first()[brain_key + "_filepath"]
+        != test_view.first()["filepath"]
+    )  # only since the first sample has >0 detections of label classes
 
     dataset.delete_brain_run(brain_key)
 
@@ -53,7 +58,7 @@ def test_create_redaction_samples_video():
     )
     for redacted_sample in redacted_dataset.iter_samples():
         assert redacted_sample["filepath"] is not None
-        assert os.path.exists(redacted_sample["filepath"])
+        assert fos.exists(redacted_sample["filepath"])
 
     assert (
         len(
@@ -87,7 +92,7 @@ def test_create_redaction_samples():
     )
     for redacted_sample in redacted_dataset.iter_samples():
         assert redacted_sample["filepath"] is not None
-        assert os.path.exists(redacted_sample["filepath"])
+        assert fos.exists(redacted_sample["filepath"])
 
     assert (
         len(

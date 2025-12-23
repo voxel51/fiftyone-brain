@@ -12,6 +12,8 @@ from typing import Tuple
 import numpy as np
 import cv2
 
+cv2.setNumThreads(1)
+
 from eta.core.video import VideoProcessor
 
 import fiftyone as fo
@@ -88,7 +90,9 @@ def create_redaction(
         only_matches=True,
     )
 
-    redaction_view.map_samples(brain_method.process_sample_fn, save=True)
+    _ = list(
+        redaction_view.map_samples(brain_method.process_sample_fn, save=True)
+    )
 
     logger.info(f"Adding redacted media field: {redacted_filepath_field}")
     if redacted_filepath_field not in samples.app_config.media_fields:
@@ -96,16 +100,20 @@ def create_redaction(
         samples.save()
 
     # upload the redacted media to the cloud
-    cloud_view = redaction_view.match(F("local_path").exists())
     remote_base_dirs = list(
-        set([os.path.dirname(f) for f in cloud_view.values("filepath")])
+        set(
+            [
+                os.path.dirname(f)
+                for f in redaction_view.values("filepath")
+                if not fos.is_local(f)
+            ]
+        )
     )
     for remote_base_dir in remote_base_dirs:
         fos.ensure_dir(remote_base_dir)
         fos.upload_media(
-            cloud_view.match(F("filepath").contains_str(remote_base_dir)),
-            remote_dir=config.redaction_field,
-            rel_dir=remote_base_dir,
+            redaction_view.match(F("filepath").contains_str(remote_base_dir)),
+            remote_dir=fos.join(remote_base_dir, config.redaction_field),
             media_field=redacted_filepath_field,
             update_filepaths=True,
             cache=False,
@@ -195,9 +203,15 @@ class Redaction(fob.BrainMethod):
         )
         fos.copy_file(local_media_path, redacted_media_path)
         if self.processing_frames:
-            self.redact_video_file_at(redacted_media_path, self.label_field)
+            self.redact_video_file_at(
+                redacted_media_path, sample[self.label_field]
+            )
         else:
-            self.redact_image_file_at(redacted_media_path, self.label_field)
+            self.redact_image_file_at(
+                redacted_media_path, sample[self.label_field]
+            )
+
+        sample[f"{self.redaction_field}_filepath"] = redacted_media_path
 
     def redact_image_file_at(self, redacted_path, detections_object):
         if not detections_object.detections:
