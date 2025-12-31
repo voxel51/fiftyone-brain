@@ -1,8 +1,8 @@
-#!/bin/bash
+#!/bin/sh
 # Installs the `fiftyone-brain` package and its dependencies.
 #
 # Usage:
-#   bash install.bash
+#   sh install.sh
 #
 # Copyright 2017-2025, Voxel51, Inc.
 # voxel51.com
@@ -11,7 +11,7 @@
 # Show usage information
 set -e
 usage() {
-    echo "Usage:  bash $0 [-h] [-d]
+    echo "Usage:  sh $0 [-h] [-d]
 
 Getting help:
 -h      Display this help message.
