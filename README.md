@@ -62,7 +62,7 @@ and run the install script:
 
 ```shell
 # Mac or Linux
-bash install.bash
+bash install.sh
 
 # Windows
 .\install.bat
@@ -75,7 +75,7 @@ developer installation using the `-d` flag of the install script:
 
 ```shell
 # Mac or Linux
-bash install.bash -d
+bash install.sh -d
 
 # Windows
 .\install.bat -d
