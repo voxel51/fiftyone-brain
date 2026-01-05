@@ -32,10 +32,14 @@ def test_create_redaction_fields():
     redacted_image_path = test_view.first()[brain_key + "_filepath"]
     assert redacted_image_path is not None
     assert fos.exists(redacted_image_path)
-    assert (
-        test_view.first()[brain_key + "_filepath"]
-        != test_view.first()["filepath"]
-    )  # only since the first sample has >0 detections of label classes
+    nontrivial_samples = test_view.match(
+        F("ground_truth.detections.label").contains(["person", "car"])
+    )
+    if len(nontrivial_samples) > 0:
+        assert (
+            nontrivial_samples.first()[brain_key + "_filepath"]
+            != nontrivial_samples.first()["filepath"]
+        )
 
     dataset.delete_brain_run(brain_key)
 

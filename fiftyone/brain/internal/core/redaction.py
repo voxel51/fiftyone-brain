@@ -44,6 +44,7 @@ def create_redaction(
     redaction_type,
     redaction_method,
     redaction_field,
+    remote_redacted_media_dir,
     progress,
 ):
     """See ``fiftyone/brain/__init__.py``."""
@@ -81,7 +82,7 @@ def create_redaction(
     select_fields = [label_field, "filepath", redacted_filepath_field]
     view = samples.select_fields(select_fields)
 
-    logger.info("Computing redaction...")
+    logger.info("Computing redaction ...")
 
     view.set_values(redacted_filepath_field, view.values("filepath"))
     redaction_view = view.filter_labels(
@@ -100,25 +101,23 @@ def create_redaction(
         samples.save()
 
     # upload the redacted media to the cloud
-    remote_base_dirs = list(
-        set(
-            [
-                os.path.dirname(f)
-                for f in redaction_view.values("filepath")
-                if not fos.is_local(f)
-            ]
-        )
-    )
-    for remote_base_dir in remote_base_dirs:
-        fos.ensure_dir(remote_base_dir)
-        fos.upload_media(
-            redaction_view.match(F("filepath").contains_str(remote_base_dir)),
-            remote_dir=fos.join(remote_base_dir, config.redaction_field),
-            media_field=redacted_filepath_field,
-            update_filepaths=True,
-            cache=False,
-            overwrite=True,
-        )
+    if hasattr(fos, "upload_media"):
+        if remote_redacted_media_dir is not None:
+            logger.info(
+                f"Uploading redacted media to {remote_redacted_media_dir} ..."
+            )
+            fos.upload_media(
+                redaction_view,
+                remote_dir=remote_redacted_media_dir,
+                media_field=redacted_filepath_field,
+                update_filepaths=True,
+                cache=False,
+                overwrite=True,
+            )
+        else:
+            logger.info(
+                "No `remote_redacted_media_dir` provided, not uploading redacted media to the cloud"
+            )
 
     results = RedactionResults(samples, config, brain_key, brain_method)
     brain_method.save_run_results(samples, brain_key, results)

@@ -971,6 +971,7 @@ def create_redaction(
     redaction_type="bounding_box",
     redaction_method="gaussian_blur",
     redaction_field=None,
+    remote_redacted_media_dir=None,
     progress=None,
 ):
     """Creates a redacted media file for the specified label classes in the specified label field.
@@ -997,6 +998,9 @@ def create_redaction(
         redaction_field: the name of the field to store the redaction in.
             If None: the redaction will be stored in a new field with the name
             "redacted_{label_field}_{redaction_type}_{redaction_method}"
+        remote_redacted_media_dir: the remote directory to store the redacted media in.
+            Only available with FiftyOne Teams.
+            If None: the redacted media will not be uploaded to the cloud.
         progress: whether to render a progress bar (True/False), use the
             default value ``fiftyone.config.show_progress_bars`` (None), or a
             progress callback function to invoke instead
@@ -1013,5 +1017,6 @@ def create_redaction(
         redaction_type,
         redaction_method,
         redaction_field,
+        remote_redacted_media_dir,
         progress,
     )
