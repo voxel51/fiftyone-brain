@@ -1,15 +1,13 @@
 """
 Tests for :mod:`fiftyone.brain.internal.models.simple_resnet`.
 
-| Copyright 2017-2025, Voxel51, Inc.
+| Copyright 2017-2026, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
 import imageio
 from PIL import Image
-import pytest
 import torch
-import torchvision
 
 import eta.core.image as etai
 

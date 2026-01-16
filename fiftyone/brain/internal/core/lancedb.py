@@ -1,7 +1,7 @@
 """
 LanceDB similarity backend.
 
-| Copyright 2017-2025, Voxel51, Inc.
+| Copyright 2017-2026, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -433,8 +433,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 index_ids = list(self.current_sample_ids)
 
             df = table.to_pandas()
-            df.set_index("id", drop=False, inplace=True)
-            df = df.loc[index_ids]
+            df = df[df["id"].isin(index_ids)]
             table = self._db.create_table(
                 self.config.table_name + "_filter", df, mode="overwrite"
             )
@@ -484,9 +483,14 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         # Query by ID(s)
         df = self._table.to_pandas()
-        df.set_index("id", drop=False, inplace=True)
-        df = df.loc[query_ids]
+        df = df[df["id"].isin(query_ids)]
         query = np.array([v for v in df["vector"]])
+
+        if query.size == 0:
+            raise ValueError(
+                "Query IDs %s were not found in the index" % query_ids
+            )
+
         if single_query:
             query = query[0, :]
 

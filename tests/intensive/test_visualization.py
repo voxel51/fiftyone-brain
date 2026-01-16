@@ -5,7 +5,7 @@ All of these tests are designed to be run manually via::
 
     pytest tests/intensive/test_visualization.py -s -k test_<name>
 
-| Copyright 2017-2025, Voxel51, Inc.
+| Copyright 2017-2026, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -13,7 +13,6 @@ import unittest
 
 import cv2
 import numpy as np
-import random as rand
 
 import fiftyone as fo
 import fiftyone.brain as fob

@@ -1,7 +1,7 @@
 """
 Qdrant similarity backend.
 
-| Copyright 2017-2025, Voxel51, Inc.
+| Copyright 2017-2026, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -653,6 +653,11 @@ class QdrantSimilarityIndex(SimilarityIndex):
         qids = self._to_qdrant_ids(query_ids)
         response = self._retrieve_points(qids, with_vectors=True)
         query = np.array([r.vector for r in response])
+
+        if query.size == 0:
+            raise ValueError(
+                "Query IDs %s were not found in the index" % query_ids
+            )
 
         if single_query:
             query = query[0, :]

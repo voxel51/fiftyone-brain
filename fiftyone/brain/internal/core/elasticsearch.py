@@ -1,7 +1,7 @@
 """
 Elastisearch similarity backend.
 
-| Copyright 2017-2025, Voxel51, Inc.
+| Copyright 2017-2026, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -781,6 +781,11 @@ class ElasticsearchSimilarityIndex(SimilarityIndex):
         query = np.array(
             [r["_source"]["vector"] for r in response["docs"] if r["found"]]
         )
+
+        if query.size == 0:
+            raise ValueError(
+                "Query IDs %s were not found in the index" % query_ids
+            )
 
         if single_query:
             query = query[0, :]
