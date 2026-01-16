@@ -84,6 +84,7 @@ jobs:
           repository: voxel51/eta
       # ETA tests will create a storage client which, 
       # in it's __init__, tries to log in to GCP.
+      # See tests/tests_uniqueness.py
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3
         with:
