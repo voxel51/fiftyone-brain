@@ -117,6 +117,9 @@ jobs:
           pip install ./dist/*.whl
       - name: Install ETA from source
         working-directory: eta
+        # Don't install from source if this is a release.
+        # Install from PyPI
+        if: ${{ !startsWith(github.ref, 'refs/heads/rel') && !startsWith(github.ref, 'refs/tags/') }}
         run: |
           python setup.py bdist_wheel
           pip install ./dist/*.whl --force-reinstall
