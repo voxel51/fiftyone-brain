@@ -12,7 +12,6 @@ from typing import Tuple
 import numpy as np
 import cv2
 
-cv2.setNumThreads(1)
 
 from eta.core.video import VideoProcessor
 
@@ -45,6 +44,8 @@ def create_redaction(
     redaction_method,
     redaction_field,
     remote_redacted_media_dir,
+    num_workers,
+    skip_failures,
     progress,
 ):
     """See ``fiftyone/brain/__init__.py``."""
@@ -91,8 +92,16 @@ def create_redaction(
         only_matches=True,
     )
 
+    map_kwargs = {
+        "save": True,
+        "progress": progress,
+        "num_workers": num_workers,
+        "skip_failures": skip_failures,
+    }
     _ = list(
-        redaction_view.map_samples(brain_method.process_sample_fn, save=True)
+        redaction_view.map_samples(
+            brain_method.process_sample_fn, **map_kwargs
+        )
     )
 
     logger.info(f"Adding redacted media field: {redacted_filepath_field}")
@@ -146,12 +155,11 @@ class RedactionConfig(fob.BrainMethodConfig):
         self.make_redaction_field()
 
     def validate_label_classes(self):
-        try:
-            self.label_classes = list(map(str.strip, self.label_classes))
-        except:
-            raise ValueError(
+        if not isinstance(self.label_classes, (list, tuple)):
+            raise TypeError(
                 f"Invalid label classes type: {type(self.label_classes)}"
             )
+        self.label_classes = list(map(str.strip, self.label_classes))
 
     def make_redaction_field(self):
         redaction_field_string = f"redacted_{self.label_field.replace('.', '_')}_{self.redaction_type}_{self.redaction_method}"
@@ -180,14 +188,16 @@ class Redaction(fob.BrainMethod):
         self.redaction_method = self.config.redaction_method
         self.redaction_field = self.config.redaction_field
         self.processing_frames = False
+        self.frame_label_field = None
 
     def ensure_requirements(self):
         pass
 
     def register_samples(self, samples):
-        _, self.processing_frames = samples._handle_frame_field(
-            self.label_field
-        )
+        (
+            self.frame_label_field,
+            self.processing_frames,
+        ) = samples._handle_frame_field(self.label_field)
         self.label_type = samples._get_label_field_type(self.label_field)
 
     def process_sample_fn(self, sample):
@@ -203,7 +213,13 @@ class Redaction(fob.BrainMethod):
         fos.copy_file(local_media_path, redacted_media_path)
         if self.processing_frames:
             self.redact_video_file_at(
-                redacted_media_path, sample[self.label_field]
+                redacted_media_path,
+                list(
+                    map(
+                        lambda frame: frame[self.frame_label_field],
+                        sample.frames.values(),
+                    )
+                ),
             )
         else:
             self.redact_image_file_at(
@@ -251,14 +267,16 @@ class Redaction(fob.BrainMethod):
                     f"Number of video frames ({vp.total_frame_count}) does not match the number of detections ({len(detections_object_list)})"
                 )
             for frame, detections_object in zip(vp, detections_object_list):
-                redacted_image = self._redact_entire_image(frame)
-                frame = self._apply_redaction_to_image(
-                    frame, redacted_image, detections_object
-                )
+                if detections_object:
+                    redacted_image = self._redact_entire_image(frame)
+                    frame = self._apply_redaction_to_image(
+                        frame, redacted_image, detections_object
+                    )
                 vp.write(frame)
         fos.move_file(temp_redacted_path, redacted_path)
 
     def _redact_entire_image(self, image):
+        cv2.setNumThreads(1)
         if self.redaction_method == "gaussian_blur":
             ksize = int(
                 _GAUSSIAN_BLUR_KERNEL_SIZE(min(image.shape[0], image.shape[1]))

@@ -135,7 +135,7 @@ def test_redaction():
 
 def test_redaction_video():
     dataset = foz.load_zoo_dataset("quickstart-video").clone()
-    test_view = dataset.take(1, seed=42)
+    test_view = dataset.limit(1)
 
     _ = fob.create_redaction(
         test_view,
@@ -144,6 +144,7 @@ def test_redaction_video():
         redaction_type="bounding_box",
         redaction_method="stack_blur",
         redaction_field="test_interface_video",
+        num_workers=2,
     )
     print(dataset.list_brain_runs())
     print(dataset.get_brain_info("test_interface_video"))
