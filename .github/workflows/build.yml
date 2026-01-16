@@ -8,7 +8,6 @@ on:
   push:
     branches:
       - develop
-      - afoley/as-1199-remove-brain-secrets
     tags:
       - v*
 
