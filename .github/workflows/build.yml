@@ -56,6 +56,9 @@ jobs:
       FIFTYONE_DATASET_ZOO_DIR: ${{ github.workspace }}/.fiftyone
       FIFTYONE_DO_NOT_TRACK: true
       FIFTYONE_MODEL_ZOO_DIR: ${{ github.workspace }}/.fiftyone
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
