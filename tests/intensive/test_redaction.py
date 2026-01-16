@@ -40,8 +40,12 @@ def test_create_redaction_fields():
             nontrivial_samples.first()[brain_key + "_filepath"]
             != nontrivial_samples.first()["filepath"]
         )
+        redacted_image_path = nontrivial_samples.first()[
+            brain_key + "_filepath"
+        ]
 
     dataset.delete_brain_run(brain_key)
+    assert not fos.exists(redacted_image_path)
 
 
 def test_create_redaction_samples_video():

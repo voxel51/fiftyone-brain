@@ -309,6 +309,12 @@ class Redaction(fob.BrainMethod):
     def cleanup(self, samples, brain_key):
         label_field = self.label_field
 
+        redaction_view = samples.match(
+            F(f"{brain_key}_filepath") != None
+        ).match(F(f"{brain_key}_filepath") != F("filepath"))
+        for sample in redaction_view:
+            fos.delete_file(sample[f"{brain_key}_filepath"])
+
         samples._dataset.delete_sample_field(
             f"{brain_key}_filepath", error_level=1
         )
