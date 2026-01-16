@@ -7,9 +7,7 @@ Tests for :mod:`fiftyone.brain.internal.models.simple_resnet`.
 """
 import imageio
 from PIL import Image
-import pytest
 import torch
-import torchvision
 
 import eta.core.image as etai
 

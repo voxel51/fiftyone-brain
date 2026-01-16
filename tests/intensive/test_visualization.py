@@ -13,7 +13,6 @@ import unittest
 
 import cv2
 import numpy as np
-import random as rand
 
 import fiftyone as fo
 import fiftyone.brain as fob
