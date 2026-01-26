@@ -1,7 +1,7 @@
 """
 Milvus similarity backend.
 
-| Copyright 2017-2025, Voxel51, Inc.
+| Copyright 2017-2026, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -755,6 +755,11 @@ class MilvusSimilarityIndex(SimilarityIndex):
         # Query by ID(s)
         response = self._get_embeddings(query_ids)
         query = np.array([x["vector"] for x in response])
+
+        if query.size == 0:
+            raise ValueError(
+                "Query IDs %s were not found in the index" % query_ids
+            )
 
         if single_query:
             query = query[0, :]

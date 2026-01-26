@@ -1,7 +1,7 @@
 """
 Visualization interface.
 
-| Copyright 2017-2025, Voxel51, Inc.
+| Copyright 2017-2026, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
@@ -1056,7 +1056,7 @@ class TSNEVisualization(Visualization):
             init="pca",
             random_state=self.config.seed,
             verbose=verbose,
-            **{iter_param: self.config.max_iters}
+            **{iter_param: self.config.max_iters},
         )
         return _tsne.fit_transform(embeddings)
 
