@@ -146,11 +146,10 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             self.config.table_name = table_name
             self.save_config()
 
-        else:
-            try:
-                table = db.open_table(self.config.table_name)
-            except ValueError:
-                table = None
+        try:
+            table = db.open_table(self.config.table_name)
+        except ValueError:
+            table = None
 
         self._db = db
         self._table = table
