@@ -507,8 +507,10 @@ def _table_names(db):
     page_token = None
     table_names = []
     while True:
-        _table_names = db.table_names(
-            page_token=page_token, limit=100
+        _table_names = list(
+            db.table_names(
+                page_token=page_token, limit=100
+            )
         )
         table_names.extend(_table_names)
         if len(_table_names) < 100:
