@@ -386,10 +386,9 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             self.config.table_name,
             self.config.table_name + "_filter",
         ):
-            try:
+            if isinstance(tbl, str) and tbl in _table_names(self._db):
                 self._db.drop_table(tbl)
-            except ValueError:
-                pass
+
 
         self._table = None
 
