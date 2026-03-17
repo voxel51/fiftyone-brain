@@ -138,7 +138,6 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 "information" % self.config.uri
             ) from e
 
-
         if self.config.table_name is None:
             table_names = _table_names(db)
             root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
