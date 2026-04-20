@@ -162,4 +162,4 @@ jobs:
       # See
       # [fiftyone-brain](https://pypi.org/manage/project/fiftyone-brain/settings/publishing/)
       - name: Publish
-        uses: pypa/gh-action-pypi-publish@v1.13.0
+        uses: pypa/gh-action-pypi-publish@v1.14.0
