@@ -783,22 +783,6 @@ def get_embeddings(
                 progress=progress,
             )
         else:
-            if (
-                samples.media_type == fomm.VIDEO
-                and model.media_type == fomm.IMAGE
-            ):
-                if hasattr(model, "mode"):
-                    try:
-                        model.mode = "video"
-                    except Exception:
-                        pass
-                if model.media_type == fomm.IMAGE:
-                    raise ValueError(
-                        "This method cannot use image models to compute video "
-                        "embeddings. Try providing precomputed video embeddings "
-                        "or converting to a frames view via `to_frames()` first"
-                    )
-
             logger.info("Computing embeddings...")
             embeddings = samples.compute_embeddings(
                 model,
