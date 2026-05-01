@@ -138,19 +138,19 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 "information" % self.config.uri
             ) from e
 
-        table_names = db.table_names()
-
         if self.config.table_name is None:
+            table_names = _table_names(db)
             root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
             table_name = fbu.get_unique_name(root, table_names)
 
             self.config.table_name = table_name
             self.save_config()
 
-        if self.config.table_name in table_names:
-            table = db.open_table(self.config.table_name)
-        else:
-            table = None
+        table = (
+            db.open_table(self.config.table_name)
+            if isinstance(self.config.table_name, str)
+            else None
+        )
 
         self._db = db
         self._table = table
@@ -387,8 +387,9 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             self.config.table_name,
             self.config.table_name + "_filter",
         ):
-            if tbl in self._db.table_names():
+            if isinstance(tbl, str) and tbl in _table_names(self._db):
                 self._db.drop_table(tbl)
+
 
         self._table = None
 
@@ -499,3 +500,22 @@ class LanceDBSimilarityIndex(SimilarityIndex):
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):
         return cls(samples, config, brain_key)
+
+
+def _table_names(db):
+    # Paginate through table names
+    page_token = None
+    table_names = []
+    while True:
+        _table_names = list(
+            db.table_names(
+                page_token=page_token, limit=100
+            )
+        )
+        table_names.extend(_table_names)
+        if len(_table_names) < 100:
+            break
+
+        page_token = _table_names[-1]
+
+    return table_names
