@@ -804,6 +804,17 @@ def get_embeddings(
                 embeddings.get(_id, None) for _id in samples.values("id")
             ]
 
+        # Per-frame embeddings from video datasets need aggregation to
+        # per-sample embeddings for visualization/similarity
+        if isinstance(embeddings, list) and embeddings:
+            _agg = []
+            for e in embeddings:
+                if isinstance(e, np.ndarray) and e.ndim == 2:
+                    _agg.append(e.mean(axis=0))
+                else:
+                    _agg.append(e)
+            embeddings = _agg
+
         embeddings, ref_sample_ids = _handle_missing_embeddings(
             embeddings, samples
         )
