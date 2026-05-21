@@ -893,12 +893,18 @@ class VisualizationResults(fob.BrainResults):
         Returns:
             self
         """
+        fov.validate_collection(samples)
+        if samples._root_dataset is not self._samples._root_dataset:
+            raise ValueError(
+                "add_samples() requires samples from the same dataset as "
+                "the existing visualization"
+            )
+
         self._prepare_reducer(samples)
 
         config = self.config
         patches_field = config.patches_field
         canonical_field = config.embeddings_field
-
         source_descriptor = _describe_embeddings_source(embeddings)
 
         override_field = None
