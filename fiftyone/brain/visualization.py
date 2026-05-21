@@ -1147,8 +1147,30 @@ class VisualizationResults(fob.BrainResults):
         )
 
         ids_returned = label_ids if patches_field is not None else sample_ids
+
+        returned_set = set(
+            ids_returned.tolist()
+            if hasattr(ids_returned, "tolist")
+            else ids_returned
+        )
+        expected_set = set(training_ids.tolist())
+        if expected_set != returned_set:
+            missing = sorted(expected_set - returned_set)
+            raise ValueError(
+                "Cannot rehydrate UMAP reducer: %d training %s are missing "
+                "from embeddings_field=%r (e.g. %s). The original training "
+                "embeddings are not recoverable; please recompute the "
+                "embeddings visualization."
+                % (
+                    len(missing),
+                    "labels" if patches_field is not None else "samples",
+                    self.config.embeddings_field,
+                    missing[:5],
+                )
+            )
+
         order = {_id: i for i, _id in enumerate(ids_returned)}
-        idx = np.array([order[_id] for _id in training_ids if _id in order])
+        idx = np.array([order[_id] for _id in training_ids])
         return embeddings[idx]
 
     def _filter_known(self, samples, embeddings):
