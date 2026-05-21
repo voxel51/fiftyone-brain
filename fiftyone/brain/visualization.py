@@ -998,7 +998,7 @@ class VisualizationResults(fob.BrainResults):
                 self.use_view(self._curr_view or self._samples)
             return self
 
-        if isinstance(self._reducer, umap.UMAP):
+        if self.config.method == "umap":
             n_new = int(ii.size)
             n_train = self._reducer.embedding_.shape[0]
             ratio = n_new / n_train
@@ -1022,7 +1022,6 @@ class VisualizationResults(fob.BrainResults):
                     "in-distribution with the training set.",
                     n_new,
                 )
-
         new_points = np.asarray(self._reducer.transform(new_emb[ii, :]))
 
         n = len(self.points)
