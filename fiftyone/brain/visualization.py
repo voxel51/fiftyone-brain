@@ -1302,6 +1302,20 @@ class Visualization(fob.BrainMethod):
     supports_add_embeddings = False
 
     def fit_reducer(self, embeddings):
+        if type(self).fit is not Visualization.fit:
+            import warnings
+
+            warnings.warn(
+                "Overriding `Visualization.fit()` is deprecated; subclasses "
+                "should implement `fit_reducer(embeddings) -> (points, "
+                "reducer)` instead. The legacy `fit()` hook will continue "
+                "to work but cannot participate in incremental "
+                "visualization updates.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return self.fit(embeddings), None
+
         raise NotImplementedError("subclass must implement fit_reducer()")
 
     def fit(self, embeddings):
