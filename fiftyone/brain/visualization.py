@@ -1111,7 +1111,7 @@ class VisualizationResults(fob.BrainResults):
 
             self._reducer = _unpickle_reducer(self._reducer_blob)
 
-        if isinstance(self._reducer, umap.UMAP):
+        if self.config.method == "umap":
             if getattr(self._reducer, "_raw_data", None) is None:
                 if self.config.embeddings_field is None:
                     raise ValueError(
