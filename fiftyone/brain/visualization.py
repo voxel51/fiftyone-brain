@@ -38,7 +38,6 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = "mobilenet-v2-imagenet-torch"
 _DEFAULT_BATCH_SIZE = None
-_REDUCER_BLOB_WARN_BYTES = 12_000_000
 
 
 def compute_visualization(
@@ -410,15 +409,7 @@ class VisualizationResults(fob.BrainResults):
     @property
     def reducer_blob(self):
         if self._reducer_blob is None and self._reducer is not None:
-            blob = _pickle_reducer(self._reducer)
-            if blob is not None and len(blob) > _REDUCER_BLOB_WARN_BYTES:
-                logger.warning(
-                    "Serialized visualization reducer is %d bytes, which is "
-                    "approaching MongoDB's 16 MB document limit. Persistence "
-                    "may fail.",
-                    len(blob),
-                )
-            self._reducer_blob = blob
+            self._reducer_blob = _pickle_reducer(self._reducer)
 
         return self._reducer_blob
 
@@ -1773,6 +1764,12 @@ def _expected_input_dim(reducer):
 def _strip_umap_training_data(reducer):
     reducer._raw_data = None
     if getattr(reducer, "_knn_search_index", None) is not None:
+        idx = reducer._knn_search_index
+        reducer._knn_index_params = {
+            "n_trees": idx.n_trees,
+            "n_iters": idx.n_iters,
+            "max_candidates": idx.max_candidates,
+        }
         reducer._knn_search_index = None
 
 
@@ -1789,9 +1786,7 @@ def _hydrate_umap_reducer(reducer, embeddings):
     from pynndescent import NNDescent
     from sklearn.utils import check_random_state
 
-    n = embeddings.shape[0]
-    n_trees = min(64, 5 + int(round(n**0.5 / 20.0)))
-    n_iters = max(5, int(round(np.log2(n))))
+    params = reducer._knn_index_params
 
     reducer._knn_search_index = NNDescent(
         embeddings,
@@ -1799,9 +1794,9 @@ def _hydrate_umap_reducer(reducer, embeddings):
         metric=reducer.metric,
         metric_kwds=reducer._metric_kwds,
         random_state=check_random_state(reducer.random_state),
-        n_trees=n_trees,
-        n_iters=n_iters,
-        max_candidates=60,
+        n_trees=params["n_trees"],
+        n_iters=params["n_iters"],
+        max_candidates=params["max_candidates"],
         low_memory=reducer.low_memory,
         n_jobs=reducer.n_jobs,
         verbose=reducer.verbose,
