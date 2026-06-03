@@ -25,8 +25,7 @@ def _transpose(x, source, target):
 def _check_prediction(actual, expected):
     assert isinstance(actual, fo.Classification)
     assert isinstance(expected, fo.Classification)
-    # @todo fix me on 3.9
-    # assert actual.label == expected.label
+    assert actual.label == expected.label
 
 
 def test_simple_resnet():
