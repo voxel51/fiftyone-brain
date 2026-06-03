@@ -64,6 +64,7 @@ jobs:
         python:
           - "3.10"
           - "3.11"
+          - "3.12"
     steps:
       - name: Clone fiftyone-brain
         uses: actions/checkout@v6
