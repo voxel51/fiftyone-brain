@@ -155,6 +155,14 @@ def compute_visualization(
 
         logger.info("Generating visualization...")
         points, reducer = brain_method.fit_reducer(embeddings)
+
+        if config.method == "umap" and embeddings_field is None:
+            logger.warning(
+                "Computed UMAP visualization without an `embeddings_field`; "
+                "incremental updates via `add_samples` won't be available. "
+                "Pass `embeddings=<field_name>` to enable them."
+            )
+            reducer = None
     else:
         points, sample_ids, label_ids = fbu.parse_data(
             samples,
