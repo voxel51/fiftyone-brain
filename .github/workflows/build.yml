@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone fiftyone-brain
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: true
       - name: Set up Python
@@ -67,18 +67,18 @@ jobs:
           - "3.12"
     steps:
       - name: Clone fiftyone-brain
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: true
       - name: Clone fiftyone
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
           path: fiftyone-src
           ref: develop
           repository: voxel51/fiftyone
       - name: Clone voxel51-eta
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         if: ${{ !startsWith(github.ref, 'refs/heads/rel') && !startsWith(github.ref, 'refs/tags/') }}
         with:
           fetch-depth: 1
