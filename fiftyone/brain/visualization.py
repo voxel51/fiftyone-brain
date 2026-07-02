@@ -1175,28 +1175,18 @@ class VisualizationResults(fob.BrainResults):
     def _filter_known(self, samples, embeddings):
         patches_field = self.config.patches_field
 
-        if patches_field is not None and self.label_ids is not None:
-            _, label_ids_path = samples._get_label_field_path(
-                patches_field, "id"
-            )
-            all_label_ids = samples.values(label_ids_path, unwind=True)
-            known_label_ids = set(self.label_ids.tolist())
-            new_label_ids = [
-                _id for _id in all_label_ids if _id not in known_label_ids
-            ]
+        new_ids, num_total = self._diff_ids(samples)
 
-            if len(new_label_ids) < len(all_label_ids):
-                if new_label_ids:
+        if patches_field is not None and self.label_ids is not None:
+            if len(new_ids) < num_total:
+                if new_ids:
                     samples = samples.select_labels(
-                        ids=new_label_ids, fields=patches_field
+                        ids=new_ids, fields=patches_field
                     )
                 else:
                     samples = samples.limit(0)
         else:
-            known_samples = set(self.sample_ids.tolist())
-            all_ids = samples.values("id")
-            new_ids = [_id for _id in all_ids if _id not in known_samples]
-            if len(new_ids) != len(all_ids):
+            if len(new_ids) != num_total:
                 samples = samples.select(new_ids)
 
         if isinstance(embeddings, dict):
@@ -1211,6 +1201,98 @@ class VisualizationResults(fob.BrainResults):
             }
 
         return samples, embeddings
+
+    def _diff_ids(self, samples):
+        patches_field = self.config.patches_field
+
+        if patches_field is not None and self.label_ids is not None:
+            _, label_ids_path = samples._get_label_field_path(
+                patches_field, "id"
+            )
+            all_ids = samples.values(label_ids_path, unwind=True)
+            known = set(self.label_ids.tolist())
+        else:
+            all_ids = samples.values("id")
+            known = set(self.sample_ids.tolist())
+
+        new_ids = [_id for _id in all_ids if _id not in known]
+        return new_ids, len(all_ids)
+
+    def get_new_ids(self, samples=None):
+        """Returns the IDs of the samples/patches in the given collection
+        that are not present in this visualization, along with the number of
+        embeddings that were used to fit this visualization's reducer.
+
+        For sample-level visualizations, sample IDs are returned; for
+        patch-level visualizations, label IDs are returned.
+
+        The training size can be used to decide whether an incremental
+        update via :meth:`add_samples` is appropriate; when the number of
+        new IDs is large relative to the training size (e.g. > 20%),
+        recomputing the visualization will produce a more faithful embedding.
+
+        Args:
+            samples (None): a
+                :class:`fiftyone.core.collections.SampleCollection` to check.
+                By default, the full collection on which this run was
+                performed is used
+
+        Returns:
+            a tuple of
+
+            -   a list of new IDs
+            -   the number of embeddings used to fit the reducer, or ``None``
+                if no reducer is available for this run
+        """
+        if samples is None:
+            samples = self._samples
+
+        new_ids, _ = self._diff_ids(samples)
+        return new_ids, self._training_size()
+
+    def needs_update(self, samples=None):
+        """Determines whether the given collection contains samples/patches
+        that are not present in this visualization.
+
+        Use :meth:`add_samples` to add the new samples to the visualization.
+
+        Args:
+            samples (None): a
+                :class:`fiftyone.core.collections.SampleCollection` to check.
+                By default, the full collection on which this run was
+                performed is used
+
+        Returns:
+            True/False
+        """
+        if samples is None:
+            samples = self._samples
+
+        new_ids, _ = self._diff_ids(samples)
+        return len(new_ids) > 0
+
+    def _training_size(self):
+        if self._reducer is None and self._reducer_blob is not None:
+            try:
+                self._reducer = _unpickle_reducer(self._reducer_blob)
+            except RuntimeError:
+                return None
+
+        reducer = self._reducer
+        if reducer is None:
+            return None
+
+        # UMAP
+        embedding = getattr(reducer, "embedding_", None)
+        if embedding is not None:
+            return embedding.shape[0]
+
+        # PCA
+        n_samples = getattr(reducer, "n_samples_", None)
+        if n_samples is not None:
+            return int(n_samples)
+
+        return None
 
     def _write_points_field(self, new_points, sample_ids, label_ids):
         config = self.config
