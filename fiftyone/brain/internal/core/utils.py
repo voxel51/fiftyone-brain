@@ -5,6 +5,7 @@ Utilities.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+
 import itertools
 import logging
 import random
@@ -22,7 +23,6 @@ import fiftyone.core.media as fomm
 import fiftyone.core.patches as fop
 import fiftyone.zoo as foz
 from fiftyone import ViewField as F
-
 
 logger = logging.getLogger(__name__)
 
@@ -334,20 +334,33 @@ def _parse_ids(ids, index_ids, ftype, allow_missing, warn_missing):
     if np.array_equal(ids, index_ids):
         return None, None, None
 
-    inds_map = {_id: idx for idx, _id in enumerate(index_ids)}
+    # Vectorized membership via a sorted index. Object-dtype string
+    # arrays compare element-wise in Python, so normalize to numpy's
+    # fixed-width unicode first. Assumes `index_ids` contains no
+    # duplicates (they are sample/label ids)
+    ids = np.asarray(ids)
+    index_ids = np.asarray(index_ids)
+    if ids.dtype.kind == "O":
+        ids = ids.astype("U")
 
-    keep_inds = []
-    bad_inds = []
-    bad_ids = []
-    for _idx, _id in enumerate(ids):
-        ind = inds_map.get(_id, None)
-        if ind is not None:
-            keep_inds.append(ind)
-        else:
-            bad_inds.append(_idx)
-            bad_ids.append(_id)
+    if index_ids.dtype.kind == "O":
+        index_ids = index_ids.astype("U")
 
-    num_missing_index = len(index_ids) - len(keep_inds)
+    if index_ids.size > 0:
+        order = np.argsort(index_ids, kind="stable")
+        sorted_index = index_ids[order]
+        pos = np.searchsorted(sorted_index, ids)
+        # Out-of-range positions can't match; clamp them onto a real
+        # entry and let the equality test below reject them
+        pos[pos == index_ids.size] = 0
+        candidates = order[pos]
+        found = index_ids[candidates] == ids
+        keep_inds = candidates[found].astype(np.int64)
+    else:
+        found = np.zeros(ids.shape, dtype=bool)
+        keep_inds = np.array([], dtype=np.int64)
+
+    num_missing_index = index_ids.size - keep_inds.size
     if num_missing_index > 0:
         if not allow_missing:
             raise ValueError(
@@ -363,7 +376,7 @@ def _parse_ids(ids, index_ids, ftype, allow_missing, warn_missing):
                 ftype,
             )
 
-    num_missing_collection = len(bad_ids)
+    num_missing_collection = ids.size - keep_inds.size
     if num_missing_collection > 0:
         if not allow_missing:
             raise ValueError(
@@ -379,15 +392,11 @@ def _parse_ids(ids, index_ids, ftype, allow_missing, warn_missing):
                 ftype,
             )
 
-        bad_inds = np.array(bad_inds, dtype=np.int64)
-
-        good_inds = np.full(ids.shape, True)
-        good_inds[bad_inds] = False
+        good_inds = found
+        bad_ids = ids[~found].tolist()
     else:
         good_inds = None
         bad_ids = None
-
-    keep_inds = np.array(keep_inds, dtype=np.int64)
 
     return keep_inds, good_inds, bad_ids
 
