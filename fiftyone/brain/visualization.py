@@ -5,6 +5,7 @@ Visualization interface.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+
 from copy import deepcopy
 import inspect
 import logging
@@ -19,6 +20,7 @@ import eta.core.utils as etau
 
 import fiftyone.brain as fb
 import fiftyone.core.brain as fob
+import fiftyone.core.dataset as fod
 import fiftyone.core.expressions as foe
 import fiftyone.core.fields as fof
 import fiftyone.core.plots as fop
@@ -527,6 +529,24 @@ class VisualizationResults(fob.BrainResults):
         Returns:
             self
         """
+        if isinstance(sample_collection, fod.Dataset):
+            # A root dataset contains every index point by construction,
+            # so skip the id aggregation that filter_ids would run just
+            # to rediscover that (measured ~1.3s at 500K points; this
+            # runs on every results load via __init__). Like the index
+            # itself, this treats the run as a snapshot: samples deleted
+            # since compute are not pruned here (view-scoped calls still
+            # prune) — refreshing the run is the supported way to sync a
+            # visualization with dataset changes
+            self._curr_view = sample_collection
+            self._curr_points = self.points
+            self._curr_sample_ids = self.sample_ids
+            self._curr_label_ids = self.label_ids
+            self._curr_keep_inds = None
+            self._curr_good_inds = None
+
+            return self
+
         sample_ids, label_ids, keep_inds, good_inds = fbu.filter_ids(
             sample_collection,
             self.sample_ids,
