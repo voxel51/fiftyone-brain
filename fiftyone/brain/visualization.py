@@ -11,6 +11,7 @@ from copy import deepcopy
 import inspect
 import logging
 import pickle
+import zlib
 from packaging import version
 
 import numpy as np
@@ -1898,7 +1899,8 @@ def _pickle_reducer(reducer):
     if reducer is None:
         return None
 
-    return base64.b64encode(pickle.dumps(reducer)).decode("ascii")
+    blob = zlib.compress(pickle.dumps(reducer))
+    return base64.b64encode(blob).decode("ascii")
 
 
 def _unpickle_reducer(blob):
@@ -1906,7 +1908,7 @@ def _unpickle_reducer(blob):
         return None
 
     try:
-        return pickle.loads(base64.b64decode(blob))
+        return pickle.loads(zlib.decompress(base64.b64decode(blob)))
     except Exception as e:
         raise RuntimeError(
             "Failed to deserialize fitted reducer (likely a UMAP/sklearn "
