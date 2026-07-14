@@ -11,7 +11,6 @@ import numpy as np
 
 import eta.core.utils as etau
 
-import fiftyone.core.storage as fos
 import fiftyone.core.utils as fou
 import fiftyone.brain.internal.core.utils as fbu
 from fiftyone.brain.similarity import (
