@@ -19,7 +19,7 @@ from fiftyone.brain.similarity import (
 )
 import fiftyone.brain.internal.core.utils as fbu
 
-vector_search_client = fou.lazy_import("databricks.vector_search.client")
+ai_search_client = fou.lazy_import("databricks.ai_search.client")
 
 
 logger = logging.getLogger(__name__)
@@ -137,10 +137,10 @@ class MosaicSimilarity(Similarity):
     """
 
     def ensure_requirements(self):
-        fou.ensure_package("databricks-vectorsearch")
+        fou.ensure_package("databricks-ai-search")
 
     def ensure_usage_requirements(self):
-        fou.ensure_package("databricks-vectorsearch")
+        fou.ensure_package("databricks-ai-search")
 
     def initialize(self, samples, brain_key):
         return MosaicSimilarityIndex(
@@ -165,7 +165,7 @@ class MosaicSimilarityIndex(SimilarityIndex):
         self._initialize()
 
     def _initialize(self):
-        self._client = vector_search_client.VectorSearchClient(
+        self._client = ai_search_client.AISearchClient(
             workspace_url=self.config.workspace_url,
             service_principal_client_id=self.config.service_principal_client_id,
             service_principal_client_secret=self.config.service_principal_client_secret,
@@ -222,9 +222,12 @@ class MosaicSimilarityIndex(SimilarityIndex):
             },
         )
 
+        # The index must finish provisioning before it can accept writes
+        self._index.wait_until_ready()
+
     @property
     def client(self):
-        """The ``databricks.vector_search.client.VectorSearchClient`` instance for this index."""
+        """The ``databricks.ai_search.client.AISearchClient`` instance for this index."""
         return self._client
 
     @property

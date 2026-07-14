@@ -16,13 +16,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone fiftyone-brain
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: true
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: 3.9
+          python-version: "3.10"
       - name: Check Python version
         run: |
           python --version
@@ -62,23 +62,23 @@ jobs:
       fail-fast: false
       matrix:
         python:
-          - "3.9"
           - "3.10"
           - "3.11"
+          - "3.12"
     steps:
       - name: Clone fiftyone-brain
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: true
       - name: Clone fiftyone
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
           path: fiftyone-src
           ref: develop
           repository: voxel51/fiftyone
       - name: Clone voxel51-eta
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         if: ${{ !startsWith(github.ref, 'refs/heads/rel') && !startsWith(github.ref, 'refs/tags/') }}
         with:
           fetch-depth: 1
@@ -133,7 +133,7 @@ jobs:
           pip install imageio pytest torch torchvision
       - name: Cache Zoo
         id: fiftyone-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             .fiftyone
@@ -162,4 +162,4 @@ jobs:
       # See
       # [fiftyone-brain](https://pypi.org/manage/project/fiftyone-brain/settings/publishing/)
       - name: Publish
-        uses: pypa/gh-action-pypi-publish@v1.13.0
+        uses: pypa/gh-action-pypi-publish@v1.14.0
