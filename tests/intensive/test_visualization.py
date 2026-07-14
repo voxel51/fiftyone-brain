@@ -726,11 +726,13 @@ def test_add_samples_umap_no_embeddings_field_raises():
 
     _add_new_samples(dataset, 5, 64, rng, populate_field=False)
 
+    # UMAP runs computed without an embeddings_field drop their reducer at
+    # compute time, so incremental updates are unavailable
     try:
         results.add_samples(dataset, embeddings=np.zeros((5, 64)))
         assert False, "expected ValueError"
     except ValueError as e:
-        assert "embeddings_field" in str(e)
+        assert "no stored reducer" in str(e)
 
     dataset.delete()
 
