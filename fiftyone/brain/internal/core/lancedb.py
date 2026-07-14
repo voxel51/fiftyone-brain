@@ -29,6 +29,9 @@ _SUPPORTED_METRICS = {
     "euclidean": "l2",
 }
 
+# Page size when paginating LanceDB table listings
+_DB_TABLE_PG_LIMIT = 100
+
 logger = logging.getLogger(__name__)
 
 
@@ -390,7 +393,6 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             if isinstance(tbl, str) and tbl in _table_names(self._db):
                 self._db.drop_table(tbl)
 
-
         self._table = None
 
     def _kneighbors(
@@ -503,19 +505,18 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
 
 def _table_names(db):
-    # Paginate through table names
+    # Cursor on the last name of each page; the response page_token is an
+    # exclusive start_after that drops a table across page boundaries
     page_token = None
     table_names = []
     while True:
-        _table_names = list(
-            db.table_names(
-                page_token=page_token, limit=100
-            )
-        )
-        table_names.extend(_table_names)
-        if len(_table_names) < 100:
+        tables = db.list_tables(
+            page_token=page_token, limit=_DB_TABLE_PG_LIMIT
+        ).tables
+        table_names.extend(tables)
+        if len(tables) < _DB_TABLE_PG_LIMIT:
             break
 
-        page_token = _table_names[-1]
+        page_token = tables[-1]
 
     return table_names
