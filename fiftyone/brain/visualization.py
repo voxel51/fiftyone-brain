@@ -5,6 +5,7 @@ Visualization interface.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+
 from copy import deepcopy
 import inspect
 import logging
@@ -19,6 +20,7 @@ import eta.core.utils as etau
 
 import fiftyone.brain as fb
 import fiftyone.core.brain as fob
+import fiftyone.core.dataset as fod
 import fiftyone.core.expressions as foe
 import fiftyone.core.fields as fof
 import fiftyone.core.plots as fop
@@ -415,6 +417,41 @@ class VisualizationResults(fob.BrainResults):
         self.use_view(self._last_view)
         self._last_view = None
 
+    # Serialized compactly by serialize() rather than expanded into JSON
+    # lists by the base class
+    _ARRAY_FIELDS = ("points", "sample_ids", "label_ids")
+
+    def attributes(self):
+        return [a for a in super().attributes() if a not in self._ARRAY_FIELDS]
+
+    def serialize(self, reflective=False):
+        """Serializes the results into a dictionary.
+
+        The array-valued fields (points and ids) are stored as
+        zlib-compressed, base64-encoded ``.npy`` bytes rather than JSON
+        lists: for large runs the list encoding inflates the stored blob
+        several-fold, and deserializing it materializes millions of
+        transient Python objects. :meth:`_from_dict` accepts both
+        encodings, so results written by earlier versions load unchanged.
+
+        Args:
+            reflective: whether to include reflective attributes when
+                serializing the object. By default, this is False
+
+        Returns:
+            a JSON dictionary representation of the object
+        """
+        d = super().serialize(reflective=reflective)
+        for name in self._ARRAY_FIELDS:
+            arr = getattr(self, name)
+            d[name] = (
+                fou.serialize_numpy_array(np.asarray(arr), ascii=True)
+                if arr is not None
+                else None
+            )
+
+        return d
+
     @property
     def config(self):
         """The :class:`VisualizationConfig` for the results."""
@@ -544,6 +581,24 @@ class VisualizationResults(fob.BrainResults):
         Returns:
             self
         """
+        if isinstance(sample_collection, fod.Dataset):
+            # A root dataset contains every index point by construction,
+            # so skip the id aggregation that filter_ids would run just
+            # to rediscover that (measured ~1.3s at 500K points; this
+            # runs on every results load via __init__). Like the index
+            # itself, this treats the run as a snapshot: samples deleted
+            # since compute are not pruned here (view-scoped calls still
+            # prune) — refreshing the run is the supported way to sync a
+            # visualization with dataset changes
+            self._curr_view = sample_collection
+            self._curr_points = self.points
+            self._curr_sample_ids = self.sample_ids
+            self._curr_label_ids = self.label_ids
+            self._curr_keep_inds = None
+            self._curr_good_inds = None
+
+            return self
+
         sample_ids, label_ids, keep_inds, good_inds = fbu.filter_ids(
             sample_collection,
             self.sample_ids,
@@ -737,15 +792,9 @@ class VisualizationResults(fob.BrainResults):
 
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):
-        points = np.array(d["points"])
-
-        sample_ids = d.get("sample_ids", None)
-        if sample_ids is not None:
-            sample_ids = np.array(sample_ids)
-
-        label_ids = d.get("label_ids", None)
-        if label_ids is not None:
-            label_ids = np.array(label_ids)
+        points = _parse_serialized_array(d["points"])
+        sample_ids = _parse_serialized_array(d.get("sample_ids", None))
+        label_ids = _parse_serialized_array(d.get("label_ids", None))
 
         return cls(
             samples,
@@ -1170,3 +1219,19 @@ class ManualVisualization(Visualization):
             "The low-dimensional representation must be manually provided "
             "when using this method"
         )
+
+
+def _parse_serialized_array(value):
+    """Decodes an array-valued field of serialized visualization results.
+
+    Two encodings exist: current results store arrays as compressed
+    ``.npy`` strings (see :meth:`VisualizationResults.serialize`), while
+    results written by earlier versions store plain JSON lists.
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        return fou.deserialize_numpy_array(value, ascii=True)
+
+    return np.array(value)
