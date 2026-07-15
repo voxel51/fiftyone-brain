@@ -200,6 +200,11 @@ def compute_visualization(
 
     brain_method.save_run_results(samples, brain_key, results)
 
+    # register_run saved the config before points existed, so persist the
+    # count now (VisualizationResults set it) — this is the source of truth;
+    # the app's server-side back-fill is only for runs predating this
+    results.save_config()
+
     return results
 
 
@@ -398,6 +403,10 @@ class VisualizationResults(fob.BrainResults):
         self.points = points
         self.sample_ids = sample_ids
         self.label_ids = label_ids
+
+        # Cache the run size on the config so consumers can read it without
+        # loading the results blob (persisted by ``save_config``)
+        self._config.num_points = len(self.points)
 
         self._last_view = None
         self._curr_view = None
@@ -823,6 +832,8 @@ class VisualizationConfig(fob.BrainMethodConfig):
         patches_field (None): the sample field defining the patches being
             analyzed, if any
         num_dims (2): the dimension of the visualization space
+        num_points (None): the number of points in the index, cached here so
+            consumers can read the run size without loading the results blob
     """
 
     def __init__(
@@ -834,6 +845,7 @@ class VisualizationConfig(fob.BrainMethodConfig):
         model_kwargs=None,
         patches_field=None,
         num_dims=2,
+        num_points=None,
         **kwargs,
     ):
         if similarity_index is not None and not etau.is_str(similarity_index):
@@ -849,6 +861,7 @@ class VisualizationConfig(fob.BrainMethodConfig):
         self.model_kwargs = model_kwargs
         self.patches_field = patches_field
         self.num_dims = num_dims
+        self.num_points = num_points
         super().__init__(**kwargs)
 
     @property
