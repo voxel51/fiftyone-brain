@@ -28,25 +28,8 @@ import fiftyone.core.utils as fou
 import fiftyone.core.validation as fov
 
 fbu = fou.lazy_import("fiftyone.brain.internal.core.utils")
-import sys, types
 
-# Block umap.parametric_umap from triggering `import tensorflow` during
-# umap/__init__.py load (causes an Abseil mutex deadlock on macOS during
-# TF's C++ static init). compute_visualization only uses umap.UMAP, never
-# ParametricUMAP, so a stub is fine.
-if "umap.parametric_umap" not in sys.modules:
-    _stub = types.ModuleType("umap.parametric_umap")
-
-    class _ParametricUMAPDisabled:
-        def __init__(self, *a, **kw):
-            raise NotImplementedError(
-                "ParametricUMAP disabled to avoid TensorFlow deadlock"
-            )
-
-    _stub.ParametricUMAP = _ParametricUMAPDisabled
-    sys.modules["umap.parametric_umap"] = _stub
-
-umap = fou.lazy_import("umap.umap_")
+umap = fou.lazy_import("umap")
 
 
 logger = logging.getLogger(__name__)
