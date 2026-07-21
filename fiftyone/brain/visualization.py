@@ -158,10 +158,10 @@ def compute_visualization(
         points, reducer = brain_method.fit_reducer(embeddings)
 
         if config.method == "umap" and embeddings_field is None:
-            logger.warning(
-                "Computed UMAP visualization without an `embeddings_field`; "
-                "incremental updates via `add_samples` won't be available. "
-                "Pass `embeddings=<field_name>` to enable them."
+            logger.info(
+                "Computed UMAP visualization without an embeddings field; "
+                "incremental updates via add_samples() won't be available. "
+                "Pass `embeddings=<field name>` next time to enable them"
             )
             reducer = None
     else:
@@ -370,7 +370,7 @@ class VisualizationResults(fob.BrainResults):
         label_ids (None): a ``num_points`` array of label IDs, if applicable
         reducer (None): the fitted dimensionality reduction model used to
             generate ``points``, retained to support incremental updates via
-            :meth:`add_embeddings`. Not applicable to all methods
+            :meth:`add_samples`. Not applicable to all methods
         reducer_blob (None): a base64-encoded pickled form of ``reducer``,
             used when reconstructing the results from a persisted run
         backend (None): a :class:`Visualization` backend
@@ -807,6 +807,37 @@ class VisualizationResults(fob.BrainResults):
             self.config.points_field = None
             self.save_config()
 
+    @property
+    def supports_auto_updates(self):
+        """Whether this index can be incrementally updated by calling
+        :meth:`add_samples` without manually providing `embeddings` or a
+        `model`.
+        """
+
+        # Some visualization methods do not support incremental updates
+        if not getattr(self.config.build(), "SUPPORTS_UPDATES", False):
+            return False
+
+        # The string name of a zoo model is required in order to call
+        # `add_samples()` without manually providing `embeddings` or a `model`
+        if self.config.model is None:
+            return False
+
+        # UMAP requires the embeddings to be stored on a field of the dataset
+        # in order to rehydrate its reducer
+        if (
+            self.config.method == "umap"
+            and self.config.embeddings_field is None
+        ):
+            return False
+
+        # If no reducer/blob is stored, this is an older visualization that
+        # cannot be incrementally updated
+        if self._reducer is None and self._reducer_blob is None:
+            return False
+
+        return True
+
     def add_samples(
         self,
         samples,
@@ -820,7 +851,6 @@ class VisualizationResults(fob.BrainResults):
         skip_failures=True,
         progress=None,
         skip_existing=True,
-        overwrite=True,
         allow_existing=True,
         warn_existing=False,
         reload=True,
@@ -847,14 +877,14 @@ class VisualizationResults(fob.BrainResults):
         1. ``embeddings`` if provided (array, dict, or field name)
         2. ``model`` if provided
         3. ``config.embeddings_field`` if populated on the new samples
-        4. ``config.model`` (the zoo model name recorded on the original run),
-           if any
+        4. ``config.model`` if the zoo model name recorded on the original run
         5. otherwise, an error is raised
 
-        Note: if the original :func:`compute_visualization` call was made with
-        a :class:`fiftyone.core.models.Model` instance (rather than a zoo
-        model name), ``config.model`` is ``None`` and you must pass ``model``
-        or ``embeddings`` explicitly here.
+        Note that if the original :func:`compute_visualization` call was made
+        with a :class:`fiftyone.core.models.Model` instance rather than the
+        string name of a zoo model, ``config.model`` is ``None`` and you must
+        pass ``model`` or ``embeddings`` explicitly here to extend the
+        visualization.
 
         Args:
             samples: a :class:`fiftyone.core.collections.SampleCollection`
@@ -867,7 +897,7 @@ class VisualizationResults(fob.BrainResults):
                 written through to ``config.embeddings_field`` so that future
                 UMAP reloads can rehydrate consistently
             model (None): a model to use to compute embeddings. If not
-                provided, ``config.model`` is used
+                provided, ``config.model`` is used if available
             model_kwargs (None): a dictionary of optional keyword arguments to
                 pass to the model's ``Config`` when a model name is provided
             force_square (False): see :func:`compute_visualization`
@@ -880,24 +910,19 @@ class VisualizationResults(fob.BrainResults):
                 visualization are silently dropped from ``samples`` before
                 computing embeddings, so only new samples are projected
                 through the reducer
-            overwrite (True): whether to replace (True) or ignore (False)
-                existing points with the same sample/label IDs
-            allow_existing (True): whether to ignore (True) or raise an error
-                (False) when ``overwrite`` is False and a provided ID already
-                exists in the index
+            allow_existing (True): if False, raise an error when
+                ``skip_existing`` is False and and a provided sample contains
+                an ID that already exists in the index
             warn_existing (False): whether to log a warning if a point is not
                 added because its ID already exists in the index
             reload (True): whether to refresh the current view after the
                 update
-
-        Returns:
-            self
         """
         fov.validate_collection(samples)
         if samples._root_dataset is not self._samples._root_dataset:
             raise ValueError(
-                "add_samples() requires samples from the same dataset as "
-                "the existing visualization"
+                "You can only add samples from the same dataset to an "
+                "existing visualization"
             )
 
         self._prepare_reducer(samples)
@@ -921,12 +946,11 @@ class VisualizationResults(fob.BrainResults):
         if skip_existing:
             samples, embeddings = self._filter_known(samples, embeddings)
             if len(samples) == 0:
-                logger.info(
-                    "No new samples to add to visualization '%s'", self.key
-                )
+                logger.info("No new samples to add")
                 if reload:
                     self.use_view(self._curr_view or self._samples)
-                return self
+
+                return
 
         effective_model = model
         effective_model_kwargs = model_kwargs
@@ -948,8 +972,8 @@ class VisualizationResults(fob.BrainResults):
                     effective_model_kwargs = config.model_kwargs
             else:
                 raise ValueError(
-                    "No embeddings, model, or populated embeddings_field are "
-                    "available for the new samples. Pass `model=` or "
+                    "No embeddings, model, or embeddings field are available "
+                    "for the new samples. You must pass `model=` or "
                     "`embeddings=` explicitly to add_samples()"
                 )
 
@@ -988,7 +1012,7 @@ class VisualizationResults(fob.BrainResults):
             self.sample_ids,
             self.label_ids,
             patches_field=patches_field,
-            overwrite=overwrite,
+            overwrite=skip_existing,
             allow_existing=allow_existing,
             warn_existing=warn_existing,
         )
@@ -996,7 +1020,8 @@ class VisualizationResults(fob.BrainResults):
         if ii.size == 0:
             if reload:
                 self.use_view(self._curr_view or self._samples)
-            return self
+
+            return
 
         if self.config.method == "umap":
             n_new = int(ii.size)
@@ -1008,20 +1033,24 @@ class VisualizationResults(fob.BrainResults):
                     "was trained on %d samples (%.0f%%). This is an "
                     "approximate transform — the manifold is not refit. "
                     "For batches this large, consider recomputing the "
-                    "visualization via fob.compute_visualization for a more "
-                    "faithful embedding.",
+                    "visualization via compute_visualization() for a more "
+                    "faithful embedding",
                     n_new,
                     n_train,
                     100 * ratio,
                 )
             else:
                 logger.warning(
-                    "Projecting %d new samples through fitted UMAP; this is "
-                    "an approximate transform and not equivalent to a full "
+                    "Projecting %d new samples through a fitted UMAP that "
+                    "was trained on %d samples (%.0f%%). This is an "
+                    "approximate transform and not equivalent to a full "
                     "refit. Quality depends on the new samples being "
-                    "in-distribution with the training set.",
+                    "in-distribution with the training set",
                     n_new,
+                    n_train,
+                    100 * ratio,
                 )
+
         new_points = np.asarray(self._reducer.transform(new_emb[ii, :]))
 
         n = len(self.points)
@@ -1068,6 +1097,7 @@ class VisualizationResults(fob.BrainResults):
                         source_descriptor,
                         canonical_field,
                     )
+
                 fbu.add_embeddings(
                     self._samples,
                     new_emb[ii],
@@ -1090,36 +1120,37 @@ class VisualizationResults(fob.BrainResults):
         if reload:
             self.use_view(self._curr_view or self._samples)
 
-        return self
-
     def _prepare_reducer(self, samples):
-        brain_method = self.config.build()
-        if not getattr(brain_method, "supports_add_embeddings", False):
+        if not getattr(self.config.build(), "SUPPORTS_UPDATES", False):
             raise ValueError(
                 "method '%s' does not support incremental updates; please "
-                "recompute via fob.compute_visualization" % self.config.method
+                "recompute via compute_visualization()" % self.config.method
+            )
+
+        if (
+            self.config.method == "umap"
+            and self.config.embeddings_field is None
+        ):
+            raise ValueError(
+                "UMAP incremental updates require an embeddings field. "
+                "Please recompute via "
+                "compute_visualization(..., embeddings=<field name>) to "
+                "enable incremental updates"
             )
 
         if self._reducer is None:
             if self._reducer_blob is None:
                 raise ValueError(
-                    "This visualization has no stored reducer; it was "
-                    "computed before incremental updates were supported. "
-                    "Please recompute via fob.compute_visualization to "
-                    "enable add_samples"
+                    "This visualization has no stored reducer. It may have "
+                    "been computed before incremental updates were supported. "
+                    "Please recompute via compute_visualization() to enable "
+                    "incremental updates"
                 )
 
             self._reducer = _unpickle_reducer(self._reducer_blob)
 
         if self.config.method == "umap":
             if getattr(self._reducer, "_raw_data", None) is None:
-                if self.config.embeddings_field is None:
-                    raise ValueError(
-                        "UMAP incremental updates require an "
-                        "embeddings_field. Recompute compute_visualization "
-                        "with embeddings=<field_name> set"
-                    )
-
                 training_embeddings = self._load_training_embeddings()
                 _hydrate_umap_reducer(self._reducer, training_embeddings)
 
@@ -1160,7 +1191,7 @@ class VisualizationResults(fob.BrainResults):
                 "Cannot rehydrate UMAP reducer: %d training %s are missing "
                 "from embeddings_field=%r (e.g. %s). The original training "
                 "embeddings are not recoverable; please recompute the "
-                "embeddings visualization."
+                "visualization"
                 % (
                     len(missing),
                     "labels" if patches_field is not None else "samples",
@@ -1381,28 +1412,10 @@ class VisualizationConfig(fob.BrainMethodConfig):
 
 
 class Visualization(fob.BrainMethod):
-    supports_add_embeddings = False
+    SUPPORTS_UPDATES = False
 
     def fit_reducer(self, embeddings):
-        if type(self).fit is not Visualization.fit:
-            import warnings
-
-            warnings.warn(
-                "Overriding `Visualization.fit()` is deprecated; subclasses "
-                "should implement `fit_reducer(embeddings) -> (points, "
-                "reducer)` instead. The legacy `fit()` hook will continue "
-                "to work but cannot participate in incremental "
-                "visualization updates.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            return self.fit(embeddings), None
-
         raise NotImplementedError("subclass must implement fit_reducer()")
-
-    def fit(self, embeddings):
-        points, _ = self.fit_reducer(embeddings)
-        return points
 
     def get_fields(self, samples, brain_key):
         fields = []
@@ -1523,7 +1536,7 @@ class UMAPVisualizationConfig(VisualizationConfig):
 
 
 class UMAPVisualization(Visualization):
-    supports_add_embeddings = True
+    SUPPORTS_UPDATES = True
 
     def ensure_requirements(self):
         fou.ensure_package(
@@ -1673,6 +1686,7 @@ class TSNEVisualization(Visualization):
             **{iter_param: self.config.max_iters},
         )
         points = _tsne.fit_transform(embeddings)
+
         return points, None
 
 
@@ -1734,7 +1748,7 @@ class PCAVisualizationConfig(VisualizationConfig):
 
 
 class PCAVisualization(Visualization):
-    supports_add_embeddings = True
+    SUPPORTS_UPDATES = True
 
     def fit_reducer(self, embeddings):
         _pca = skd.PCA(
@@ -1792,8 +1806,10 @@ def _parse_serialized_array(value):
 def _field_has_populated_values(samples, embeddings_field, patches_field=None):
     if embeddings_field is None:
         return False
+
     if not fbu._has_embeddings_field(samples, embeddings_field, patches_field):
         return False
+
     try:
         if patches_field is not None:
             filtered = samples.filter_labels(
@@ -1801,6 +1817,7 @@ def _field_has_populated_values(samples, embeddings_field, patches_field=None):
             )
             _, ids_path = samples._get_label_field_path(patches_field, "id")
             return len(filtered.values(ids_path, unwind=True)) > 0
+
         return len(samples.exists(embeddings_field)) > 0
     except Exception:
         return False
@@ -1809,10 +1826,13 @@ def _field_has_populated_values(samples, embeddings_field, patches_field=None):
 def _describe_embeddings_source(embeddings):
     if isinstance(embeddings, str):
         return embeddings
+
     if isinstance(embeddings, dict):
         return "<dict>"
+
     if isinstance(embeddings, np.ndarray):
         return "<ndarray>"
+
     return None
 
 
@@ -1912,5 +1932,5 @@ def _unpickle_reducer(blob):
     except Exception as e:
         raise RuntimeError(
             "Failed to deserialize fitted reducer (likely a UMAP/sklearn "
-            "version mismatch); please recompute with `compute_visualization`"
+            "version mismatch); please recompute with compute_visualization()"
         ) from e
