@@ -20,7 +20,7 @@ jobs:
         with:
           submodules: true
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.10"
       - name: Check Python version
@@ -97,7 +97,7 @@ jobs:
       - name: Set Up Cloud SDK
         uses: google-github-actions/setup-gcloud@v3
       - name: Set up Python ${{ matrix.python }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
       - name: Free Disk Space (Ubuntu) # standard runner's 14 GB available disk size isn't enough. Need at least 22 GB free.
