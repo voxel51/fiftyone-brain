@@ -61,7 +61,7 @@ Mosaic setup::
     # You will also need to create a catalog and schema in your workspace.
     # You will have to create an endpoint under `compute` -> `vector search`
 
-    pip install databricks-vectorsearch
+    pip install databricks-ai-search
 
 PGVector setup::
 
