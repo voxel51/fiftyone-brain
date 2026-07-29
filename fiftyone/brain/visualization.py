@@ -40,6 +40,15 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MODEL = "mobilenet-v2-imagenet-torch"
 _DEFAULT_BATCH_SIZE = None
 
+_REDUCER_APPLY_ERROR = (
+    "Failed to apply this visualization's stored reducer. This typically "
+    "means the run was computed in a different environment (e.g. a "
+    "different Python, umap-learn, or numba version), in which case the "
+    "stored reducer cannot be used here. Please recompute the "
+    "visualization (e.g. via compute_visualization()) to enable "
+    "incremental updates in this environment"
+)
+
 
 def compute_visualization(
     samples,
@@ -1051,7 +1060,12 @@ class VisualizationResults(fob.BrainResults):
                     100 * ratio,
                 )
 
-        new_points = np.asarray(self._reducer.transform(new_emb[ii, :]))
+        try:
+            new_points = np.asarray(self._reducer.transform(new_emb[ii, :]))
+        except Exception as e:
+            # same environment-mismatch failure mode as reducer hydration;
+            # see _prepare_reducer()
+            raise ValueError(_REDUCER_APPLY_ERROR) from e
 
         n = len(self.points)
         m = int(jj.max()) - n + 1
@@ -1152,7 +1166,14 @@ class VisualizationResults(fob.BrainResults):
         if self.config.method == "umap":
             if getattr(self._reducer, "_raw_data", None) is None:
                 training_embeddings = self._load_training_embeddings()
-                _hydrate_umap_reducer(self._reducer, training_embeddings)
+                try:
+                    _hydrate_umap_reducer(self._reducer, training_embeddings)
+                except Exception as e:
+                    # a reducer pickled under a different Python/umap/numba
+                    # unpickles cleanly but fails here, deep in numba (e.g.
+                    # ``AssertionError: key already in dictionary``), so
+                    # translate anything into an actionable error
+                    raise ValueError(_REDUCER_APPLY_ERROR) from e
 
     def _load_training_embeddings(self):
         n_train = self._reducer.embedding_.shape[0]
@@ -1250,7 +1271,7 @@ class VisualizationResults(fob.BrainResults):
         new_ids = [_id for _id in all_ids if _id not in known]
         return new_ids, len(all_ids)
 
-    def get_new_ids(self, samples=None):
+    def get_new_ids(self, samples=None, include_training_size=True):
         """Returns the IDs of the samples/patches in the given collection
         that are not present in this visualization, along with the number of
         embeddings that were used to fit this visualization's reducer.
@@ -1263,23 +1284,37 @@ class VisualizationResults(fob.BrainResults):
         new IDs is large relative to the training size (e.g. > 20%),
         recomputing the visualization will produce a more faithful embedding.
 
+        Computing the training size requires unpickling the stored reducer,
+        which for UMAP imports the ``umap`` package and can take several
+        seconds on the first use in a process. Pass
+        ``include_training_size=False`` to skip that work when only the IDs
+        are needed (e.g. to render a count in an interactive context).
+
         Args:
             samples (None): a
                 :class:`fiftyone.core.collections.SampleCollection` to check.
                 By default, the full collection on which this run was
                 performed is used
+            include_training_size (True): whether to compute the training
+                size, which loads the stored reducer. When ``False``, the
+                training size is returned as ``None``
 
         Returns:
             a tuple of
 
             -   a list of new IDs
             -   the number of embeddings used to fit the reducer, or ``None``
-                if no reducer is available for this run
+                if it was not computed or no reducer is available for this
+                run
         """
         if samples is None:
             samples = self._samples
 
         new_ids, _ = self._diff_ids(samples)
+
+        if not include_training_size:
+            return new_ids, None
+
         return new_ids, self._training_size()
 
     def needs_update(self, samples=None):
