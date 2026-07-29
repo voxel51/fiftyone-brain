@@ -6,9 +6,12 @@ Visualization interface.
 |
 """
 
+import base64
 from copy import deepcopy
 import inspect
 import logging
+import pickle
+import zlib
 from packaging import version
 
 import numpy as np
@@ -133,6 +136,7 @@ def compute_visualization(
     if brain_key is not None:
         brain_method.register_run(samples, brain_key)
 
+    reducer = None
     if points is None:
         embeddings, sample_ids, label_ids = fbu.get_embeddings(
             samples,
@@ -151,7 +155,15 @@ def compute_visualization(
         )
 
         logger.info("Generating visualization...")
-        points = brain_method.fit(embeddings)
+        points, reducer = brain_method.fit_reducer(embeddings)
+
+        if config.method == "umap" and embeddings_field is None:
+            logger.info(
+                "Computed UMAP visualization without an embeddings field; "
+                "incremental updates via add_samples() won't be available. "
+                "Pass `embeddings=<field name>` next time to enable them"
+            )
+            reducer = None
     else:
         points, sample_ids, label_ids = fbu.parse_data(
             samples,
@@ -179,6 +191,7 @@ def compute_visualization(
         points,
         sample_ids=sample_ids,
         label_ids=label_ids,
+        reducer=reducer,
     )
 
     brain_method.save_run_results(samples, brain_key, results)
@@ -355,6 +368,11 @@ class VisualizationResults(fob.BrainResults):
         points: a ``num_points x num_dims`` array of visualization points
         sample_ids (None): a ``num_points`` array of sample IDs
         label_ids (None): a ``num_points`` array of label IDs, if applicable
+        reducer (None): the fitted dimensionality reduction model used to
+            generate ``points``, retained to support incremental updates via
+            :meth:`add_samples`. Not applicable to all methods
+        reducer_blob (None): a base64-encoded pickled form of ``reducer``,
+            used when reconstructing the results from a persisted run
         backend (None): a :class:`Visualization` backend
     """
 
@@ -366,6 +384,8 @@ class VisualizationResults(fob.BrainResults):
         points,
         sample_ids=None,
         label_ids=None,
+        reducer=None,
+        reducer_blob=None,
         backend=None,
     ):
         super().__init__(samples, config, brain_key, backend=backend)
@@ -382,6 +402,9 @@ class VisualizationResults(fob.BrainResults):
         self.sample_ids = sample_ids
         self.label_ids = label_ids
 
+        self._reducer = reducer
+        self._reducer_blob = reducer_blob
+
         self._last_view = None
         self._curr_view = None
         self._curr_points = None
@@ -391,6 +414,13 @@ class VisualizationResults(fob.BrainResults):
         self._curr_good_inds = None
 
         self.use_view(samples)
+
+    @property
+    def reducer_blob(self):
+        if self._reducer_blob is None and self._reducer is not None:
+            self._reducer_blob = _pickle_reducer(self._reducer)
+
+        return self._reducer_blob
 
     def __enter__(self):
         self._last_view = self.view
@@ -405,7 +435,11 @@ class VisualizationResults(fob.BrainResults):
     _ARRAY_FIELDS = ("points", "sample_ids", "label_ids")
 
     def attributes(self):
-        return [a for a in super().attributes() if a not in self._ARRAY_FIELDS]
+        attrs = [
+            a for a in super().attributes() if a not in self._ARRAY_FIELDS
+        ]
+        attrs.append("reducer_blob")
+        return attrs
 
     def serialize(self, reflective=False):
         """Serializes the results into a dictionary.
@@ -773,11 +807,548 @@ class VisualizationResults(fob.BrainResults):
             self.config.points_field = None
             self.save_config()
 
+    @property
+    def supports_auto_updates(self):
+        """Whether this index can be incrementally updated by calling
+        :meth:`add_samples` without manually providing `embeddings` or a
+        `model`.
+        """
+
+        # Some visualization methods do not support incremental updates
+        if not getattr(self.config.build(), "SUPPORTS_UPDATES", False):
+            return False
+
+        # The string name of a zoo model is required in order to call
+        # `add_samples()` without manually providing `embeddings` or a `model`
+        if self.config.model is None:
+            return False
+
+        # UMAP requires the embeddings to be stored on a field of the dataset
+        # in order to rehydrate its reducer
+        if (
+            self.config.method == "umap"
+            and self.config.embeddings_field is None
+        ):
+            return False
+
+        # If no reducer/blob is stored, this is an older visualization that
+        # cannot be incrementally updated
+        if self._reducer is None and self._reducer_blob is None:
+            return False
+
+        return True
+
+    def add_samples(
+        self,
+        samples,
+        embeddings=None,
+        model=None,
+        model_kwargs=None,
+        force_square=False,
+        alpha=None,
+        batch_size=None,
+        num_workers=None,
+        skip_failures=True,
+        progress=None,
+        skip_existing=True,
+        allow_existing=True,
+        warn_existing=False,
+        reload=True,
+    ):
+        """Incrementally extends this visualization with the new samples in
+        ``samples``.
+
+        Embeddings for the new samples are extracted (or accepted) and
+        transformed through the previously fitted reducer, then appended to
+        the index. This is significantly cheaper than recomputing the entire
+        visualization for datasets where only a few samples have been added.
+
+        By default, samples that are already in the visualization are skipped,
+        so it is safe to pass an entire dataset/view that contains both known
+        and new samples.
+
+        Only methods whose reducer supports ``transform()`` are supported
+        (currently UMAP and PCA). For UMAP, the original
+        ``config.embeddings_field`` must be set so that the kNN search
+        structure can be rebuilt on demand from the dataset.
+
+        The embedding source for the new samples is resolved in this order:
+
+        1. ``embeddings`` if provided (array, dict, or field name)
+        2. ``model`` if provided
+        3. ``config.embeddings_field`` if populated on the new samples
+        4. ``config.model`` if the zoo model name recorded on the original run
+        5. otherwise, an error is raised
+
+        Note that if the original :func:`compute_visualization` call was made
+        with a :class:`fiftyone.core.models.Model` instance rather than the
+        string name of a zoo model, ``config.model`` is ``None`` and you must
+        pass ``model`` or ``embeddings`` explicitly here to extend the
+        visualization.
+
+        Args:
+            samples: a :class:`fiftyone.core.collections.SampleCollection`
+                containing samples to add to the visualization
+            embeddings (None): pre-computed embeddings for the new samples.
+                Can be a ``num_samples x num_dims`` array, a dict mapping
+                sample/label IDs to embeddings, or the name of a field from
+                which to load them. If the resolved source differs from
+                ``config.embeddings_field``, the new embeddings are also
+                written through to ``config.embeddings_field`` so that future
+                UMAP reloads can rehydrate consistently
+            model (None): a model to use to compute embeddings. If not
+                provided, ``config.model`` is used if available
+            model_kwargs (None): a dictionary of optional keyword arguments to
+                pass to the model's ``Config`` when a model name is provided
+            force_square (False): see :func:`compute_visualization`
+            alpha (None): see :func:`compute_visualization`
+            batch_size (None): see :func:`compute_visualization`
+            num_workers (None): see :func:`compute_visualization`
+            skip_failures (True): see :func:`compute_visualization`
+            progress (None): see :func:`compute_visualization`
+            skip_existing (True): if True, samples already in the
+                visualization are silently dropped from ``samples`` before
+                computing embeddings, so only new samples are projected
+                through the reducer
+            allow_existing (True): if False, raise an error when
+                ``skip_existing`` is False and and a provided sample contains
+                an ID that already exists in the index
+            warn_existing (False): whether to log a warning if a point is not
+                added because its ID already exists in the index
+            reload (True): whether to refresh the current view after the
+                update
+        """
+        fov.validate_collection(samples)
+        if samples._root_dataset is not self._samples._root_dataset:
+            raise ValueError(
+                "You can only add samples from the same dataset to an "
+                "existing visualization"
+            )
+
+        self._prepare_reducer(samples)
+
+        config = self.config
+        patches_field = config.patches_field
+        canonical_field = config.embeddings_field
+        source_descriptor = _describe_embeddings_source(embeddings)
+
+        override_field = None
+        if isinstance(embeddings, str):
+            if embeddings != canonical_field:
+                override_field = embeddings
+            embeddings = None
+
+        if isinstance(embeddings, np.ndarray):
+            embeddings = _array_to_id_dict(
+                samples, embeddings, patches_field=patches_field
+            )
+
+        if skip_existing:
+            samples, embeddings = self._filter_known(samples, embeddings)
+            if len(samples) == 0:
+                logger.info("No new samples to add")
+                if reload:
+                    self.use_view(self._curr_view or self._samples)
+
+                return
+
+        effective_model = model
+        effective_model_kwargs = model_kwargs
+
+        source_field = override_field or canonical_field
+
+        field_populated = _field_has_populated_values(
+            samples, source_field, patches_field
+        )
+
+        if (
+            embeddings is None
+            and effective_model is None
+            and not field_populated
+        ):
+            if config.model is not None:
+                effective_model = config.model
+                if effective_model_kwargs is None:
+                    effective_model_kwargs = config.model_kwargs
+            else:
+                raise ValueError(
+                    "No embeddings, model, or embeddings field are available "
+                    "for the new samples. You must pass `model=` or "
+                    "`embeddings=` explicitly to add_samples()"
+                )
+
+        forced_model_fallback = (
+            effective_model is not None
+            and source_field is not None
+            and not field_populated
+        )
+        extraction_field = None if forced_model_fallback else source_field
+
+        new_emb, new_sample_ids, new_label_ids = fbu.get_embeddings(
+            samples,
+            model=effective_model,
+            model_kwargs=effective_model_kwargs,
+            patches_field=patches_field,
+            embeddings_field=extraction_field,
+            embeddings=embeddings,
+            force_square=force_square,
+            alpha=alpha,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            skip_failures=skip_failures,
+            progress=progress,
+        )
+
+        expected_dim = _expected_input_dim(self._reducer)
+        if expected_dim is not None and new_emb.shape[1] != expected_dim:
+            raise ValueError(
+                "embeddings have dimension %d but the fitted reducer "
+                "expects dimension %d" % (new_emb.shape[1], expected_dim)
+            )
+
+        new_sample_ids_out, new_label_ids_out, ii, jj = fbu.add_ids(
+            new_sample_ids,
+            new_label_ids,
+            self.sample_ids,
+            self.label_ids,
+            patches_field=patches_field,
+            overwrite=skip_existing,
+            allow_existing=allow_existing,
+            warn_existing=warn_existing,
+        )
+
+        if ii.size == 0:
+            if reload:
+                self.use_view(self._curr_view or self._samples)
+
+            return
+
+        if self.config.method == "umap":
+            n_new = int(ii.size)
+            n_train = self._reducer.embedding_.shape[0]
+            ratio = n_new / n_train
+            if ratio > 0.2:
+                logger.warning(
+                    "Projecting %d new samples through a fitted UMAP that "
+                    "was trained on %d samples (%.0f%%). This is an "
+                    "approximate transform — the manifold is not refit. "
+                    "For batches this large, consider recomputing the "
+                    "visualization via compute_visualization() for a more "
+                    "faithful embedding",
+                    n_new,
+                    n_train,
+                    100 * ratio,
+                )
+            else:
+                logger.warning(
+                    "Projecting %d new samples through a fitted UMAP that "
+                    "was trained on %d samples (%.0f%%). This is an "
+                    "approximate transform and not equivalent to a full "
+                    "refit. Quality depends on the new samples being "
+                    "in-distribution with the training set",
+                    n_new,
+                    n_train,
+                    100 * ratio,
+                )
+
+        new_points = np.asarray(self._reducer.transform(new_emb[ii, :]))
+
+        n = len(self.points)
+        m = int(jj.max()) - n + 1
+        if m > 0:
+            self.points = np.concatenate(
+                (
+                    self.points,
+                    np.empty(
+                        (m, self.points.shape[1]), dtype=self.points.dtype
+                    ),
+                )
+            )
+
+        self.points[jj] = new_points
+        self.sample_ids = new_sample_ids_out
+        if patches_field is not None:
+            self.label_ids = new_label_ids_out
+
+        if canonical_field is not None:
+            needs_write_through = (
+                source_descriptor in ("<dict>", "<ndarray>")
+                or (
+                    override_field is not None
+                    and override_field != canonical_field
+                )
+                or forced_model_fallback
+            )
+            if needs_write_through:
+                if forced_model_fallback:
+                    logger.info(
+                        "Computed %d new embeddings via model %r and stored "
+                        "them in embeddings_field=%r",
+                        int(ii.size),
+                        effective_model,
+                        canonical_field,
+                    )
+                else:
+                    logger.warning(
+                        "Embeddings for the new samples were sourced from "
+                        "%r but will also be stored in this run's "
+                        "embeddings_field=%r so that UMAP rehydration on "
+                        "future loads remains consistent",
+                        source_descriptor,
+                        canonical_field,
+                    )
+
+                fbu.add_embeddings(
+                    self._samples,
+                    new_emb[ii],
+                    new_sample_ids[ii],
+                    new_label_ids[ii] if new_label_ids is not None else None,
+                    canonical_field,
+                    patches_field=patches_field,
+                )
+
+        if config.points_field is not None:
+            self._write_points_field(
+                new_points,
+                new_sample_ids[ii],
+                new_label_ids[ii] if new_label_ids is not None else None,
+            )
+
+        if self.key is not None:
+            self.save()
+
+        if reload:
+            self.use_view(self._curr_view or self._samples)
+
+    def _prepare_reducer(self, samples):
+        if not getattr(self.config.build(), "SUPPORTS_UPDATES", False):
+            raise ValueError(
+                "method '%s' does not support incremental updates; please "
+                "recompute via compute_visualization()" % self.config.method
+            )
+
+        if (
+            self.config.method == "umap"
+            and self.config.embeddings_field is None
+        ):
+            raise ValueError(
+                "UMAP incremental updates require an embeddings field. "
+                "Please recompute via "
+                "compute_visualization(..., embeddings=<field name>) to "
+                "enable incremental updates"
+            )
+
+        if self._reducer is None:
+            if self._reducer_blob is None:
+                raise ValueError(
+                    "This visualization has no stored reducer. It may have "
+                    "been computed before incremental updates were supported. "
+                    "Please recompute via compute_visualization() to enable "
+                    "incremental updates"
+                )
+
+            self._reducer = _unpickle_reducer(self._reducer_blob)
+
+        if self.config.method == "umap":
+            if getattr(self._reducer, "_raw_data", None) is None:
+                training_embeddings = self._load_training_embeddings()
+                _hydrate_umap_reducer(self._reducer, training_embeddings)
+
+    def _load_training_embeddings(self):
+        n_train = self._reducer.embedding_.shape[0]
+
+        patches_field = self.config.patches_field
+        if patches_field is not None:
+            training_ids = self.label_ids[:n_train]
+        else:
+            training_ids = self.sample_ids[:n_train]
+
+        training_view = (
+            self._samples.select(list(training_ids), ordered=True)
+            if patches_field is None
+            else self._samples.select_labels(
+                ids=list(training_ids), fields=patches_field
+            )
+        )
+
+        embeddings, sample_ids, label_ids = fbu.get_embeddings(
+            training_view,
+            patches_field=patches_field,
+            embeddings_field=self.config.embeddings_field,
+        )
+
+        ids_returned = label_ids if patches_field is not None else sample_ids
+
+        returned_set = set(
+            ids_returned.tolist()
+            if hasattr(ids_returned, "tolist")
+            else ids_returned
+        )
+        expected_set = set(training_ids.tolist())
+        if expected_set != returned_set:
+            missing = sorted(expected_set - returned_set)
+            raise ValueError(
+                "Cannot rehydrate UMAP reducer: %d training %s are missing "
+                "from embeddings_field=%r (e.g. %s). The original training "
+                "embeddings are not recoverable; please recompute the "
+                "visualization"
+                % (
+                    len(missing),
+                    "labels" if patches_field is not None else "samples",
+                    self.config.embeddings_field,
+                    missing[:5],
+                )
+            )
+
+        order = {_id: i for i, _id in enumerate(ids_returned)}
+        idx = np.array([order[_id] for _id in training_ids])
+        return embeddings[idx]
+
+    def _filter_known(self, samples, embeddings):
+        patches_field = self.config.patches_field
+
+        new_ids, num_total = self._diff_ids(samples)
+
+        if patches_field is not None and self.label_ids is not None:
+            if len(new_ids) < num_total:
+                if new_ids:
+                    samples = samples.select_labels(
+                        ids=new_ids, fields=patches_field
+                    )
+                else:
+                    samples = samples.limit(0)
+        else:
+            if len(new_ids) != num_total:
+                samples = samples.select(new_ids)
+
+        if isinstance(embeddings, dict):
+            if patches_field is not None and self.label_ids is not None:
+                known_keys = set(self.label_ids.tolist())
+            else:
+                known_keys = set(self.sample_ids.tolist())
+            embeddings = {
+                _id: vec
+                for _id, vec in embeddings.items()
+                if _id not in known_keys
+            }
+
+        return samples, embeddings
+
+    def _diff_ids(self, samples):
+        patches_field = self.config.patches_field
+
+        if patches_field is not None and self.label_ids is not None:
+            _, label_ids_path = samples._get_label_field_path(
+                patches_field, "id"
+            )
+            all_ids = samples.values(label_ids_path, unwind=True)
+            known = set(self.label_ids.tolist())
+        else:
+            all_ids = samples.values("id")
+            known = set(self.sample_ids.tolist())
+
+        new_ids = [_id for _id in all_ids if _id not in known]
+        return new_ids, len(all_ids)
+
+    def get_new_ids(self, samples=None):
+        """Returns the IDs of the samples/patches in the given collection
+        that are not present in this visualization, along with the number of
+        embeddings that were used to fit this visualization's reducer.
+
+        For sample-level visualizations, sample IDs are returned; for
+        patch-level visualizations, label IDs are returned.
+
+        The training size can be used to decide whether an incremental
+        update via :meth:`add_samples` is appropriate; when the number of
+        new IDs is large relative to the training size (e.g. > 20%),
+        recomputing the visualization will produce a more faithful embedding.
+
+        Args:
+            samples (None): a
+                :class:`fiftyone.core.collections.SampleCollection` to check.
+                By default, the full collection on which this run was
+                performed is used
+
+        Returns:
+            a tuple of
+
+            -   a list of new IDs
+            -   the number of embeddings used to fit the reducer, or ``None``
+                if no reducer is available for this run
+        """
+        if samples is None:
+            samples = self._samples
+
+        new_ids, _ = self._diff_ids(samples)
+        return new_ids, self._training_size()
+
+    def needs_update(self, samples=None):
+        """Determines whether the given collection contains samples/patches
+        that are not present in this visualization.
+
+        Use :meth:`add_samples` to add the new samples to the visualization.
+
+        Args:
+            samples (None): a
+                :class:`fiftyone.core.collections.SampleCollection` to check.
+                By default, the full collection on which this run was
+                performed is used
+
+        Returns:
+            True/False
+        """
+        if samples is None:
+            samples = self._samples
+
+        new_ids, _ = self._diff_ids(samples)
+        return len(new_ids) > 0
+
+    def _training_size(self):
+        if self._reducer is None and self._reducer_blob is not None:
+            try:
+                self._reducer = _unpickle_reducer(self._reducer_blob)
+            except RuntimeError:
+                return None
+
+        reducer = self._reducer
+        if reducer is None:
+            return None
+
+        # UMAP
+        embedding = getattr(reducer, "embedding_", None)
+        if embedding is not None:
+            return embedding.shape[0]
+
+        # PCA
+        n_samples = getattr(reducer, "n_samples_", None)
+        if n_samples is not None:
+            return int(n_samples)
+
+        return None
+
+    def _write_points_field(self, new_points, sample_ids, label_ids):
+        config = self.config
+        points_field = config.points_field
+        patches_field = config.patches_field
+
+        dataset = self._samples._root_dataset
+        if patches_field is not None:
+            _, points_field_path = dataset._get_label_field_path(
+                patches_field, points_field
+            )
+            values = dict(zip(label_ids, new_points.astype(float).tolist()))
+            dataset.set_label_values(points_field_path, values)
+        else:
+            values = dict(zip(sample_ids, new_points.astype(float).tolist()))
+            dataset.set_values(points_field, values, key_field="id")
+
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):
         points = _parse_serialized_array(d["points"])
         sample_ids = _parse_serialized_array(d.get("sample_ids", None))
         label_ids = _parse_serialized_array(d.get("label_ids", None))
+
+        reducer_blob = d.get("reducer_blob", None)
 
         return cls(
             samples,
@@ -786,6 +1357,7 @@ class VisualizationResults(fob.BrainResults):
             points,
             sample_ids=sample_ids,
             label_ids=label_ids,
+            reducer_blob=reducer_blob,
         )
 
 
@@ -840,8 +1412,10 @@ class VisualizationConfig(fob.BrainMethodConfig):
 
 
 class Visualization(fob.BrainMethod):
-    def fit(self, embeddings):
-        raise NotImplementedError("subclass must implement fit()")
+    SUPPORTS_UPDATES = False
+
+    def fit_reducer(self, embeddings):
+        raise NotImplementedError("subclass must implement fit_reducer()")
 
     def get_fields(self, samples, brain_key):
         fields = []
@@ -962,6 +1536,8 @@ class UMAPVisualizationConfig(VisualizationConfig):
 
 
 class UMAPVisualization(Visualization):
+    SUPPORTS_UPDATES = True
+
     def ensure_requirements(self):
         fou.ensure_package(
             "umap-learn>=0.5",
@@ -973,7 +1549,7 @@ class UMAPVisualization(Visualization):
             ),
         )
 
-    def fit(self, embeddings):
+    def fit_reducer(self, embeddings):
         _umap = umap.UMAP(
             n_components=self.config.num_dims,
             n_neighbors=self.config.num_neighbors,
@@ -982,7 +1558,9 @@ class UMAPVisualization(Visualization):
             random_state=self.config.seed,
             verbose=self.config.verbose,
         )
-        return _umap.fit_transform(embeddings)
+        points = _umap.fit_transform(embeddings)
+        _strip_umap_training_data(_umap)
+        return points, _umap
 
 
 class TSNEVisualizationConfig(VisualizationConfig):
@@ -1077,7 +1655,7 @@ class TSNEVisualizationConfig(VisualizationConfig):
 
 
 class TSNEVisualization(Visualization):
-    def fit(self, embeddings):
+    def fit_reducer(self, embeddings):
         if self.config.pca_dims is not None:
             _pca = skd.PCA(
                 n_components=self.config.pca_dims,
@@ -1107,7 +1685,9 @@ class TSNEVisualization(Visualization):
             verbose=verbose,
             **{iter_param: self.config.max_iters},
         )
-        return _tsne.fit_transform(embeddings)
+        points = _tsne.fit_transform(embeddings)
+
+        return points, None
 
 
 class PCAVisualizationConfig(VisualizationConfig):
@@ -1168,13 +1748,16 @@ class PCAVisualizationConfig(VisualizationConfig):
 
 
 class PCAVisualization(Visualization):
-    def fit(self, embeddings):
+    SUPPORTS_UPDATES = True
+
+    def fit_reducer(self, embeddings):
         _pca = skd.PCA(
             n_components=self.config.num_dims,
             svd_solver=self.config.svd_solver,
             random_state=self.config.seed,
         )
-        return _pca.fit_transform(embeddings)
+        points = _pca.fit_transform(embeddings)
+        return points, _pca
 
 
 class ManualVisualizationConfig(VisualizationConfig):
@@ -1197,7 +1780,7 @@ class ManualVisualizationConfig(VisualizationConfig):
 
 
 class ManualVisualization(Visualization):
-    def fit(self, embeddings):
+    def fit_reducer(self, embeddings):
         raise NotImplementedError(
             "The low-dimensional representation must be manually provided "
             "when using this method"
@@ -1218,3 +1801,136 @@ def _parse_serialized_array(value):
         return fou.deserialize_numpy_array(value, ascii=True)
 
     return np.array(value)
+
+
+def _field_has_populated_values(samples, embeddings_field, patches_field=None):
+    if embeddings_field is None:
+        return False
+
+    if not fbu._has_embeddings_field(samples, embeddings_field, patches_field):
+        return False
+
+    try:
+        if patches_field is not None:
+            filtered = samples.filter_labels(
+                patches_field, foe.ViewField(embeddings_field) != None
+            )
+            _, ids_path = samples._get_label_field_path(patches_field, "id")
+            return len(filtered.values(ids_path, unwind=True)) > 0
+
+        return len(samples.exists(embeddings_field)) > 0
+    except Exception:
+        return False
+
+
+def _describe_embeddings_source(embeddings):
+    if isinstance(embeddings, str):
+        return embeddings
+
+    if isinstance(embeddings, dict):
+        return "<dict>"
+
+    if isinstance(embeddings, np.ndarray):
+        return "<ndarray>"
+
+    return None
+
+
+def _array_to_id_dict(samples, embeddings, patches_field=None):
+    embeddings = np.asarray(embeddings)
+    if embeddings.ndim != 2:
+        raise ValueError(
+            "embeddings array must be 2D; got shape %s" % (embeddings.shape,)
+        )
+
+    sample_ids, label_ids = fbu.get_ids(
+        samples,
+        patches_field=patches_field,
+        data=embeddings,
+        data_type="embeddings",
+    )
+
+    ids = label_ids if patches_field is not None else sample_ids
+    if len(ids) != len(embeddings):
+        raise ValueError(
+            "embeddings array length (%d) does not match the number of "
+            "samples (%d)" % (len(embeddings), len(ids))
+        )
+
+    return {_id: vec for _id, vec in zip(ids, embeddings)}
+
+
+def _expected_input_dim(reducer):
+    n_features = getattr(reducer, "n_features_in_", None)
+    if n_features is not None:
+        return n_features
+
+    raw = getattr(reducer, "_raw_data", None)
+    if raw is not None:
+        return raw.shape[1]
+
+    return None
+
+
+def _strip_umap_training_data(reducer):
+    reducer._raw_data = None
+    if getattr(reducer, "_knn_search_index", None) is not None:
+        idx = reducer._knn_search_index
+        reducer._knn_index_params = {
+            "n_trees": idx.n_trees,
+            "n_iters": idx.n_iters,
+            "max_candidates": idx.max_candidates,
+        }
+        reducer._knn_search_index = None
+
+
+def _hydrate_umap_reducer(reducer, embeddings):
+    reducer._raw_data = embeddings
+
+    if getattr(reducer, "_small_data", True):
+        return
+
+    # Need to reconstruct the index since we are not storing the search index by
+    # in the brain result as this would involve storing the embeddings vectors in
+    # the brain result
+
+    from pynndescent import NNDescent
+    from sklearn.utils import check_random_state
+
+    params = reducer._knn_index_params
+
+    reducer._knn_search_index = NNDescent(
+        embeddings,
+        n_neighbors=reducer._n_neighbors,
+        metric=reducer.metric,
+        metric_kwds=reducer._metric_kwds,
+        random_state=check_random_state(reducer.random_state),
+        n_trees=params["n_trees"],
+        n_iters=params["n_iters"],
+        max_candidates=params["max_candidates"],
+        low_memory=reducer.low_memory,
+        n_jobs=reducer.n_jobs,
+        verbose=reducer.verbose,
+        compressed=False,
+    )
+
+
+def _pickle_reducer(reducer):
+    if reducer is None:
+        return None
+
+    blob = zlib.compress(pickle.dumps(reducer))
+    return base64.b64encode(blob).decode("ascii")
+
+
+def _unpickle_reducer(blob):
+    if blob is None:
+        return None
+
+    try:
+        return pickle.loads(zlib.decompress(base64.b64decode(blob)))
+    except Exception as e:
+        raise RuntimeError(
+            "Failed to deserialize fitted reducer (likely a UMAP/sklearn "
+            "version mismatch); please recompute with compute_visualization()"
+        ) from e
