@@ -726,13 +726,13 @@ def test_add_samples_umap_no_embeddings_field_raises():
 
     _add_new_samples(dataset, 5, 64, rng, populate_field=False)
 
-    # UMAP runs computed without an embeddings_field drop their reducer at
-    # compute time, so incremental updates are unavailable
+    # UMAP runs computed without an embeddings_field cannot support
+    # incremental updates
     try:
         results.add_samples(dataset, embeddings=np.zeros((5, 64)))
         assert False, "expected ValueError"
     except ValueError as e:
-        assert "no stored reducer" in str(e)
+        assert "embeddings field" in str(e)
 
     dataset.delete()
 
@@ -789,7 +789,7 @@ def test_add_samples_dim_mismatch_raises():
     dataset.delete()
 
 
-def test_add_samples_duplicate_overwrite_false():
+def test_add_samples_duplicates_not_overwritten():
     dataset, _ = _make_synthetic_dataset("test_add_samples_dup")
 
     results = fob.compute_visualization(
@@ -805,7 +805,6 @@ def test_add_samples_duplicate_overwrite_false():
     results.add_samples(
         dataset,
         skip_existing=False,
-        overwrite=False,
         warn_existing=True,
     )
 

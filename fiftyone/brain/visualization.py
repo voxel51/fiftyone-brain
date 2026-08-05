@@ -1918,9 +1918,40 @@ def _strip_umap_training_data(reducer):
         }
         reducer._knn_search_index = None
 
+    # The jitted distance functions serialize as raw Python bytecode, which
+    # is not stable across Python versions: unpickling on a different
+    # version succeeds but numba's JIT crashes at transform time. They
+    # carry no fitted state and are fully determined by the (persisted)
+    # metric strings, so strip them here and rebind from the local umap
+    # installation on load
+    reducer._input_distance_func = None
+    reducer._output_distance_func = None
+    reducer._inverse_distance_func = None
+
+
+def _rebind_umap_distance_funcs(reducer):
+    import umap.distances as dist
+
+    metric = reducer.metric
+    if not etau.is_str(metric) or metric not in dist.named_distances:
+        raise RuntimeError(
+            "Cannot rebind distance functions for metric %r; please "
+            "recompute the embeddings visualization" % (metric,)
+        )
+
+    reducer._input_distance_func = dist.named_distances[metric]
+    reducer._inverse_distance_func = dist.named_distances_with_gradients.get(
+        metric, None
+    )
+    reducer._output_distance_func = dist.named_distances_with_gradients[
+        reducer.output_metric
+    ]
+
 
 def _hydrate_umap_reducer(reducer, embeddings):
     reducer._raw_data = embeddings
+
+    _rebind_umap_distance_funcs(reducer)
 
     if getattr(reducer, "_small_data", True):
         return
