@@ -37,6 +37,7 @@ dev = [
     "pre-commit",
     "pylint",
     "pytest",
+    "ruff",
     "voxel51-eta[storage]",
 ]
 
@@ -57,6 +58,15 @@ filterwarnings = [
     "ignore:Using or importing the ABCs from 'collections' instead of from 'collections.abc' is deprecated:DeprecationWarning",
     "ignore:numpy.* size changed, may indicate binary incompatibility:RuntimeWarning",
 ]
+
+[tool.ruff]
+required-version = "==0.16.0"
+target-version = "py310"
+line-length = 79
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82", "F811"]
+fixable = []
 
 [tool.black]
 line-length = 79
