@@ -621,6 +621,35 @@ def test_add_samples_umap_field():
     dataset.delete()
 
 
+def test_add_samples_umap_pynn_only_metric():
+    """UMAP accepts metrics known only to pynndescent (not present in
+    umap.distances.named_distances); rebinding the stripped distance
+    functions at hydration time must support them too."""
+    dataset, rng = _make_synthetic_dataset("test_add_samples_pynn_metric")
+
+    results = fob.compute_visualization(
+        dataset,
+        embeddings="emb",
+        method="umap",
+        metric="sqeuclidean",
+        brain_key="vk",
+        num_dims=2,
+        seed=42,
+        verbose=False,
+    )
+
+    initial = results.total_index_size
+    _add_new_samples(dataset, 10, 64, rng)
+
+    dataset.clear_cache()
+    reloaded = dataset.load_brain_results("vk")
+    reloaded.add_samples(dataset)
+
+    assert reloaded.total_index_size == initial + 10
+
+    dataset.delete()
+
+
 def test_add_samples_umap_array():
     dataset, rng = _make_synthetic_dataset("test_add_samples_umap_array")
 

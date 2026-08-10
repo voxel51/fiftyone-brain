@@ -1930,19 +1930,27 @@ def _strip_umap_training_data(reducer):
 
 
 def _rebind_umap_distance_funcs(reducer):
+    # Mirrors how UMAP.fit() binds these functions from the metric name
     import umap.distances as dist
+    from pynndescent.distances import named_distances as pynn_named_distances
 
     metric = reducer.metric
-    if not etau.is_str(metric) or metric not in dist.named_distances:
+    if etau.is_str(metric) and metric in dist.named_distances:
+        reducer._input_distance_func = dist.named_distances[metric]
+        reducer._inverse_distance_func = (
+            dist.named_distances_with_gradients.get(metric, None)
+        )
+    elif etau.is_str(metric) and metric in pynn_named_distances:
+        # UMAP also accepts metrics known only to pynndescent; these have
+        # no gradient implementation, so inverse_transform is unavailable
+        reducer._input_distance_func = pynn_named_distances[metric]
+        reducer._inverse_distance_func = None
+    else:
         raise RuntimeError(
             "Cannot rebind distance functions for metric %r; please "
             "recompute the embeddings visualization" % (metric,)
         )
 
-    reducer._input_distance_func = dist.named_distances[metric]
-    reducer._inverse_distance_func = dist.named_distances_with_gradients.get(
-        metric, None
-    )
     reducer._output_distance_func = dist.named_distances_with_gradients[
         reducer.output_metric
     ]
