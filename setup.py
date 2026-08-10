@@ -2,13 +2,17 @@
 """
 Installs `fiftyone-brain`.
 
+All static package metadata lives in pyproject.toml; this shim exists to
+support the RELEASE_VERSION environment variable, which the build workflow
+uses to build release candidate versions.
+
 | Copyright 2017-2026, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
 import os
-from setuptools import setup
 
+from setuptools import setup
 
 VERSION = "0.24.0"
 
@@ -18,7 +22,7 @@ def get_version():
         version = os.environ["RELEASE_VERSION"]
         if not version.startswith(VERSION):
             raise ValueError(
-                "Release version doest not match version: %s and %s"
+                "Release version does not match version: %s and %s"
                 % (version, VERSION)
             )
         return version
@@ -26,41 +30,4 @@ def get_version():
     return VERSION
 
 
-with open("README.md", "r") as fh:
-    long_description = fh.read()
-
-
-setup(
-    name="fiftyone-brain",
-    version=get_version(),
-    description="FiftyOne Brain",
-    author="Voxel51, Inc.",
-    author_email="info@voxel51.com",
-    url="https://github.com/voxel51/fiftyone-brain",
-    license="Apache",
-    long_description=long_description,
-    long_description_content_type="text/markdown",
-    packages=["fiftyone.brain"],
-    include_package_data=True,
-    install_requires=["numpy", "scipy>=1.2.0", "scikit-learn"],
-    classifiers=[
-        "Development Status :: 4 - Beta",
-        "Intended Audience :: Developers",
-        "Intended Audience :: Science/Research",
-        "License :: OSI Approved :: Apache Software License",
-        "Topic :: Scientific/Engineering :: Artificial Intelligence",
-        "Topic :: Scientific/Engineering :: Image Processing",
-        "Topic :: Scientific/Engineering :: Image Recognition",
-        "Topic :: Scientific/Engineering :: Information Analysis",
-        "Topic :: Scientific/Engineering :: Visualization",
-        "Operating System :: MacOS :: MacOS X",
-        "Operating System :: POSIX :: Linux",
-        "Operating System :: Microsoft :: Windows",
-        "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.10",
-        "Programming Language :: Python :: 3.11",
-        "Programming Language :: Python :: 3.12",
-    ],
-    scripts=[],
-    python_requires=">=3.10",
-)
+setup(version=get_version())

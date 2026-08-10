@@ -1,3 +1,63 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fiftyone-brain"
+dynamic = ["version"]
+description = "FiftyOne Brain"
+readme = "README.md"
+authors = [{ name = "Voxel51, Inc.", email = "info@voxel51.com" }]
+license = { text = "Apache" }
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = ["numpy", "scipy>=1.2.0", "scikit-learn"]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "imageio",
+    "pre-commit",
+    "pylint",
+    "pytest",
+    "voxel51-eta[storage]",
+]
+
+[project.urls]
+Homepage = "https://github.com/voxel51/fiftyone-brain"
+
+[tool.setuptools]
+# fiftyone.brain only; fiftyone/__init__.py belongs to the core fiftyone
+# package and must never ship in this wheel
+packages = ["fiftyone.brain"]
+
+[tool.pytest.ini_options]
+python_files = "*test*.py"
+filterwarnings = [
+    "ignore:dns.hash module will be removed in future versions:DeprecationWarning",
+    "ignore:the imp module is deprecated in favour of importlib:DeprecationWarning",
+    "ignore:the imp module is deprecated in favour of importlib:PendingDeprecationWarning",
+    "ignore:Using or importing the ABCs from 'collections' instead of from 'collections.abc' is deprecated:DeprecationWarning",
+    "ignore:numpy.* size changed, may indicate binary incompatibility:RuntimeWarning",
+]
+
 [tool.black]
 line-length = 79
 include = '\.pyi?$'
