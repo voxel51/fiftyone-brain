@@ -1918,9 +1918,48 @@ def _strip_umap_training_data(reducer):
         }
         reducer._knn_search_index = None
 
+    # The jitted distance functions serialize as raw Python bytecode, which
+    # is not stable across Python versions: unpickling on a different
+    # version succeeds but numba's JIT crashes at transform time. They
+    # carry no fitted state and are fully determined by the (persisted)
+    # metric strings, so strip them here and rebind from the local umap
+    # installation on load
+    reducer._input_distance_func = None
+    reducer._output_distance_func = None
+    reducer._inverse_distance_func = None
+
+
+def _rebind_umap_distance_funcs(reducer):
+    # Mirrors how UMAP.fit() binds these functions from the metric name
+    import umap.distances as dist
+    from pynndescent.distances import named_distances as pynn_named_distances
+
+    metric = reducer.metric
+    if etau.is_str(metric) and metric in dist.named_distances:
+        reducer._input_distance_func = dist.named_distances[metric]
+        reducer._inverse_distance_func = (
+            dist.named_distances_with_gradients.get(metric, None)
+        )
+    elif etau.is_str(metric) and metric in pynn_named_distances:
+        # UMAP also accepts metrics known only to pynndescent; these have
+        # no gradient implementation, so inverse_transform is unavailable
+        reducer._input_distance_func = pynn_named_distances[metric]
+        reducer._inverse_distance_func = None
+    else:
+        raise RuntimeError(
+            "Cannot rebind distance functions for metric %r; please "
+            "recompute the embeddings visualization" % (metric,)
+        )
+
+    reducer._output_distance_func = dist.named_distances_with_gradients[
+        reducer.output_metric
+    ]
+
 
 def _hydrate_umap_reducer(reducer, embeddings):
     reducer._raw_data = embeddings
+
+    _rebind_umap_distance_funcs(reducer)
 
     if getattr(reducer, "_small_data", True):
         return

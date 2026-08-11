@@ -621,6 +621,35 @@ def test_add_samples_umap_field():
     dataset.delete()
 
 
+def test_add_samples_umap_pynn_only_metric():
+    """UMAP accepts metrics known only to pynndescent (not present in
+    umap.distances.named_distances); rebinding the stripped distance
+    functions at hydration time must support them too."""
+    dataset, rng = _make_synthetic_dataset("test_add_samples_pynn_metric")
+
+    results = fob.compute_visualization(
+        dataset,
+        embeddings="emb",
+        method="umap",
+        metric="sqeuclidean",
+        brain_key="vk",
+        num_dims=2,
+        seed=42,
+        verbose=False,
+    )
+
+    initial = results.total_index_size
+    _add_new_samples(dataset, 10, 64, rng)
+
+    dataset.clear_cache()
+    reloaded = dataset.load_brain_results("vk")
+    reloaded.add_samples(dataset)
+
+    assert reloaded.total_index_size == initial + 10
+
+    dataset.delete()
+
+
 def test_add_samples_umap_array():
     dataset, rng = _make_synthetic_dataset("test_add_samples_umap_array")
 
@@ -726,13 +755,13 @@ def test_add_samples_umap_no_embeddings_field_raises():
 
     _add_new_samples(dataset, 5, 64, rng, populate_field=False)
 
-    # UMAP runs computed without an embeddings_field drop their reducer at
-    # compute time, so incremental updates are unavailable
+    # UMAP runs computed without an embeddings_field cannot support
+    # incremental updates
     try:
         results.add_samples(dataset, embeddings=np.zeros((5, 64)))
         assert False, "expected ValueError"
     except ValueError as e:
-        assert "no stored reducer" in str(e)
+        assert "embeddings field" in str(e)
 
     dataset.delete()
 
@@ -789,7 +818,7 @@ def test_add_samples_dim_mismatch_raises():
     dataset.delete()
 
 
-def test_add_samples_duplicate_overwrite_false():
+def test_add_samples_duplicates_not_overwritten():
     dataset, _ = _make_synthetic_dataset("test_add_samples_dup")
 
     results = fob.compute_visualization(
@@ -805,7 +834,6 @@ def test_add_samples_duplicate_overwrite_false():
     results.add_samples(
         dataset,
         skip_existing=False,
-        overwrite=False,
         warn_existing=True,
     )
 

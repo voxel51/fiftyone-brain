@@ -10,7 +10,7 @@ import os
 from setuptools import setup
 
 
-VERSION = "0.23.0"
+VERSION = "0.24.0"
 
 
 def get_version():
@@ -60,6 +60,8 @@ setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+        "Programming Language :: Python :: 3.14",
     ],
     scripts=[],
     python_requires=">=3.10",
