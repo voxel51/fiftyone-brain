@@ -65,6 +65,8 @@ jobs:
           - "3.10"
           - "3.11"
           - "3.12"
+          - "3.13"
+          - "3.14"
     steps:
       - name: Clone fiftyone-brain
         uses: actions/checkout@v7
@@ -83,7 +85,7 @@ jobs:
         with:
           fetch-depth: 1
           path: eta
-          ref: develop
+          ref: main
           repository: voxel51/eta
       # ETA tests will create a storage client which, 
       # in it's __init__, tries to log in to GCP.
