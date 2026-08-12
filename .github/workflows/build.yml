@@ -3,15 +3,30 @@ name: Build
 on:
   pull_request:
     branches:
-      - develop
+      - main
     types: [opened, synchronize]
   push:
     branches:
-      - develop
+      - main
     tags:
       - v*
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Clone fiftyone-brain
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+      - name: Install ruff
+        run: pip install ruff==0.16.0
+      - name: Check Python correctness
+        run: ruff check --output-format=github .
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -29,8 +44,8 @@ jobs:
           pip --version
       - name: Install dependencies
         run: |
-          pip install --upgrade pip setuptools wheel
-          pip install -r requirements/build.txt
+          pip install --upgrade pip
+          pip install build
       - name: Set environment
         env:
           RELEASE_TAG: ${{ github.ref }}
@@ -40,7 +55,7 @@ jobs:
           fi
       - name: Build wheel
         run: |
-          python setup.py sdist bdist_wheel
+          python -m build
       - name: Upload wheel
         uses: actions/upload-artifact@v7
         with:

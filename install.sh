@@ -37,11 +37,9 @@ OS=$(uname -s)
 echo "***** INSTALLING FIFTYONE-BRAIN *****"
 if [ ${DEV_INSTALL} = true ]; then
     echo "Performing dev install"
-    pip install -r requirements/dev.txt
+    pip install -e ".[dev]"
     pre-commit install
-    pip install -e .
 else
-    pip install -r requirements.txt
     pip install .
 fi
 

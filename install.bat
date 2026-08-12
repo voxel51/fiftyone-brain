@@ -25,11 +25,9 @@ GOTO parse
 echo ***** INSTALLING FIFTYONE-BRAIN *****
 IF %DEV_INSTALL%==true (
   echo Performing dev install
-  pip install -r requirements/dev.txt
+  pip install -e .[dev]
   pre-commit install
-  pip install -e .
 ) else (
-  pip install -r requirements.txt
   pip install .
 )
 

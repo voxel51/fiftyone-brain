@@ -1,4 +1,0 @@
--r common.txt
-
-pytest==5.4.3
-twine>=3

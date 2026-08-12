@@ -1,0 +1,28 @@
+{
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "extends": ["config:recommended"],
+    "dependencyDashboard": false,
+    "baseBranches": ["main"],
+    "gitAuthor": "voxel51-bot <bot@voxel51.com>",
+    "rangeStrategy": "widen",
+    "schedule": ["* * * * 3"],
+    "labels": ["dependencies"],
+    "enabledManagers": ["pep621", "github-actions"],
+    "packageRules": [
+        {
+            "matchManagers": ["pep621"],
+            "groupName": "python-packages",
+            "addLabels": ["python"]
+        },
+        {
+            "matchManagers": ["github-actions"],
+            "groupName": "github-actions",
+            "addLabels": ["github-actions"]
+        }
+    ],
+    "vulnerabilityAlerts": {
+        "enabled": true,
+        "labels": ["dependencies", "security"]
+    },
+    "osvVulnerabilityAlerts": true
+}
