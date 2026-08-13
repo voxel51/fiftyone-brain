@@ -11,7 +11,6 @@ import numpy as np
 
 import eta.core.utils as etau
 
-import fiftyone.core.storage as fos
 import fiftyone.core.utils as fou
 import fiftyone.brain.internal.core.utils as fbu
 from fiftyone.brain.similarity import (
@@ -28,6 +27,9 @@ _SUPPORTED_METRICS = {
     "cosine": "cosine",
     "euclidean": "l2",
 }
+
+# Page size when paginating LanceDB table listings
+_DB_TABLE_PG_LIMIT = 100
 
 logger = logging.getLogger(__name__)
 
@@ -138,19 +140,19 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 "information" % self.config.uri
             ) from e
 
-        table_names = db.table_names()
-
         if self.config.table_name is None:
+            table_names = _table_names(db)
             root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
             table_name = fbu.get_unique_name(root, table_names)
 
             self.config.table_name = table_name
             self.save_config()
 
-        if self.config.table_name in table_names:
-            table = db.open_table(self.config.table_name)
-        else:
-            table = None
+        table = (
+            db.open_table(self.config.table_name)
+            if isinstance(self.config.table_name, str)
+            else None
+        )
 
         self._db = db
         self._table = table
@@ -387,7 +389,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             self.config.table_name,
             self.config.table_name + "_filter",
         ):
-            if tbl in self._db.table_names():
+            if isinstance(tbl, str) and tbl in _table_names(self._db):
                 self._db.drop_table(tbl)
 
         self._table = None
@@ -499,3 +501,21 @@ class LanceDBSimilarityIndex(SimilarityIndex):
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):
         return cls(samples, config, brain_key)
+
+
+def _table_names(db):
+    # Cursor on the last name of each page; the response page_token is an
+    # exclusive start_after that drops a table across page boundaries
+    page_token = None
+    table_names = []
+    while True:
+        tables = db.list_tables(
+            page_token=page_token, limit=_DB_TABLE_PG_LIMIT
+        ).tables
+        table_names.extend(tables)
+        if len(tables) < _DB_TABLE_PG_LIMIT:
+            break
+
+        page_token = tables[-1]
+
+    return table_names
