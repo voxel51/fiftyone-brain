@@ -252,10 +252,14 @@ class MongoDBSimilarityIndex(SimilarityIndex):
 
         field = self._dataset.get_field(self.config.embeddings_field)
         if field is not None and not isinstance(field, fof.ListField):
-            raise ValueError(
-                "MongoDB vector search indexes require embeddings to be "
-                "stored in list fields"
+            logger.info(
+                "Converting embeddings field '%s' from %s to a list "
+                "field, which is required for MongoDB vector search "
+                "indexes",
+                self.config.embeddings_field,
+                type(field).__name__,
             )
+            self._convert_to_list_field()
 
         metric = _SUPPORTED_METRICS[self.config.metric]
 
@@ -292,6 +296,33 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         coll.create_search_index(model=model)
 
         self._index = True
+
+    def _convert_to_list_field(self):
+        # Migrates an existing embeddings field (eg VectorField) to a
+        # ListField in place, preserving values, since MongoDB vector
+        # search indexes require list fields
+        embeddings_field = self.config.embeddings_field
+        dataset = self._dataset
+
+        if dataset.media_type == fom.GROUP:
+            samples = dataset.select_group_slices(_allow_mixed=True)
+        else:
+            samples = dataset
+
+        view = samples.exists(embeddings_field)
+        sample_ids, embeddings = view.values(["id", embeddings_field])
+
+        dataset.delete_sample_field(embeddings_field)
+        dataset.add_sample_field(
+            embeddings_field, fof.ListField, subfield=fof.FloatField()
+        )
+
+        values = {
+            _id: np.asarray(e).tolist()
+            for _id, e in zip(sample_ids, embeddings)
+            if e is not None
+        }
+        samples.set_values(embeddings_field, values, key_field="id")
 
     @property
     def ready(self):

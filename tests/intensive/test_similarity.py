@@ -75,6 +75,13 @@ PGVector setup::
 
     pip install psycopg2
 
+MongoDB setup::
+
+    # No separate client install or brain_config.json entry needed -- this
+    # backend indexes the dataset's own sample collection directly, so it
+    # just requires your `FIFTYONE_DATABASE_URI` to point at a MongoDB
+    # Atlas 7.0+ cluster with Vector Search enabled
+
 Brain config setup at `~/.fiftyone/brain_config.json`::
 
     {
@@ -129,6 +136,7 @@ import numpy as np
 
 import fiftyone as fo
 import fiftyone.brain as fob  # pylint: disable=import-error,no-name-in-module
+import fiftyone.core.fields as fof
 import fiftyone.zoo as foz
 from fiftyone import ViewField as F
 
@@ -142,6 +150,7 @@ CUSTOM_BACKENDS = [
     "mosaic",
     "pgvector",
     "lancedb",
+    "mongodb",
 ]
 
 
@@ -150,6 +159,15 @@ def get_custom_backends():
         return os.environ["SIMILARITY_BACKENDS"].split(",")
 
     return CUSTOM_BACKENDS
+
+
+def _wait_until_ready(index, timeout=60, interval=2):
+    # Atlas vector search indexes build asynchronously, so a query issued
+    # immediately after compute_similarity() returns may see no results
+    for _ in range(int(timeout / interval)):
+        if index.ready:
+            return
+        time.sleep(interval)
 
 
 def test_brain_config():
@@ -482,6 +500,83 @@ def test_qdrant_backend_config():
         print(f"Applied qdrant config grpc_port={grpc_port}")
     else:
         print("Qdrant config grpc_port unset")
+
+    dataset.delete()
+
+
+def test_mongodb_backend():
+    """
+    - Fresh model-based computation never writes embeddings to the DB
+      directly (add_to_index() does, as a list), so it should never hit
+      MongoDB's list field requirement
+    - A pre-existing embeddings field of an incompatible type (eg
+      VectorField, as written by callers like the multimodal embeddings
+      pipeline) should be transparently converted to a list field rather
+      than raising, see MongoDBSimilarityIndex._convert_to_list_field()
+    """
+
+    backend = "mongodb"
+    if backend not in get_custom_backends():
+        return
+
+    dataset = foz.load_zoo_dataset("quickstart", max_samples=5)
+
+    # Fresh computation: embeddings are computed in memory and only ever
+    # written via add_to_index(), which already stores them as lists.
+    # Unlike sklearn/qdrant, mongodb has nowhere else to store vectors
+    # (no external service), so it requires a named embeddings_field
+    # rather than supporting embeddings=False
+    brain_key = "clip_" + backend
+    embeddings_field = brain_key + "_embeddings"
+    index = fob.compute_similarity(
+        dataset,
+        model="clip-vit-base32-torch",
+        metric="cosine",
+        embeddings=embeddings_field,
+        backend=backend,
+        brain_key=brain_key,
+    )
+
+    field = dataset.get_field(embeddings_field)
+    if field is not None:
+        assert isinstance(field, fof.ListField)
+
+    _wait_until_ready(index)
+    view = dataset.sort_by_similarity(
+        dataset.first().id, k=3, brain_key=brain_key
+    )
+    assert len(view) == 3
+
+    dataset.delete_brain_run(brain_key)
+
+    # Pre-existing, incompatible field: simulates a caller (eg the
+    # multimodal embeddings pipeline) writing embeddings as a VectorField
+    # before compute_similarity() ever sees the field
+    vector_field = "vector_emb"
+    dataset.add_sample_field(vector_field, fof.VectorField)
+    dataset.set_values(
+        vector_field,
+        {s.id: np.random.rand(512).tolist() for s in dataset},
+        key_field="id",
+    )
+    assert isinstance(dataset.get_field(vector_field), fof.VectorField)
+
+    convert_brain_key = "clip_" + backend + "_converted"
+    index2 = fob.compute_similarity(
+        dataset,
+        embeddings=vector_field,
+        metric="cosine",
+        backend=backend,
+        brain_key=convert_brain_key,
+    )
+
+    assert isinstance(dataset.get_field(vector_field), fof.ListField)
+
+    _wait_until_ready(index2)
+    view2 = dataset.sort_by_similarity(
+        dataset.first().id, k=3, brain_key=convert_brain_key
+    )
+    assert len(view2) == 3
 
     dataset.delete()
 
