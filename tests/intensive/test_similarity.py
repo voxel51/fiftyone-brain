@@ -150,8 +150,13 @@ CUSTOM_BACKENDS = [
     "mosaic",
     "pgvector",
     "lancedb",
-    "mongodb",
 ]
+
+# Not in CUSTOM_BACKENDS: unlike the backends above, mongodb silently
+# reuses whatever database the caller's FiftyOne is already connected
+# to rather than failing cleanly if unconfigured, so it's opt-in only
+# via `SIMILARITY_BACKENDS=mongodb`
+MONGODB_BACKEND = "mongodb"
 
 
 def get_custom_backends():
@@ -168,6 +173,11 @@ def _wait_until_ready(index, timeout=60, interval=2):
         if index.ready:
             return
         time.sleep(interval)
+
+    raise TimeoutError(
+        "Index for brain key '%s' did not become ready within %d seconds"
+        % (index.key, timeout)
+    )
 
 
 def test_brain_config():
@@ -515,7 +525,7 @@ def test_mongodb_backend():
       than raising, see MongoDBSimilarityIndex._convert_to_list_field()
     """
 
-    backend = "mongodb"
+    backend = MONGODB_BACKEND
     if backend not in get_custom_backends():
         return
 
@@ -554,9 +564,10 @@ def test_mongodb_backend():
     # before compute_similarity() ever sees the field
     vector_field = "vector_emb"
     dataset.add_sample_field(vector_field, fof.VectorField)
+    original_values = {s.id: np.random.rand(512) for s in dataset}
     dataset.set_values(
         vector_field,
-        {s.id: np.random.rand(512).tolist() for s in dataset},
+        {_id: v.tolist() for _id, v in original_values.items()},
         key_field="id",
     )
     assert isinstance(dataset.get_field(vector_field), fof.VectorField)
@@ -569,6 +580,12 @@ def test_mongodb_backend():
         backend=backend,
         brain_key=convert_brain_key,
     )
+
+    # Values must survive the field conversion exactly, not just the type
+    converted = dataset.values(["id", vector_field])
+    converted_by_id = dict(zip(*converted))
+    for _id, original in original_values.items():
+        assert np.allclose(converted_by_id[_id], original)
 
     assert isinstance(dataset.get_field(vector_field), fof.ListField)
 

@@ -312,17 +312,23 @@ class MongoDBSimilarityIndex(SimilarityIndex):
         view = samples.exists(embeddings_field)
         sample_ids, embeddings = view.values(["id", embeddings_field])
 
-        dataset.delete_sample_field(embeddings_field)
-        dataset.add_sample_field(
-            embeddings_field, fof.ListField, subfield=fof.FloatField()
-        )
-
         values = {
             _id: np.asarray(e).tolist()
             for _id, e in zip(sample_ids, embeddings)
             if e is not None
         }
-        samples.set_values(embeddings_field, values, key_field="id")
+
+        # Write to a temporary field first and only swap it into place
+        # once the write succeeds, so a failure here never leaves the
+        # original embeddings deleted with nothing to replace them
+        tmp_field = embeddings_field + "_tmp_listfield"
+        dataset.add_sample_field(
+            tmp_field, fof.ListField, subfield=fof.FloatField()
+        )
+        samples.set_values(tmp_field, values, key_field="id")
+
+        dataset.delete_sample_field(embeddings_field)
+        dataset.rename_sample_field(tmp_field, embeddings_field)
 
     @property
     def ready(self):
