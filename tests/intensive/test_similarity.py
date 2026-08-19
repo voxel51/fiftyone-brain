@@ -166,17 +166,25 @@ def get_custom_backends():
     return CUSTOM_BACKENDS
 
 
-def _wait_until_ready(index, timeout=60, interval=2):
-    # Atlas vector search indexes build asynchronously, so a query issued
-    # immediately after compute_similarity() returns may see no results
+def _wait_for_similarity_results(
+    dataset, sample_id, brain_key, k, timeout=120, interval=5
+):
+    # Atlas vector search indexes build asynchronously. `index.ready`
+    # reflects only the search index's own build status and can report
+    # True well before the index is actually queryable (observed lag:
+    # 60-90s between `ready` and real results), so poll the real query
+    # instead of trusting the ready flag alone
+    view = None
     for _ in range(int(timeout / interval)):
-        if index.ready:
-            return
+        view = dataset.sort_by_similarity(sample_id, k=k, brain_key=brain_key)
+        if len(view) >= k:
+            return view
         time.sleep(interval)
 
     raise TimeoutError(
-        "Index for brain key '%s' did not become ready within %d seconds"
-        % (index.key, timeout)
+        "Similarity query for brain key '%s' did not return %d results "
+        "within %d seconds (got %d)"
+        % (brain_key, k, timeout, len(view) if view is not None else 0)
     )
 
 
@@ -538,7 +546,7 @@ def test_mongodb_backend():
     # rather than supporting embeddings=False
     brain_key = "clip_" + backend
     embeddings_field = brain_key + "_embeddings"
-    index = fob.compute_similarity(
+    fob.compute_similarity(
         dataset,
         model="clip-vit-base32-torch",
         metric="cosine",
@@ -551,9 +559,8 @@ def test_mongodb_backend():
     if field is not None:
         assert isinstance(field, fof.ListField)
 
-    _wait_until_ready(index)
-    view = dataset.sort_by_similarity(
-        dataset.first().id, k=3, brain_key=brain_key
+    view = _wait_for_similarity_results(
+        dataset, dataset.first().id, brain_key, k=3
     )
     assert len(view) == 3
 
@@ -573,7 +580,7 @@ def test_mongodb_backend():
     assert isinstance(dataset.get_field(vector_field), fof.VectorField)
 
     convert_brain_key = "clip_" + backend + "_converted"
-    index2 = fob.compute_similarity(
+    fob.compute_similarity(
         dataset,
         embeddings=vector_field,
         metric="cosine",
@@ -589,9 +596,8 @@ def test_mongodb_backend():
 
     assert isinstance(dataset.get_field(vector_field), fof.ListField)
 
-    _wait_until_ready(index2)
-    view2 = dataset.sort_by_similarity(
-        dataset.first().id, k=3, brain_key=convert_brain_key
+    view2 = _wait_for_similarity_results(
+        dataset, dataset.first().id, convert_brain_key, k=3
     )
     assert len(view2) == 3
 
