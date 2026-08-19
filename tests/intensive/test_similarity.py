@@ -75,6 +75,13 @@ PGVector setup::
 
     pip install psycopg2
 
+MongoDB setup::
+
+    # No separate client install or brain_config.json entry needed -- this
+    # backend indexes the dataset's own sample collection directly, so it
+    # just requires your `FIFTYONE_DATABASE_URI` to point at a MongoDB
+    # Atlas 7.0+ cluster with Vector Search enabled
+
 Brain config setup at `~/.fiftyone/brain_config.json`::
 
     {
@@ -129,6 +136,7 @@ import numpy as np
 
 import fiftyone as fo
 import fiftyone.brain as fob  # pylint: disable=import-error,no-name-in-module
+import fiftyone.core.fields as fof
 import fiftyone.zoo as foz
 from fiftyone import ViewField as F
 
@@ -144,12 +152,40 @@ CUSTOM_BACKENDS = [
     "lancedb",
 ]
 
+# Not in CUSTOM_BACKENDS: unlike the backends above, mongodb silently
+# reuses whatever database the caller's FiftyOne is already connected
+# to rather than failing cleanly if unconfigured, so it's opt-in only
+# via `SIMILARITY_BACKENDS=mongodb`
+MONGODB_BACKEND = "mongodb"
+
 
 def get_custom_backends():
     if "SIMILARITY_BACKENDS" in os.environ:
         return os.environ["SIMILARITY_BACKENDS"].split(",")
 
     return CUSTOM_BACKENDS
+
+
+def _wait_for_similarity_results(
+    dataset, sample_id, brain_key, k, timeout=120, interval=5
+):
+    # Atlas vector search indexes build asynchronously. `index.ready`
+    # reflects only the search index's own build status and can report
+    # True well before the index is actually queryable (observed lag:
+    # 60-90s between `ready` and real results), so poll the real query
+    # instead of trusting the ready flag alone
+    view = None
+    for _ in range(int(timeout / interval)):
+        view = dataset.sort_by_similarity(sample_id, k=k, brain_key=brain_key)
+        if len(view) >= k:
+            return view
+        time.sleep(interval)
+
+    raise TimeoutError(
+        "Similarity query for brain key '%s' did not return %d results "
+        "within %d seconds (got %d)"
+        % (brain_key, k, timeout, len(view) if view is not None else 0)
+    )
 
 
 def test_brain_config():
@@ -482,6 +518,88 @@ def test_qdrant_backend_config():
         print(f"Applied qdrant config grpc_port={grpc_port}")
     else:
         print("Qdrant config grpc_port unset")
+
+    dataset.delete()
+
+
+def test_mongodb_backend():
+    """
+    - Fresh model-based computation never writes embeddings to the DB
+      directly (add_to_index() does, as a list), so it should never hit
+      MongoDB's list field requirement
+    - A pre-existing embeddings field of an incompatible type (eg
+      VectorField, as written by callers like the multimodal embeddings
+      pipeline) should be transparently converted to a list field rather
+      than raising, see MongoDBSimilarityIndex._convert_to_list_field()
+    """
+
+    backend = MONGODB_BACKEND
+    if backend not in get_custom_backends():
+        return
+
+    dataset = foz.load_zoo_dataset("quickstart", max_samples=5)
+
+    # Fresh computation: embeddings are computed in memory and only ever
+    # written via add_to_index(), which already stores them as lists.
+    # Unlike sklearn/qdrant, mongodb has nowhere else to store vectors
+    # (no external service), so it requires a named embeddings_field
+    # rather than supporting embeddings=False
+    brain_key = "clip_" + backend
+    embeddings_field = brain_key + "_embeddings"
+    fob.compute_similarity(
+        dataset,
+        model="clip-vit-base32-torch",
+        metric="cosine",
+        embeddings=embeddings_field,
+        backend=backend,
+        brain_key=brain_key,
+    )
+
+    field = dataset.get_field(embeddings_field)
+    if field is not None:
+        assert isinstance(field, fof.ListField)
+
+    view = _wait_for_similarity_results(
+        dataset, dataset.first().id, brain_key, k=3
+    )
+    assert len(view) == 3
+
+    dataset.delete_brain_run(brain_key)
+
+    # Pre-existing, incompatible field: simulates a caller (eg the
+    # multimodal embeddings pipeline) writing embeddings as a VectorField
+    # before compute_similarity() ever sees the field
+    vector_field = "vector_emb"
+    dataset.add_sample_field(vector_field, fof.VectorField)
+    original_values = {s.id: np.random.rand(512) for s in dataset}
+    dataset.set_values(
+        vector_field,
+        {_id: v.tolist() for _id, v in original_values.items()},
+        key_field="id",
+    )
+    assert isinstance(dataset.get_field(vector_field), fof.VectorField)
+
+    convert_brain_key = "clip_" + backend + "_converted"
+    fob.compute_similarity(
+        dataset,
+        embeddings=vector_field,
+        metric="cosine",
+        backend=backend,
+        brain_key=convert_brain_key,
+    )
+
+    # Values must survive the field conversion exactly, not just the type
+    converted = dataset.values(["id", vector_field])
+    converted_by_id = dict(zip(*converted))
+    for _id, original in original_values.items():
+        assert np.allclose(converted_by_id[_id], original)
+
+    assert isinstance(dataset.get_field(vector_field), fof.ListField)
+
+    view2 = _wait_for_similarity_results(
+        dataset, dataset.first().id, convert_brain_key, k=3
+    )
+    assert len(view2) == 3
 
     dataset.delete()
 
