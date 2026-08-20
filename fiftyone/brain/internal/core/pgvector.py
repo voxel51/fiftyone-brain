@@ -40,6 +40,25 @@ _SUPPORTED_INDEX_TYPES = ("hnsw", "ivfflat")
 # Metrics supported by pgvector's ivfflat access method
 _IVFFLAT_SUPPORTED_METRICS = ("cosine", "dotproduct", "euclidean")
 
+# Supported vector column types for pgvector
+_SUPPORTED_VECTOR_TYPES = ("vector", "halfvec")
+
+# Metrics supported on halfvec columns (no jaccard/hamming opclasses)
+_HALFVEC_SUPPORTED_METRICS = ("cosine", "dotproduct", "euclidean", "l1")
+
+# Operator classes for halfvec columns (l1 is HNSW-only, enforced by the
+# ivfflat metric check)
+_HALFVEC_OPCLASSES = {
+    "cosine": "halfvec_cosine_ops",
+    "dotproduct": "halfvec_ip_ops",
+    "euclidean": "halfvec_l2_ops",
+    "l1": "halfvec_l1_ops",
+}
+
+# Maximum indexable dimensions per column type (applies to both hnsw and
+# ivfflat indexes)
+_MAX_INDEXABLE_DIMS = {"vector": 2000, "halfvec": 4000}
+
 # Query operators for each metric; "%" is doubled because these are
 # interpolated into parameterized psycopg2 queries
 _METRIC_OPERATORS = {
@@ -69,6 +88,17 @@ class PgVectorSimilarityConfig(SimilarityConfig):
             authority (CA) certificate(s).
         work_mem ("64MB"): the base maximum amount of memory to be used by a query operation
             (such as a sort or hash table) before writing to temporary disk files
+        maintenance_work_mem (None): an optional maximum amount of memory to
+            be used by index builds. If not provided, the server default
+            (typically 64MB) is used. Increase this for high-dimensional
+            embeddings or IVFFlat indexes with many lists
+        vector_type ("vector"): the pgvector column type to use for storing
+            embeddings. Supported values are ``("vector", "halfvec")``.
+            ``"halfvec"`` stores half-precision (float16) vectors and
+            supports indexes with up to 4000 dimensions, versus 2000 for
+            ``"vector"``, and requires pgvector >= 0.7.0. Note that halfvec
+            columns only support the
+            ``("cosine", "dotproduct", "euclidean", "l1")`` metrics
         index_type ("hnsw"): the type of index to use. Supported values are
             ``("hnsw", "ivfflat")``. Note that IVFFlat indexes only support
             the ``("cosine", "dotproduct", "euclidean")`` metrics
@@ -94,6 +124,8 @@ class PgVectorSimilarityConfig(SimilarityConfig):
         ssl_key=None,
         ssl_root_cert=None,
         work_mem="64MB",
+        maintenance_work_mem=None,
+        vector_type="vector",
         index_type="hnsw",
         hnsw_m=16,
         hnsw_ef_construction=64,
@@ -123,6 +155,21 @@ class PgVectorSimilarityConfig(SimilarityConfig):
                 f"Supported values are {_IVFFLAT_SUPPORTED_METRICS}"
             )
 
+        if vector_type not in _SUPPORTED_VECTOR_TYPES:
+            raise ValueError(
+                f"Unsupported vector_type '{vector_type}'. "
+                f"Supported values are {_SUPPORTED_VECTOR_TYPES}"
+            )
+
+        if (
+            vector_type == "halfvec"
+            and metric not in _HALFVEC_SUPPORTED_METRICS
+        ):
+            raise ValueError(
+                f"Metric '{metric}' is not supported by halfvec columns. "
+                f"Supported values are {_HALFVEC_SUPPORTED_METRICS}"
+            )
+
         super().__init__(**kwargs)
 
         self.metric = metric
@@ -130,8 +177,10 @@ class PgVectorSimilarityConfig(SimilarityConfig):
         self.ssl_key = ssl_key
         self.ssl_root_cert = ssl_root_cert
         self.work_mem = work_mem
+        self.maintenance_work_mem = maintenance_work_mem
         self.index_name = index_name
         self.table_name = table_name
+        self.vector_type = vector_type
         self.index_type = index_type
         self.hnsw_m = hnsw_m
         self.hnsw_ef_construction = hnsw_ef_construction
@@ -250,6 +299,18 @@ class PgVectorSimilarityIndex(SimilarityIndex):
                 )
                 raise
 
+        if self.config.vector_type == "halfvec":
+            self._cur.execute(
+                "SELECT 1 FROM pg_type WHERE typname = 'halfvec'"
+            )
+            if self._cur.fetchone() is None:
+                raise ValueError(
+                    "vector_type='halfvec' requires pgvector >= 0.7.0, but "
+                    "the 'halfvec' type was not found in the database. "
+                    "Upgrade the pgvector extension and run "
+                    "'ALTER EXTENSION vector UPDATE'"
+                )
+
         if self.config.table_name is None:
             table_names = self._get_table_names()
             root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
@@ -288,7 +349,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
                     CREATE TABLE IF NOT EXISTS "{self.config.table_name}" (
                     id TEXT PRIMARY KEY,
                     sample_id TEXT,
-                    embedding_vector VECTOR({dimension})
+                    embedding_vector {self.config.vector_type.upper()}({dimension})
                 );
                 """
             )
@@ -300,7 +361,11 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             raise
 
     def create_index(self):
-        operator_class = _SUPPORTED_METRICS[self.config.metric]
+        if self.config.vector_type == "halfvec":
+            operator_class = _HALFVEC_OPCLASSES[self.config.metric]
+        else:
+            operator_class = _SUPPORTED_METRICS[self.config.metric]
+
         index_type = self.config.index_type
         try:
             self._cur.execute(
@@ -370,8 +435,31 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             self._initialize()
         self._cur.execute(f"SET work_mem TO '{self.config.work_mem}'")
 
+        if self.config.maintenance_work_mem is not None:
+            self._cur.execute(
+                f"SET maintenance_work_mem TO "
+                f"'{self.config.maintenance_work_mem}'"
+            )
+
+        dimension = embeddings.shape[1]
+        max_dims = _MAX_INDEXABLE_DIMS[self.config.vector_type]
+        if dimension > max_dims:
+            msg = (
+                f"Embeddings with {dimension} dimensions exceed the maximum "
+                f"of {max_dims} indexable dimensions for "
+                f"'{self.config.vector_type}' columns"
+            )
+            if self.config.vector_type == "vector":
+                msg += (
+                    ". Pass vector_type='halfvec' to compute_similarity() "
+                    "to store half-precision vectors, which support up to "
+                    "4000 indexable dimensions (requires pgvector >= 0.7.0)"
+                )
+
+            raise ValueError(msg)
+
         if self.config.table_name not in self._get_table_names():
-            self._create_table(embeddings.shape[1])
+            self._create_table(dimension)
 
         if label_ids is not None:
             ids = label_ids
@@ -680,6 +768,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
 
         sort_order = "DESC" if reverse else "ASC"
         operator = _METRIC_OPERATORS[self.config.metric]
+        cast = self.config.vector_type
 
         sample_ids = []
         label_ids = [] if self.config.patches_field is not None else None
@@ -688,7 +777,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             if _filter:
                 self._cur.execute(
                     f"""
-                    SELECT id, sample_id, embedding_vector {operator} %s::vector AS distance
+                    SELECT id, sample_id, embedding_vector {operator} %s::{cast} AS distance
                     FROM "{self.config.table_name}"
                     WHERE id = ANY(%s)
                     ORDER BY distance {sort_order}
@@ -699,7 +788,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             else:
                 self._cur.execute(
                     f"""
-                    SELECT id, sample_id, embedding_vector {operator} %s::vector AS distance
+                    SELECT id, sample_id, embedding_vector {operator} %s::{cast} AS distance
                     FROM "{self.config.table_name}"
                     ORDER BY distance {sort_order}
                     LIMIT %s;

@@ -495,6 +495,8 @@ def test_pgvector_config_validation():
     # defaults preserve backwards compatibility
     config = PgVectorSimilarityConfig()
     assert config.index_type == "hnsw"
+    assert config.vector_type == "vector"
+    assert config.maintenance_work_mem is None
 
     config = PgVectorSimilarityConfig(index_type="ivfflat", metric="euclidean")
     assert config.ivfflat_lists == 100
@@ -505,6 +507,27 @@ def test_pgvector_config_validation():
 
     with pytest.raises(ValueError):
         PgVectorSimilarityConfig(index_type="ivfflat", metric="l1")
+
+    # halfvec support
+    config = PgVectorSimilarityConfig(vector_type="halfvec")
+    assert config.vector_type == "halfvec"
+
+    # l1 is supported by halfvec with HNSW indexes
+    PgVectorSimilarityConfig(vector_type="halfvec", metric="l1")
+
+    with pytest.raises(ValueError):
+        PgVectorSimilarityConfig(vector_type="sparsevec")
+
+    with pytest.raises(ValueError):
+        PgVectorSimilarityConfig(vector_type="halfvec", metric="jaccard")
+
+    with pytest.raises(ValueError):
+        PgVectorSimilarityConfig(vector_type="halfvec", metric="hamming")
+
+    with pytest.raises(ValueError):
+        PgVectorSimilarityConfig(
+            vector_type="halfvec", metric="l1", index_type="ivfflat"
+        )
 
 
 def test_pgvector_ivfflat_backend():
@@ -549,6 +572,82 @@ def test_pgvector_ivfflat_backend():
 
     index.cleanup(drop_table=True)
     dataset.delete_brain_run(brain_key)
+    dataset.delete()
+
+
+def test_pgvector_halfvec_backend():
+    backend = "pgvector"
+    if backend not in get_custom_backends():
+        return
+
+    dataset = foz.load_zoo_dataset(
+        "quickstart",
+        max_samples=50,
+        dataset_name="quickstart-test-pgvector-halfvec",
+        drop_existing_dataset=True,
+    )
+
+    # embeddings that exceed the 2000-dim indexable limit for regular
+    # vector columns (eg Qwen embeddings are 2048-dim)
+    embeddings = np.random.randn(len(dataset), 2048)
+
+    # regular vector columns cannot index >2000 dims
+    with pytest.raises(ValueError, match="halfvec"):
+        fob.compute_similarity(
+            dataset,
+            embeddings=embeddings,
+            backend=backend,
+            brain_key="pgvector_highdim_error",
+        )
+
+    if "pgvector_highdim_error" in dataset.list_brain_runs():
+        dataset.delete_brain_run("pgvector_highdim_error")
+
+    for index_type, brain_key, kwargs in [
+        ("hnsw", "pgvector_halfvec_hnsw", {}),
+        (
+            "ivfflat",
+            "pgvector_halfvec_ivfflat",
+            {"ivfflat_lists": 10, "ivfflat_probes": 5},
+        ),
+    ]:
+        index = fob.compute_similarity(
+            dataset,
+            embeddings=embeddings,
+            backend=backend,
+            brain_key=brain_key,
+            vector_type="halfvec",
+            index_type=index_type,
+            maintenance_work_mem="256MB",
+            **kwargs,
+        )
+
+        assert index.config.vector_type == "halfvec"
+        assert index.total_index_size == len(dataset)
+
+        # verify the index was built on the halfvec column
+        if index._conn.closed:
+            index._initialize()
+
+        index._cur.execute(
+            "SELECT indexdef FROM pg_indexes WHERE indexname = %s",
+            (index.config.index_name,),
+        )
+        indexdef = index._cur.fetchone()[0]
+        assert f"USING {index_type}" in indexdef
+        assert "halfvec_cosine_ops" in indexdef
+
+        query_id = dataset.first().id
+        view = dataset.sort_by_similarity(query_id, k=10, brain_key=brain_key)
+        assert len(view) == 10
+
+        # embeddings round-trip with float16 precision
+        emb, _, _ = index.get_embeddings()
+        assert emb.shape == (len(dataset), 2048)
+
+        index.cleanup(drop_table=True)
+        dataset.delete_brain_run(brain_key)
+
     dataset.delete()
 
 
