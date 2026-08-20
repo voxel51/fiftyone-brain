@@ -34,6 +34,23 @@ _SUPPORTED_METRICS = {
     "hamming": "vector_hamming_ops",
 }
 
+# Supported index types for pgvector
+_SUPPORTED_INDEX_TYPES = ("hnsw", "ivfflat")
+
+# Metrics supported by pgvector's ivfflat access method
+_IVFFLAT_SUPPORTED_METRICS = ("cosine", "dotproduct", "euclidean")
+
+# Query operators for each metric; "%" is doubled because these are
+# interpolated into parameterized psycopg2 queries
+_METRIC_OPERATORS = {
+    "cosine": "<=>",
+    "dotproduct": "<#>",
+    "euclidean": "<->",
+    "l1": "<+>",
+    "jaccard": "<%%>",
+    "hamming": "<~>",
+}
+
 
 class PgVectorSimilarityConfig(SimilarityConfig):
     """Configuration for the PGVector similarity backend.
@@ -52,8 +69,17 @@ class PgVectorSimilarityConfig(SimilarityConfig):
             authority (CA) certificate(s).
         work_mem ("64MB"): the base maximum amount of memory to be used by a query operation
             (such as a sort or hash table) before writing to temporary disk files
+        index_type ("hnsw"): the type of index to use. Supported values are
+            ``("hnsw", "ivfflat")``. Note that IVFFlat indexes only support
+            the ``("cosine", "dotproduct", "euclidean")`` metrics
         hnsw_m (16): the max number of connections per layer in the HNSW index
         hnsw_ef_construction (64): the size of the dynamic candidate list for constructing the graph for the HNSW index
+        hnsw_ef_search (None): an optional size of the dynamic candidate list
+            for HNSW searches. If not provided, the server default (40) is
+            used
+        ivfflat_lists (100): the number of inverted lists in the IVFFlat index
+        ivfflat_probes (1): the number of lists to probe during IVFFlat
+            searches
         **kwargs: keyword arguments for
             :class:`fiftyone.brain.similarity.SimilarityConfig`
     """
@@ -68,14 +94,33 @@ class PgVectorSimilarityConfig(SimilarityConfig):
         ssl_key=None,
         ssl_root_cert=None,
         work_mem="64MB",
+        index_type="hnsw",
         hnsw_m=16,
         hnsw_ef_construction=64,
+        hnsw_ef_search=None,
+        ivfflat_lists=100,
+        ivfflat_probes=1,
         **kwargs,
     ):
         if metric not in _SUPPORTED_METRICS:
             raise ValueError(
                 f"Unsupported metric '{metric}'. "
                 f"Supported values are {_SUPPORTED_METRICS}"
+            )
+
+        if index_type not in _SUPPORTED_INDEX_TYPES:
+            raise ValueError(
+                f"Unsupported index_type '{index_type}'. "
+                f"Supported values are {_SUPPORTED_INDEX_TYPES}"
+            )
+
+        if (
+            index_type == "ivfflat"
+            and metric not in _IVFFLAT_SUPPORTED_METRICS
+        ):
+            raise ValueError(
+                f"Metric '{metric}' is not supported by IVFFlat indexes. "
+                f"Supported values are {_IVFFLAT_SUPPORTED_METRICS}"
             )
 
         super().__init__(**kwargs)
@@ -87,8 +132,12 @@ class PgVectorSimilarityConfig(SimilarityConfig):
         self.work_mem = work_mem
         self.index_name = index_name
         self.table_name = table_name
+        self.index_type = index_type
         self.hnsw_m = hnsw_m
         self.hnsw_ef_construction = hnsw_ef_construction
+        self.hnsw_ef_search = hnsw_ef_search
+        self.ivfflat_lists = ivfflat_lists
+        self.ivfflat_probes = ivfflat_probes
 
         self._connection_string = connection_string
 
@@ -185,12 +234,21 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             self.config.connection_string, **ssl_options
         )
         self._cur = self._conn.cursor()
-        try:
-            self._cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
-            self._conn.commit()
-        except Exception as e:
-            logger.error(f"Error creating vector extension: {str(e)}")
-            raise
+        self._cur.execute(
+            "SELECT 1 FROM pg_extension WHERE extname = 'vector'"
+        )
+        if self._cur.fetchone() is None:
+            try:
+                self._cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                self._conn.commit()
+            except Exception as e:
+                logger.error(
+                    "The 'vector' extension is not installed in the database "
+                    "and could not be created, which typically requires "
+                    "superuser privileges. Ask your database administrator "
+                    "to run 'CREATE EXTENSION vector'"
+                )
+                raise
 
         if self.config.table_name is None:
             table_names = self._get_table_names()
@@ -241,27 +299,42 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             )
             raise
 
-    def create_hnsw_index(self):
+    def create_index(self):
         operator_class = _SUPPORTED_METRICS[self.config.metric]
+        index_type = self.config.index_type
         try:
             self._cur.execute(
                 f"""DROP INDEX IF EXISTS "{self.config.index_name}";"""
             )
             self._conn.commit()
-            self._cur.execute(
-                f"""
-                CREATE INDEX "{self.config.index_name}"
-                ON "{self.config.table_name}" USING hnsw (embedding_vector {operator_class})
-                WITH (m = %s, ef_construction = %s);
-                """,
-                (self.config.hnsw_m, self.config.hnsw_ef_construction),
-            )
+            if index_type == "ivfflat":
+                self._cur.execute(
+                    f"""
+                    CREATE INDEX "{self.config.index_name}"
+                    ON "{self.config.table_name}" USING ivfflat (embedding_vector {operator_class})
+                    WITH (lists = %s);
+                    """,
+                    (self.config.ivfflat_lists,),
+                )
+            else:
+                self._cur.execute(
+                    f"""
+                    CREATE INDEX "{self.config.index_name}"
+                    ON "{self.config.table_name}" USING hnsw (embedding_vector {operator_class})
+                    WITH (m = %s, ef_construction = %s);
+                    """,
+                    (self.config.hnsw_m, self.config.hnsw_ef_construction),
+                )
             self._conn.commit()
         except Exception as e:
             logger.error(
-                f"Error creating HNSW index on table {self.config.table_name}:{str(e)}"
+                f"Error creating {index_type} index on table {self.config.table_name}:{str(e)}"
             )
             raise
+
+    def create_hnsw_index(self):
+        """Deprecated alias for :meth:`create_index`."""
+        self.create_index()
 
     def _get_index_ids(self, batch_size=1000):
         named_cursor = self._conn.cursor(
@@ -364,7 +437,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             psy_extras.execute_values(self._cur, query, data)
             self._conn.commit()
 
-        self.create_hnsw_index()
+        self.create_index()
 
         if close_conn:
             self.close_connections()
@@ -568,6 +641,15 @@ class PgVectorSimilarityIndex(SimilarityIndex):
         if self._conn.closed:
             self._initialize()
 
+        if self.config.index_type == "ivfflat":
+            self._cur.execute(
+                f"SET ivfflat.probes = {int(self.config.ivfflat_probes)};"
+            )
+        elif self.config.hnsw_ef_search is not None:
+            self._cur.execute(
+                f"SET hnsw.ef_search = {int(self.config.hnsw_ef_search)};"
+            )
+
         if query is None:
             raise ValueError("Postgres does not support full index neighbors")
 
@@ -597,6 +679,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             _filter = False
 
         sort_order = "DESC" if reverse else "ASC"
+        operator = _METRIC_OPERATORS[self.config.metric]
 
         sample_ids = []
         label_ids = [] if self.config.patches_field is not None else None
@@ -605,7 +688,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             if _filter:
                 self._cur.execute(
                     f"""
-                    SELECT id, sample_id, embedding_vector <-> %s::vector AS distance
+                    SELECT id, sample_id, embedding_vector {operator} %s::vector AS distance
                     FROM "{self.config.table_name}"
                     WHERE id = ANY(%s)
                     ORDER BY distance {sort_order}
@@ -616,7 +699,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             else:
                 self._cur.execute(
                     f"""
-                    SELECT id, sample_id, embedding_vector <-> %s::vector AS distance
+                    SELECT id, sample_id, embedding_vector {operator} %s::vector AS distance
                     FROM "{self.config.table_name}"
                     ORDER BY distance {sort_order}
                     LIMIT %s;
@@ -678,17 +761,17 @@ class PgVectorSimilarityIndex(SimilarityIndex):
 
     def cleanup(self, drop_table=False):
         """
-        Clean up the database by dropping the HNSW index and optionally the embeddings table.
+        Clean up the database by dropping the vector index and optionally the embeddings table.
         """
+        if self._conn.closed:
+            self._initialize()
+
         logger.info(
-            f"Cleaning up: Deleting HNSW index '{self.config.index_name}'"
+            f"Cleaning up: Deleting {self.config.index_type} index '{self.config.index_name}'"
         )
         self._cur.execute(
             f"""DROP INDEX IF EXISTS "{self.config.index_name}";"""
         )
-
-        if self._conn.closed:
-            self._initialize()
 
         if drop_table:
             self._cur.execute(

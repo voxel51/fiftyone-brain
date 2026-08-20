@@ -126,6 +126,7 @@ import time
 import unittest
 
 import numpy as np
+import pytest
 
 import fiftyone as fo
 import fiftyone.brain as fob  # pylint: disable=import-error,no-name-in-module
@@ -483,6 +484,71 @@ def test_qdrant_backend_config():
     else:
         print("Qdrant config grpc_port unset")
 
+    dataset.delete()
+
+
+def test_pgvector_config_validation():
+    from fiftyone.brain.internal.core.pgvector import (
+        PgVectorSimilarityConfig,
+    )
+
+    # defaults preserve backwards compatibility
+    config = PgVectorSimilarityConfig()
+    assert config.index_type == "hnsw"
+
+    config = PgVectorSimilarityConfig(index_type="ivfflat", metric="euclidean")
+    assert config.ivfflat_lists == 100
+    assert config.ivfflat_probes == 1
+
+    with pytest.raises(ValueError):
+        PgVectorSimilarityConfig(index_type="flat")
+
+    with pytest.raises(ValueError):
+        PgVectorSimilarityConfig(index_type="ivfflat", metric="l1")
+
+
+def test_pgvector_ivfflat_backend():
+    backend = "pgvector"
+    if backend not in get_custom_backends():
+        return
+
+    dataset = foz.load_zoo_dataset(
+        "quickstart",
+        max_samples=50,
+        dataset_name="quickstart-test-pgvector-ivfflat",
+        drop_existing_dataset=True,
+    )
+    brain_key = "clip_pgvector_ivfflat"
+    index = fob.compute_similarity(
+        dataset,
+        model="clip-vit-base32-torch",
+        backend=backend,
+        brain_key=brain_key,
+        index_type="ivfflat",
+        ivfflat_lists=10,
+        ivfflat_probes=5,
+    )
+
+    assert index.config.index_type == "ivfflat"
+    assert index.total_index_size == len(dataset)
+
+    # verify that an IVFFlat index was actually created
+    if index._conn.closed:
+        index._initialize()
+
+    index._cur.execute(
+        "SELECT indexdef FROM pg_indexes WHERE indexname = %s",
+        (index.config.index_name,),
+    )
+    indexdef = index._cur.fetchone()[0]
+    assert "USING ivfflat" in indexdef
+
+    query_id = dataset.first().id
+    view = dataset.sort_by_similarity(query_id, k=10, brain_key=brain_key)
+    assert len(view) == 10
+
+    index.cleanup(drop_table=True)
+    dataset.delete_brain_run(brain_key)
     dataset.delete()
 
 
