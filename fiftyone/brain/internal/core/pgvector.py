@@ -21,17 +21,17 @@ import fiftyone.brain.internal.core.utils as fbu
 
 psycopg2 = fou.lazy_import("psycopg2")
 psy_extras = fou.lazy_import("psycopg2.extras")
+psy_sql = fou.lazy_import("psycopg2.sql")
 
 logger = logging.getLogger(__name__)
 
-# Supported metrics for pgvector
+# Supported metrics for pgvector; jaccard and hamming are not supported
+# because their operator classes only exist for bit columns
 _SUPPORTED_METRICS = {
     "cosine": "vector_cosine_ops",
     "dotproduct": "vector_ip_ops",
     "euclidean": "vector_l2_ops",
     "l1": "vector_l1_ops",
-    "jaccard": "vector_jaccard_ops",
-    "hamming": "vector_hamming_ops",
 }
 
 # Supported index types for pgvector
@@ -42,9 +42,6 @@ _IVFFLAT_SUPPORTED_METRICS = ("cosine", "dotproduct", "euclidean")
 
 # Supported vector column types for pgvector
 _SUPPORTED_VECTOR_TYPES = ("vector", "halfvec")
-
-# Metrics supported on halfvec columns (no jaccard/hamming opclasses)
-_HALFVEC_SUPPORTED_METRICS = ("cosine", "dotproduct", "euclidean", "l1")
 
 # Operator classes for halfvec columns (l1 is HNSW-only, enforced by the
 # ivfflat metric check)
@@ -59,15 +56,12 @@ _HALFVEC_OPCLASSES = {
 # ivfflat indexes)
 _MAX_INDEXABLE_DIMS = {"vector": 2000, "halfvec": 4000}
 
-# Query operators for each metric; "%" is doubled because these are
-# interpolated into parameterized psycopg2 queries
+# Query operators for each metric
 _METRIC_OPERATORS = {
     "cosine": "<=>",
     "dotproduct": "<#>",
     "euclidean": "<->",
     "l1": "<+>",
-    "jaccard": "<%%>",
-    "hamming": "<~>",
 }
 
 
@@ -80,7 +74,7 @@ class PgVectorSimilarityConfig(SimilarityConfig):
         table_name (None): the name of the table to use or create. If none is
             provided, a default table name will be used.
         metric ("cosine"): the similarity metric to use. Supported values are
-            ``("cosine", "dotproduct", "euclidean", "l1", "jaccard", "hamming")``
+            ``("cosine", "dotproduct", "euclidean", "l1")``
         connection_string (None): the connection string to the PostgreSQL database
         ssl_cert (None): the path to the SSL certificate file
         ssl_key (None): the path to the secret key used for the client certificate
@@ -96,9 +90,7 @@ class PgVectorSimilarityConfig(SimilarityConfig):
             embeddings. Supported values are ``("vector", "halfvec")``.
             ``"halfvec"`` stores half-precision (float16) vectors and
             supports indexes with up to 4000 dimensions, versus 2000 for
-            ``"vector"``, and requires pgvector >= 0.7.0. Note that halfvec
-            columns only support the
-            ``("cosine", "dotproduct", "euclidean", "l1")`` metrics
+            ``"vector"``, and requires pgvector >= 0.7.0
         index_type ("hnsw"): the type of index to use. Supported values are
             ``("hnsw", "ivfflat")``. Note that IVFFlat indexes only support
             the ``("cosine", "dotproduct", "euclidean")`` metrics
@@ -159,15 +151,6 @@ class PgVectorSimilarityConfig(SimilarityConfig):
             raise ValueError(
                 f"Unsupported vector_type '{vector_type}'. "
                 f"Supported values are {_SUPPORTED_VECTOR_TYPES}"
-            )
-
-        if (
-            vector_type == "halfvec"
-            and metric not in _HALFVEC_SUPPORTED_METRICS
-        ):
-            raise ValueError(
-                f"Metric '{metric}' is not supported by halfvec columns. "
-                f"Supported values are {_HALFVEC_SUPPORTED_METRICS}"
             )
 
         super().__init__(**kwargs)
@@ -262,7 +245,9 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             self._initialize()
         try:
             self._cur.execute(
-                f"""SELECT COUNT(*) FROM "{self.config.table_name}";"""
+                psy_sql.SQL("SELECT COUNT(*) FROM {};").format(
+                    psy_sql.Identifier(self.config.table_name)
+                )
             )
             return self._cur.fetchone()[0]
         except Exception as e:
@@ -338,20 +323,29 @@ class PgVectorSimilarityIndex(SimilarityIndex):
 
     def _get_index_names(self, table_name):
         self._cur.execute(
-            f"SELECT indexname FROM pg_indexes WHERE tablename = '{table_name}' AND schemaname = 'public';"
+            "SELECT indexname FROM pg_indexes WHERE tablename = %s AND schemaname = 'public';",
+            (table_name,),
         )
         return [row[0] for row in self._cur.fetchall()]
 
     def _create_table(self, dimension):
+        # `vector_type` is validated against `_SUPPORTED_VECTOR_TYPES` in the
+        # config constructor
+        column_type = f"{self.config.vector_type.upper()}({int(dimension)})"
         try:
             self._cur.execute(
-                f"""
-                    CREATE TABLE IF NOT EXISTS "{self.config.table_name}" (
+                psy_sql.SQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS {table} (
                     id TEXT PRIMARY KEY,
                     sample_id TEXT,
-                    embedding_vector {self.config.vector_type.upper()}({dimension})
+                    embedding_vector {column_type}
                 );
                 """
+                ).format(
+                    table=psy_sql.Identifier(self.config.table_name),
+                    column_type=psy_sql.SQL(column_type),
+                )
             )
             self._conn.commit()
         except Exception as e:
@@ -367,27 +361,33 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             operator_class = _SUPPORTED_METRICS[self.config.metric]
 
         index_type = self.config.index_type
+        index_id = psy_sql.Identifier(self.config.index_name)
+        table_id = psy_sql.Identifier(self.config.table_name)
         try:
             self._cur.execute(
-                f"""DROP INDEX IF EXISTS "{self.config.index_name}";"""
+                psy_sql.SQL("DROP INDEX IF EXISTS {};").format(index_id)
             )
             self._conn.commit()
             if index_type == "ivfflat":
                 self._cur.execute(
-                    f"""
-                    CREATE INDEX "{self.config.index_name}"
-                    ON "{self.config.table_name}" USING ivfflat (embedding_vector {operator_class})
-                    WITH (lists = %s);
-                    """,
+                    psy_sql.SQL(
+                        f"""
+                        CREATE INDEX {{index}}
+                        ON {{table}} USING ivfflat (embedding_vector {operator_class})
+                        WITH (lists = %s);
+                        """
+                    ).format(index=index_id, table=table_id),
                     (self.config.ivfflat_lists,),
                 )
             else:
                 self._cur.execute(
-                    f"""
-                    CREATE INDEX "{self.config.index_name}"
-                    ON "{self.config.table_name}" USING hnsw (embedding_vector {operator_class})
-                    WITH (m = %s, ef_construction = %s);
-                    """,
+                    psy_sql.SQL(
+                        f"""
+                        CREATE INDEX {{index}}
+                        ON {{table}} USING hnsw (embedding_vector {operator_class})
+                        WITH (m = %s, ef_construction = %s);
+                        """
+                    ).format(index=index_id, table=table_id),
                     (self.config.hnsw_m, self.config.hnsw_ef_construction),
                 )
             self._conn.commit()
@@ -405,7 +405,11 @@ class PgVectorSimilarityIndex(SimilarityIndex):
         named_cursor = self._conn.cursor(
             name="id_cursor"
         )  # Named cursor for server-side query
-        named_cursor.execute(f"""SELECT id FROM "{self.config.table_name}";""")
+        named_cursor.execute(
+            psy_sql.SQL("SELECT id FROM {};").format(
+                psy_sql.Identifier(self.config.table_name)
+            )
+        )
 
         existing_ids = []
         while True:
@@ -433,12 +437,17 @@ class PgVectorSimilarityIndex(SimilarityIndex):
     ):
         if self._conn.closed:
             self._initialize()
-        self._cur.execute(f"SET work_mem TO '{self.config.work_mem}'")
+        self._cur.execute(
+            psy_sql.SQL("SET work_mem TO {}").format(
+                psy_sql.Literal(self.config.work_mem)
+            )
+        )
 
         if self.config.maintenance_work_mem is not None:
             self._cur.execute(
-                f"SET maintenance_work_mem TO "
-                f"'{self.config.maintenance_work_mem}'"
+                psy_sql.SQL("SET maintenance_work_mem TO {}").format(
+                    psy_sql.Literal(self.config.maintenance_work_mem)
+                )
             )
 
         dimension = embeddings.shape[1]
@@ -495,19 +504,23 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             existing_ids = set()
 
         if existing_ids and not overwrite:
-            query = f"""
-                INSERT INTO "{self.config.table_name}" (id, sample_id, embedding_vector)
+            query = psy_sql.SQL(
+                """
+                INSERT INTO {} (id, sample_id, embedding_vector)
                 VALUES %s
                 ON CONFLICT (id) DO NOTHING;
                 """
+            ).format(psy_sql.Identifier(self.config.table_name))
         else:
-            query = f"""
-                INSERT INTO "{self.config.table_name}" (id, sample_id, embedding_vector)
+            query = psy_sql.SQL(
+                """
+                INSERT INTO {} (id, sample_id, embedding_vector)
                 VALUES %s
                 ON CONFLICT (id) DO UPDATE
                 SET sample_id = EXCLUDED.sample_id,
                     embedding_vector = EXCLUDED.embedding_vector;
                 """
+            ).format(psy_sql.Identifier(self.config.table_name))
 
         embeddings = [e.tolist() for e in embeddings]
         sample_ids = list(sample_ids)
@@ -569,7 +582,9 @@ class PgVectorSimilarityIndex(SimilarityIndex):
         try:
             # Use parameterized query to delete multiple IDs
             self._cur.execute(
-                f"""DELETE FROM "{self.config.table_name}" WHERE id IN %s;""",
+                psy_sql.SQL("DELETE FROM {} WHERE id IN %s;").format(
+                    psy_sql.Identifier(self.config.table_name)
+                ),
                 (tuple(ids),),
             )
         except Exception as e:
@@ -593,10 +608,14 @@ class PgVectorSimilarityIndex(SimilarityIndex):
     def get_embeddings_by_id(self, sample_ids=None, label_ids=None):
         if self._conn.closed:
             self._initialize()
+
+        table_id = psy_sql.Identifier(self.config.table_name)
         if label_ids is not None:
             try:
                 self._cur.execute(
-                    f"""SELECT id, sample_id, embedding_vector FROM "{self.config.table_name}" WHERE id = ANY(%s)""",
+                    psy_sql.SQL(
+                        "SELECT id, sample_id, embedding_vector FROM {} WHERE id = ANY(%s)"
+                    ).format(table_id),
                     (list(label_ids),),
                 )
             except Exception as e:
@@ -607,7 +626,9 @@ class PgVectorSimilarityIndex(SimilarityIndex):
         elif sample_ids is not None:
             try:
                 self._cur.execute(
-                    f"""SELECT id, sample_id, embedding_vector FROM "{self.config.table_name}" WHERE sample_id = ANY(%s)""",
+                    psy_sql.SQL(
+                        "SELECT id, sample_id, embedding_vector FROM {} WHERE sample_id = ANY(%s)"
+                    ).format(table_id),
                     (list(sample_ids),),
                 )
             except Exception as e:
@@ -618,7 +639,9 @@ class PgVectorSimilarityIndex(SimilarityIndex):
         else:
             try:
                 self._cur.execute(
-                    f"""SELECT id, sample_id, embedding_vector FROM "{self.config.table_name}";"""
+                    psy_sql.SQL(
+                        "SELECT id, sample_id, embedding_vector FROM {};"
+                    ).format(table_id)
                 )
             except Exception as e:
                 logger.error(
@@ -766,35 +789,40 @@ class PgVectorSimilarityIndex(SimilarityIndex):
         else:
             _filter = False
 
+        # `operator`, `cast`, and `sort_order` are all internal values
+        # validated by the config constructor or computed above
         sort_order = "DESC" if reverse else "ASC"
         operator = _METRIC_OPERATORS[self.config.metric]
         cast = self.config.vector_type
+
+        if _filter:
+            knn_query = psy_sql.SQL(
+                f"""
+                SELECT id, sample_id, embedding_vector {operator} %s::{cast} AS distance
+                FROM {{}}
+                WHERE id = ANY(%s)
+                ORDER BY distance {sort_order}
+                LIMIT %s;
+                """
+            ).format(psy_sql.Identifier(self.config.table_name))
+        else:
+            knn_query = psy_sql.SQL(
+                f"""
+                SELECT id, sample_id, embedding_vector {operator} %s::{cast} AS distance
+                FROM {{}}
+                ORDER BY distance {sort_order}
+                LIMIT %s;
+                """
+            ).format(psy_sql.Identifier(self.config.table_name))
 
         sample_ids = []
         label_ids = [] if self.config.patches_field is not None else None
         dists = []
         for q in query:
             if _filter:
-                self._cur.execute(
-                    f"""
-                    SELECT id, sample_id, embedding_vector {operator} %s::{cast} AS distance
-                    FROM "{self.config.table_name}"
-                    WHERE id = ANY(%s)
-                    ORDER BY distance {sort_order}
-                    LIMIT %s;
-                    """,
-                    (q.tolist(), index_ids, k),
-                )
+                self._cur.execute(knn_query, (q.tolist(), index_ids, k))
             else:
-                self._cur.execute(
-                    f"""
-                    SELECT id, sample_id, embedding_vector {operator} %s::{cast} AS distance
-                    FROM "{self.config.table_name}"
-                    ORDER BY distance {sort_order}
-                    LIMIT %s;
-                    """,
-                    (q.tolist(), k),
-                )
+                self._cur.execute(knn_query, (q.tolist(), k))
 
             results = self._cur.fetchall()
 
@@ -859,12 +887,16 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             f"Cleaning up: Deleting {self.config.index_type} index '{self.config.index_name}'"
         )
         self._cur.execute(
-            f"""DROP INDEX IF EXISTS "{self.config.index_name}";"""
+            psy_sql.SQL("DROP INDEX IF EXISTS {};").format(
+                psy_sql.Identifier(self.config.index_name)
+            )
         )
 
         if drop_table:
             self._cur.execute(
-                f"""DROP TABLE IF EXISTS "{self.config.table_name}";"""
+                psy_sql.SQL("DROP TABLE IF EXISTS {};").format(
+                    psy_sql.Identifier(self.config.table_name)
+                )
             )
             logger.info(
                 f"{self.config.table_name} table deleted successfully."

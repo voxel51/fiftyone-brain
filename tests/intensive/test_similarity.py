@@ -508,6 +508,14 @@ def test_pgvector_config_validation():
     with pytest.raises(ValueError):
         PgVectorSimilarityConfig(index_type="ivfflat", metric="l1")
 
+    # jaccard/hamming operator classes only exist for bit columns, so these
+    # metrics are not supported
+    with pytest.raises(ValueError):
+        PgVectorSimilarityConfig(metric="jaccard")
+
+    with pytest.raises(ValueError):
+        PgVectorSimilarityConfig(metric="hamming")
+
     # halfvec support
     config = PgVectorSimilarityConfig(vector_type="halfvec")
     assert config.vector_type == "halfvec"
@@ -517,12 +525,6 @@ def test_pgvector_config_validation():
 
     with pytest.raises(ValueError):
         PgVectorSimilarityConfig(vector_type="sparsevec")
-
-    with pytest.raises(ValueError):
-        PgVectorSimilarityConfig(vector_type="halfvec", metric="jaccard")
-
-    with pytest.raises(ValueError):
-        PgVectorSimilarityConfig(vector_type="halfvec", metric="hamming")
 
     with pytest.raises(ValueError):
         PgVectorSimilarityConfig(
@@ -542,37 +544,41 @@ def test_pgvector_ivfflat_backend():
         drop_existing_dataset=True,
     )
     brain_key = "clip_pgvector_ivfflat"
-    index = fob.compute_similarity(
-        dataset,
-        model="clip-vit-base32-torch",
-        backend=backend,
-        brain_key=brain_key,
-        index_type="ivfflat",
-        ivfflat_lists=10,
-        ivfflat_probes=5,
-    )
+    index = None
+    try:
+        index = fob.compute_similarity(
+            dataset,
+            model="clip-vit-base32-torch",
+            backend=backend,
+            brain_key=brain_key,
+            index_type="ivfflat",
+            ivfflat_lists=10,
+            ivfflat_probes=5,
+        )
 
-    assert index.config.index_type == "ivfflat"
-    assert index.total_index_size == len(dataset)
+        assert index.config.index_type == "ivfflat"
+        assert index.total_index_size == len(dataset)
 
-    # verify that an IVFFlat index was actually created
-    if index._conn.closed:
-        index._initialize()
+        # verify that an IVFFlat index was actually created
+        if index._conn.closed:
+            index._initialize()
 
-    index._cur.execute(
-        "SELECT indexdef FROM pg_indexes WHERE indexname = %s",
-        (index.config.index_name,),
-    )
-    indexdef = index._cur.fetchone()[0]
-    assert "USING ivfflat" in indexdef
+        index._cur.execute(
+            "SELECT indexdef FROM pg_indexes WHERE indexname = %s",
+            (index.config.index_name,),
+        )
+        indexdef = index._cur.fetchone()[0]
+        assert "USING ivfflat" in indexdef
 
-    query_id = dataset.first().id
-    view = dataset.sort_by_similarity(query_id, k=10, brain_key=brain_key)
-    assert len(view) == 10
+        query_id = dataset.first().id
+        view = dataset.sort_by_similarity(query_id, k=10, brain_key=brain_key)
+        assert len(view) == 10
+    finally:
+        if index is not None:
+            index.cleanup(drop_table=True)
+            dataset.delete_brain_run(brain_key)
 
-    index.cleanup(drop_table=True)
-    dataset.delete_brain_run(brain_key)
-    dataset.delete()
+        dataset.delete()
 
 
 def test_pgvector_halfvec_backend():
@@ -591,64 +597,68 @@ def test_pgvector_halfvec_backend():
     # vector columns (eg Qwen embeddings are 2048-dim)
     embeddings = np.random.randn(len(dataset), 2048)
 
-    # regular vector columns cannot index >2000 dims
-    with pytest.raises(ValueError, match="halfvec"):
-        fob.compute_similarity(
-            dataset,
-            embeddings=embeddings,
-            backend=backend,
-            brain_key="pgvector_highdim_error",
-        )
+    try:
+        # regular vector columns cannot index >2000 dims
+        with pytest.raises(ValueError, match="halfvec"):
+            fob.compute_similarity(
+                dataset,
+                embeddings=embeddings,
+                backend=backend,
+                brain_key="pgvector_highdim_error",
+            )
 
-    if "pgvector_highdim_error" in dataset.list_brain_runs():
-        dataset.delete_brain_run("pgvector_highdim_error")
+        if "pgvector_highdim_error" in dataset.list_brain_runs():
+            dataset.delete_brain_run("pgvector_highdim_error")
 
-    for index_type, brain_key, kwargs in [
-        ("hnsw", "pgvector_halfvec_hnsw", {}),
-        (
-            "ivfflat",
-            "pgvector_halfvec_ivfflat",
-            {"ivfflat_lists": 10, "ivfflat_probes": 5},
-        ),
-    ]:
-        index = fob.compute_similarity(
-            dataset,
-            embeddings=embeddings,
-            backend=backend,
-            brain_key=brain_key,
-            vector_type="halfvec",
-            index_type=index_type,
-            maintenance_work_mem="256MB",
-            **kwargs,
-        )
+        for index_type, brain_key, kwargs in [
+            ("hnsw", "pgvector_halfvec_hnsw", {}),
+            (
+                "ivfflat",
+                "pgvector_halfvec_ivfflat",
+                {"ivfflat_lists": 10, "ivfflat_probes": 5},
+            ),
+        ]:
+            index = fob.compute_similarity(
+                dataset,
+                embeddings=embeddings,
+                backend=backend,
+                brain_key=brain_key,
+                vector_type="halfvec",
+                index_type=index_type,
+                maintenance_work_mem="256MB",
+                **kwargs,
+            )
 
-        assert index.config.vector_type == "halfvec"
-        assert index.total_index_size == len(dataset)
+            try:
+                assert index.config.vector_type == "halfvec"
+                assert index.total_index_size == len(dataset)
 
-        # verify the index was built on the halfvec column
-        if index._conn.closed:
-            index._initialize()
+                # verify the index was built on the halfvec column
+                if index._conn.closed:
+                    index._initialize()
 
-        index._cur.execute(
-            "SELECT indexdef FROM pg_indexes WHERE indexname = %s",
-            (index.config.index_name,),
-        )
-        indexdef = index._cur.fetchone()[0]
-        assert f"USING {index_type}" in indexdef
-        assert "halfvec_cosine_ops" in indexdef
+                index._cur.execute(
+                    "SELECT indexdef FROM pg_indexes WHERE indexname = %s",
+                    (index.config.index_name,),
+                )
+                indexdef = index._cur.fetchone()[0]
+                assert f"USING {index_type}" in indexdef
+                assert "halfvec_cosine_ops" in indexdef
 
-        query_id = dataset.first().id
-        view = dataset.sort_by_similarity(query_id, k=10, brain_key=brain_key)
-        assert len(view) == 10
+                query_id = dataset.first().id
+                view = dataset.sort_by_similarity(
+                    query_id, k=10, brain_key=brain_key
+                )
+                assert len(view) == 10
 
-        # embeddings round-trip with float16 precision
-        emb, _, _ = index.get_embeddings()
-        assert emb.shape == (len(dataset), 2048)
-
-        index.cleanup(drop_table=True)
-        dataset.delete_brain_run(brain_key)
-
-    dataset.delete()
+                # embeddings round-trip with float16 precision
+                emb, _, _ = index.get_embeddings()
+                assert emb.shape == (len(dataset), 2048)
+            finally:
+                index.cleanup(drop_table=True)
+                dataset.delete_brain_run(brain_key)
+    finally:
+        dataset.delete()
 
 
 def test_images():
