@@ -6,6 +6,7 @@ PGVector similarity backend.
 |
 """
 import logging
+import math
 
 import numpy as np
 
@@ -64,6 +65,55 @@ _METRIC_OPERATORS = {
     "l1": "<+>",
 }
 
+# Rows per list when auto-deriving `ivfflat_lists`, per pgvector's guidance
+_IVFFLAT_ROWS_PER_LIST = 1000
+
+# Row count above which pgvector recommends sqrt(rows) lists instead
+_IVFFLAT_SQRT_THRESHOLD = 1000000
+
+
+def _default_ivfflat_lists(num_rows):
+    """Returns the recommended number of IVFFlat lists for a table with the
+    given number of rows.
+
+    Follows pgvector's guidance of ``rows / 1000`` for up to 1M rows and
+    ``sqrt(rows)`` beyond that. A list count approaching or exceeding the row
+    count leaves most lists empty or singleton, which destroys recall, so
+    small tables correctly resolve to a single list (ie exact search within
+    that list).
+
+    Args:
+        num_rows: the number of rows in the table
+
+    Returns:
+        the number of lists to use
+    """
+    if not num_rows or num_rows <= 0:
+        return 1
+
+    if num_rows <= _IVFFLAT_SQRT_THRESHOLD:
+        lists = num_rows // _IVFFLAT_ROWS_PER_LIST
+    else:
+        lists = int(math.sqrt(num_rows))
+
+    return max(1, lists)
+
+
+def _default_ivfflat_probes(lists):
+    """Returns the recommended number of IVFFlat probes for an index with the
+    given number of lists, per pgvector's ``sqrt(lists)`` guidance.
+
+    Args:
+        lists: the number of lists in the index
+
+    Returns:
+        the number of lists to probe
+    """
+    if not lists or lists <= 1:
+        return 1
+
+    return max(1, min(int(math.sqrt(lists)), lists))
+
 
 class PgVectorSimilarityConfig(SimilarityConfig):
     """Configuration for the PGVector similarity backend.
@@ -99,9 +149,14 @@ class PgVectorSimilarityConfig(SimilarityConfig):
         hnsw_ef_search (None): an optional size of the dynamic candidate list
             for HNSW searches. If not provided, the server default (40) is
             used
-        ivfflat_lists (100): the number of inverted lists in the IVFFlat index
-        ivfflat_probes (1): the number of lists to probe during IVFFlat
-            searches
+        ivfflat_lists (None): the number of inverted lists in the IVFFlat
+            index. By default, this is derived from the number of embeddings
+            in the index following pgvector's guidance of ``rows / 1000`` for
+            up to 1M rows and ``sqrt(rows)`` beyond that
+        ivfflat_probes (None): the number of lists to probe during IVFFlat
+            searches. By default, this is derived from the number of lists
+            following pgvector's ``sqrt(lists)`` guidance. Larger values
+            improve recall at the cost of speed
         **kwargs: keyword arguments for
             :class:`fiftyone.brain.similarity.SimilarityConfig`
     """
@@ -122,8 +177,8 @@ class PgVectorSimilarityConfig(SimilarityConfig):
         hnsw_m=16,
         hnsw_ef_construction=64,
         hnsw_ef_search=None,
-        ivfflat_lists=100,
-        ivfflat_probes=1,
+        ivfflat_lists=None,
+        ivfflat_probes=None,
         **kwargs,
     ):
         if metric not in _SUPPORTED_METRICS:
@@ -237,6 +292,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
         super().__init__(samples, config, brain_key, backend=backend)
         self._conn = None
         self._cur = None
+        self._ivfflat_lists = None
         self._initialize()
 
     @property
@@ -328,6 +384,23 @@ class PgVectorSimilarityIndex(SimilarityIndex):
         )
         return [row[0] for row in self._cur.fetchall()]
 
+    def _resolve_ivfflat_lists(self):
+        if self.config.ivfflat_lists is not None:
+            return int(self.config.ivfflat_lists)
+
+        if self._ivfflat_lists is None:
+            self._ivfflat_lists = _default_ivfflat_lists(
+                self.total_index_size
+            )
+
+        return self._ivfflat_lists
+
+    def _resolve_ivfflat_probes(self):
+        if self.config.ivfflat_probes is not None:
+            return int(self.config.ivfflat_probes)
+
+        return _default_ivfflat_probes(self._resolve_ivfflat_lists())
+
     def _create_table(self, dimension):
         # `vector_type` is validated against `_SUPPORTED_VECTOR_TYPES` in the
         # config constructor
@@ -369,6 +442,8 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             )
             self._conn.commit()
             if index_type == "ivfflat":
+                lists = self._resolve_ivfflat_lists()
+                logger.info(f"Building IVFFlat index with lists = {lists}")
                 self._cur.execute(
                     psy_sql.SQL(
                         f"""
@@ -377,7 +452,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
                         WITH (lists = %s);
                         """
                     ).format(index=index_id, table=table_id),
-                    (self.config.ivfflat_lists,),
+                    (lists,),
                 )
             else:
                 self._cur.execute(
@@ -537,6 +612,10 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             data = list(zip(_ids, _sample_ids, _embeddings))
             psy_extras.execute_values(self._cur, query, data)
             self._conn.commit()
+
+        # The row count has changed, so any auto-derived `ivfflat_lists` value
+        # must be recomputed before the index is (re)built
+        self._ivfflat_lists = None
 
         if self.config.index_name not in self._get_index_names(
             self.config.table_name
@@ -756,9 +835,8 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             self._initialize()
 
         if self.config.index_type == "ivfflat":
-            self._cur.execute(
-                f"SET ivfflat.probes = {int(self.config.ivfflat_probes)};"
-            )
+            probes = self._resolve_ivfflat_probes()
+            self._cur.execute(f"SET ivfflat.probes = {int(probes)};")
         elif self.config.hnsw_ef_search is not None:
             self._cur.execute(
                 f"SET hnsw.ef_search = {int(self.config.hnsw_ef_search)};"
@@ -828,6 +906,26 @@ class PgVectorSimilarityIndex(SimilarityIndex):
                 self._cur.execute(knn_query, (q.tolist(), k))
 
             results = self._cur.fetchall()
+
+            if _filter:
+                # Approximate indexes filter *within* the candidate set they
+                # visit, so a filtered query can return fewer than `k` results
+                # even when more than `k` matching rows exist
+                expected = min(k, len(index_ids))
+                if len(results) < expected:
+                    knob = (
+                        "ivfflat_probes"
+                        if self.config.index_type == "ivfflat"
+                        else "hnsw_ef_search"
+                    )
+                    logger.warning(
+                        "Filtered similarity query returned %d of %d "
+                        "requested results. Increase '%s' to improve recall "
+                        "on filtered views",
+                        len(results),
+                        expected,
+                        knob,
+                    )
 
             if self.config.patches_field is not None:
                 sample_ids.append([r[1] for r in results])

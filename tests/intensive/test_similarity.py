@@ -499,8 +499,9 @@ def test_pgvector_config_validation():
     assert config.maintenance_work_mem is None
 
     config = PgVectorSimilarityConfig(index_type="ivfflat", metric="euclidean")
-    assert config.ivfflat_lists == 100
-    assert config.ivfflat_probes == 1
+    # None means the values are derived from the data at index build time
+    assert config.ivfflat_lists is None
+    assert config.ivfflat_probes is None
 
     with pytest.raises(ValueError):
         PgVectorSimilarityConfig(index_type="flat")
