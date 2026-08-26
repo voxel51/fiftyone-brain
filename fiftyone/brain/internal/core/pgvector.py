@@ -538,8 +538,10 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             psy_extras.execute_values(self._cur, query, data)
             self._conn.commit()
 
-        if self.config.index_name not in self._get_index_names(self.config.table_name):
-                self.create_index()
+        if self.config.index_name not in self._get_index_names(
+            self.config.table_name
+        ):
+            self.create_index()
 
         if close_conn:
             self.close_connections()

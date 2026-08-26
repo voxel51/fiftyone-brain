@@ -92,7 +92,7 @@ jobs:
         with:
           fetch-depth: 1
           path: fiftyone-src
-          ref: develop
+          ref: main
           repository: voxel51/fiftyone
       - name: Clone voxel51-eta
         uses: actions/checkout@v7
@@ -102,7 +102,7 @@ jobs:
           path: eta
           ref: main
           repository: voxel51/eta
-      # ETA tests will create a storage client which, 
+      # ETA tests will create a storage client which,
       # in it's __init__, tries to log in to GCP.
       # See tests/tests_uniqueness.py
       - name: Authenticate to Google Cloud
