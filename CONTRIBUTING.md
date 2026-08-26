@@ -1,7 +1,7 @@
 # Contributing to FiftyOne Brain
 
 All Brain contributions should follow the practices established in
-[FiftyOne](https://github.com/voxel51/fiftyone/blob/develop/CONTRIBUTING.md).
+[FiftyOne](https://github.com/voxel51/fiftyone/blob/main/CONTRIBUTING.md).
 
 ## Adding new public methods to the Brain package
 
