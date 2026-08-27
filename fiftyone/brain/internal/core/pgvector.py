@@ -99,6 +99,26 @@ def _default_ivfflat_lists(num_rows):
     return max(1, lists)
 
 
+def _parse_reloption_lists(reloptions):
+    """Extracts the ``lists`` value from a ``pg_class.reloptions`` array.
+
+    Args:
+        reloptions: the reloptions array, eg ``["lists=100"]``, or None
+
+    Returns:
+        the number of lists, or None if absent or unparseable
+    """
+    for option in reloptions or ():
+        key, _, value = option.partition("=")
+        if key.strip() == "lists":
+            try:
+                return int(value)
+            except ValueError:
+                return None
+
+    return None
+
+
 def _default_ivfflat_probes(lists):
     """Returns the recommended number of IVFFlat probes for an index with the
     given number of lists, per pgvector's ``sqrt(lists)`` guidance.
@@ -292,7 +312,6 @@ class PgVectorSimilarityIndex(SimilarityIndex):
         super().__init__(samples, config, brain_key, backend=backend)
         self._conn = None
         self._cur = None
-        self._ivfflat_lists = None
         self._initialize()
 
     @property
@@ -384,20 +403,46 @@ class PgVectorSimilarityIndex(SimilarityIndex):
         )
         return [row[0] for row in self._cur.fetchall()]
 
+    def _get_index_lists(self):
+        """Returns the number of lists that the existing IVFFlat index was
+        built with, or None if no such index exists.
+        """
+        self._cur.execute(
+            """
+            SELECT c.reloptions
+            FROM pg_class c
+            JOIN pg_am am ON am.oid = c.relam
+            WHERE c.relname = %s AND am.amname = 'ivfflat';
+            """,
+            (self.config.index_name,),
+        )
+        row = self._cur.fetchone()
+        return _parse_reloption_lists(row[0]) if row is not None else None
+
     def _resolve_ivfflat_lists(self):
+        """Returns the number of lists to build the IVFFlat index with,
+        derived from the current row count unless configured explicitly.
+        """
         if self.config.ivfflat_lists is not None:
             return int(self.config.ivfflat_lists)
 
-        if self._ivfflat_lists is None:
-            self._ivfflat_lists = _default_ivfflat_lists(self.total_index_size)
-
-        return self._ivfflat_lists
+        return _default_ivfflat_lists(self.total_index_size)
 
     def _resolve_ivfflat_probes(self):
+        """Returns the number of lists to probe during searches, derived from
+        the list count that the existing index was actually built with.
+
+        Falls back to the count a build would use if the index does not exist
+        yet, so that the value never depends on a cached row count.
+        """
         if self.config.ivfflat_probes is not None:
             return int(self.config.ivfflat_probes)
 
-        return _default_ivfflat_probes(self._resolve_ivfflat_lists())
+        lists = self._get_index_lists()
+        if lists is None:
+            lists = self._resolve_ivfflat_lists()
+
+        return _default_ivfflat_probes(lists)
 
     def _create_table(self, dimension):
         # `vector_type` is validated against `_SUPPORTED_VECTOR_TYPES` in the
@@ -610,10 +655,6 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             data = list(zip(_ids, _sample_ids, _embeddings))
             psy_extras.execute_values(self._cur, query, data)
             self._conn.commit()
-
-        # The row count has changed, so any auto-derived `ivfflat_lists` value
-        # must be recomputed before the index is (re)built
-        self._ivfflat_lists = None
 
         if self.config.index_name not in self._get_index_names(
             self.config.table_name

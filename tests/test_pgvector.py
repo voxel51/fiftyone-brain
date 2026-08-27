@@ -15,10 +15,13 @@ from fiftyone.brain.internal.core.pgvector import (
     PgVectorSimilarityConfig,
     _default_ivfflat_lists,
     _default_ivfflat_probes,
+    _parse_reloption_lists,
 )
 
 
 class TestIvfflatListDefaults:
+    """Deriving the IVFFlat list count from a row count."""
+
     def test_small_tables_resolve_to_one_list(self):
         # A list count approaching the row count leaves lists empty or
         # singleton, which destroys recall. One list means exact search
@@ -45,6 +48,8 @@ class TestIvfflatListDefaults:
 
 
 class TestIvfflatProbeDefaults:
+    """Deriving the IVFFlat probe count from a list count."""
+
     def test_probes_follow_sqrt_lists(self):
         assert _default_ivfflat_probes(1) == 1
         assert _default_ivfflat_probes(100) == 10
@@ -60,6 +65,8 @@ class TestIvfflatProbeDefaults:
 
 
 class TestIvfflatConfigDefaults:
+    """Config-level defaults for the IVFFlat parameters."""
+
     def test_ivfflat_params_default_to_auto(self):
         config = PgVectorSimilarityConfig(
             index_type="ivfflat", metric="euclidean"
@@ -79,3 +86,25 @@ class TestIvfflatConfigDefaults:
 
         assert config.ivfflat_lists == 10
         assert config.ivfflat_probes == 5
+
+
+class TestParseReloptionLists:
+    """Reading the built list count out of ``pg_class.reloptions``."""
+
+    def test_extracts_lists(self):
+        assert _parse_reloption_lists(["lists=100"]) == 100
+        assert _parse_reloption_lists(["lists=7"]) == 7
+
+    def test_ignores_other_options(self):
+        assert _parse_reloption_lists(["fillfactor=90", "lists=42"]) == 42
+
+    def test_absent_or_empty(self):
+        assert _parse_reloption_lists(None) is None
+        assert _parse_reloption_lists([]) is None
+        assert _parse_reloption_lists(["fillfactor=90"]) is None
+
+    def test_unparseable_value(self):
+        assert _parse_reloption_lists(["lists=abc"]) is None
+
+    def test_does_not_match_prefixed_keys(self):
+        assert _parse_reloption_lists(["nolists=5"]) is None
