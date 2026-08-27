@@ -389,9 +389,7 @@ class PgVectorSimilarityIndex(SimilarityIndex):
             return int(self.config.ivfflat_lists)
 
         if self._ivfflat_lists is None:
-            self._ivfflat_lists = _default_ivfflat_lists(
-                self.total_index_size
-            )
+            self._ivfflat_lists = _default_ivfflat_lists(self.total_index_size)
 
         return self._ivfflat_lists
 
