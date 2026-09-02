@@ -4,13 +4,13 @@
 > These steps are to be performed by authorized Voxel51 engineers.
 
 `main` is the trunk: every PR merges to `main`, and nothing originates on a
-release branch. Between releases, `VERSION` in `setup.py` is the next planned
+release branch. Between releases, the `VERSION` file is the next planned
 version. Reviewers of version-bump PRs should always check that the version
 matches the tag being cut.
 
 ## Minor / major release (vX.Y.0)
 
-1. Confirm `VERSION` in `setup.py` on `main` is `X.Y.0`.
+1. Confirm the `VERSION` file on `main` is `X.Y.0`.
 
 1. Navigate to the
    [releases page](https://github.com/voxel51/fiftyone-brain/releases) and
@@ -44,6 +44,6 @@ matches the tag being cut.
 
 ## Release candidates
 
-Tag `vX.Y.Z-rc.N` on the branch being released. The build workflow builds
-the rc version via the `RELEASE_VERSION` environment variable and validates
-it against `setup.py`.
+Tag `vX.Y.Z-rc.N` on the branch being released. The build workflow checks
+that the tag extends the `VERSION` file and builds the rc version from the
+tag.
