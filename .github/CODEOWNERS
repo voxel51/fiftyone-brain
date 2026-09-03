@@ -4,4 +4,4 @@
 .github/        @voxel51/aloha-shirts
 pyproject.toml  @voxel51/aloha-shirts
 RELEASING.md    @voxel51/aloha-shirts
-setup.py        @voxel51/aloha-shirts
+VERSION         @voxel51/aloha-shirts

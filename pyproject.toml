@@ -1,20 +1,24 @@
 [build-system]
-requires = ["setuptools>=61", "wheel"]
+# setuptools >=77 accepts the SPDX license expression below
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "fiftyone-brain"
+# The version lives in the VERSION file (see [tool.setuptools.dynamic]);
+# the build workflow overwrites that file from the tag before building
 dynamic = ["version"]
 description = "FiftyOne Brain"
 readme = "README.md"
-authors = [{ name = "Voxel51, Inc.", email = "info@voxel51.com" }]
-license = { text = "Apache" }
+# PEP 621 forbids commas in author names
+authors = [{ name = "Voxel51", email = "info@voxel51.com" }]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: Apache Software License",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: Image Processing",
     "Topic :: Scientific/Engineering :: Image Recognition",
@@ -50,6 +54,9 @@ Homepage = "https://github.com/voxel51/fiftyone-brain"
 # fiftyone.brain only; fiftyone/__init__.py belongs to the core fiftyone
 # package and must never ship in this wheel
 packages = ["fiftyone.brain"]
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
 
 [tool.pytest.ini_options]
 python_files = "*test*.py"

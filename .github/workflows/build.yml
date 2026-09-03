@@ -46,13 +46,26 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install build
-      - name: Set environment
+      - name: Set release version
         env:
           RELEASE_TAG: ${{ github.ref }}
         run: |
-          if [[ $RELEASE_TAG =~ ^refs\/tags\/v.* ]]; then
-             echo "RELEASE_VERSION=$(echo '${{ github.ref }}' | sed 's/^refs\/tags\/v//')" >> $GITHUB_ENV
+          # A tag must match the VERSION file (vX.Y.Z), or extend it with a
+          # release-candidate suffix (vX.Y.Z-rc.N), which is written to
+          # VERSION for this build only.
+          base_version=$(tr -d '\r\n' < VERSION)
+          if [[ "$RELEASE_TAG" == refs/tags/v* ]]; then
+            tag_version=${RELEASE_TAG#refs/tags/v}
+            if [ "$tag_version" = "$base_version" ]; then
+              :
+            elif [[ "$tag_version" == "$base_version"-rc.* ]]; then
+              printf '%s\n' "$tag_version" > VERSION
+            else
+              echo "::error::Tag $tag_version does not match VERSION $base_version"
+              exit 1
+            fi
           fi
+          echo "Building fiftyone-brain $(tr -d '\r\n' < VERSION)"
       - name: Build wheel
         run: |
           python -m build
@@ -121,7 +134,7 @@ jobs:
         uses: jlumbroso/free-disk-space@v1.3.1
       - name: Install dependencies
         run: |
-          pip install --upgrade pip setuptools wheel
+          pip install --upgrade pip build
       - name: Download fiftyone-brain wheel
         uses: actions/download-artifact@v8
         with:
@@ -130,7 +143,7 @@ jobs:
       - name: Install fiftyone
         working-directory: fiftyone-src
         run: |
-          python setup.py bdist_wheel
+          python -m build --wheel
           pip install voxel51-eta[storage] fiftyone-db
           pip install ./dist/*.whl
       - name: Install ETA from source
@@ -140,7 +153,7 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/heads/rel') && !startsWith(github.ref, 'refs/tags/') }}
         run: |
           echo "Installing ETA from source because github.ref = ${{ github.ref }} (not a release)"
-          python setup.py bdist_wheel
+          python -m build --wheel
           pip install ./dist/*.whl --force-reinstall
       - name: Reinstall fiftyone-brain
         run: |
