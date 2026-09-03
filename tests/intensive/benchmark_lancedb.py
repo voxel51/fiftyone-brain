@@ -1,0 +1,305 @@
+"""
+Add-cost and query-latency benchmark for the LanceDB similarity backend.
+
+Drives the connector's own write path over a row-count sweep, so add cost can
+be read against table size. Tables are seeded through LanceDB directly rather
+than through the connector: seeding a million rows one ``add_to_index`` batch
+at a time would dominate the run, and the measurement wanted here is the cost
+of one incremental add against a table that is already large.
+
+Vectors are uniform random, which is fine for write cost and for exhaustive
+query cost, since neither depends on how the vectors are distributed. It is
+not a valid setting for measuring an ANN index, whose recall depends entirely
+on the data having cluster structure.
+
+Usage::
+
+    python tests/intensive/benchmark_lancedb.py
+    python tests/intensive/benchmark_lancedb.py \\
+        --sizes 1000,100000,1000000 --dims 1024 --batch-size 100 --repeats 20
+
+Requires ``pip install lancedb`` and a running MongoDB, since the index is
+constructed against a throwaway dataset.
+
+| Copyright 2017-2026, Voxel51, Inc.
+| `voxel51.com <https://voxel51.com/>`_
+|
+"""
+import argparse
+import os
+import shutil
+import statistics
+import tempfile
+import time
+
+import numpy as np
+
+import lancedb
+
+import fiftyone as fo
+
+from fiftyone.brain.internal.core.lancedb import (
+    LanceDBSimilarityConfig,
+    LanceDBSimilarityIndex,
+    _to_arrow_table,
+)
+
+_DATASET_NAME = "lancedb-benchmark"
+_TABLE_NAME = "benchmark"
+_SEED_BATCH_SIZE = 50000
+
+# Discarded before timing: these pay LanceDB's process-wide start-up and build
+# the scalar index, costs that would otherwise land on whichever size runs
+# first and read as growth
+_WARMUP_ADDS = 10
+
+
+def _random_embeddings(num_rows, dims, rng):
+    return rng.random((num_rows, dims), dtype=np.float32)
+
+
+def _batch_ids(tag, repeat, count):
+    return ["%s-%d-%06d" % (tag, repeat, i) for i in range(count)]
+
+
+def _seed_table(uri, num_rows, dims, rng):
+    """Writes ``num_rows`` rows straight to LanceDB, bypassing the connector.
+
+    Args:
+        uri: the database URI
+        num_rows: the number of rows to write
+        dims: the embedding dimension
+        rng: a ``numpy.random.Generator``
+
+    Returns:
+        the number of rows written
+    """
+    db = lancedb.connect(uri)
+    table = None
+
+    for start in range(0, num_rows, _SEED_BATCH_SIZE):
+        stop = min(start + _SEED_BATCH_SIZE, num_rows)
+        ids = ["seed-%09d" % i for i in range(start, stop)]
+        embeddings = _random_embeddings(stop - start, dims, rng)
+        rows = _to_arrow_table(ids, ids, embeddings)
+
+        if table is None:
+            table = db.create_table(_TABLE_NAME, rows, mode="overwrite")
+        else:
+            table.add(rows)
+
+    return table.count_rows()
+
+
+def _make_index(samples, uri):
+    config = LanceDBSimilarityConfig(table_name=_TABLE_NAME, uri=uri)
+    return LanceDBSimilarityIndex(samples, config, "benchmark")
+
+
+def _time_adds(index, rng, *, batch_size, dims, repeats, tag="add"):
+    """Times ``repeats`` adds of ``batch_size`` rows each, in milliseconds."""
+    timings = []
+
+    for repeat in range(repeats):
+        ids = np.array(_batch_ids(tag, repeat, batch_size))
+        embeddings = _random_embeddings(batch_size, dims, rng)
+
+        start = time.perf_counter()
+        index.add_to_index(embeddings, ids, reload=False)
+        timings.append((time.perf_counter() - start) * 1000)
+
+    return timings
+
+
+def _time_queries(index, rng, *, dims, k, repeats):
+    """Times ``repeats`` unfiltered k-NN queries, in milliseconds."""
+    timings = []
+
+    for _ in range(repeats):
+        query = _random_embeddings(1, dims, rng)[0]
+
+        start = time.perf_counter()
+        index._kneighbors(query=query, k=k)
+        timings.append((time.perf_counter() - start) * 1000)
+
+    return timings
+
+
+def _time_removes(index, ids):
+    """Times the removal of each ID in turn, in milliseconds."""
+    timings = []
+
+    for _id in ids:
+        start = time.perf_counter()
+        index.remove_from_index(sample_ids=[_id], reload=False)
+        timings.append((time.perf_counter() - start) * 1000)
+
+    return timings
+
+
+def _unindexed_tail(index):
+    """Rows written since the ``id`` index was last built.
+
+    A merge probes the index and then scans this tail, so add cost rises with
+    it until ``optimize()`` folds the tail in.
+    """
+    for config in index.table.list_indices():
+        if config.columns == ["id"]:
+            return config.num_unindexed_rows
+
+    return 0
+
+
+def _num_fragments(index):
+    """Fragments backing the table.
+
+    Every add appends one. Query cost rises with the count while merge and
+    delete are largely unaffected, so an incrementally built table reads more
+    slowly than a bulk-loaded one holding the same rows.
+    """
+    return index.table.stats()["fragment_stats"]["num_fragments"]
+
+
+def _summarize(label, timings):
+    """Prints the timing spread and returns the median."""
+    median = statistics.median(timings)
+    print(
+        "    %-8s median %7.1f ms   min %7.1f ms   max %7.1f ms"
+        % (label, median, min(timings), max(timings))
+    )
+    return median
+
+
+def _run_size(samples, num_rows, *, dims, batch_size, repeats, k, seed):
+    rng = np.random.default_rng(seed)
+    uri = tempfile.mkdtemp(prefix="lancedb-benchmark-")
+
+    try:
+        print("  seeding %d rows at %d dims..." % (num_rows, dims))
+        seeded = _seed_table(uri, num_rows, dims, rng)
+
+        index = _make_index(samples, uri)
+        assert index.total_index_size == seeded, "seeded table did not open"
+
+        _time_adds(
+            index,
+            rng,
+            batch_size=batch_size,
+            dims=dims,
+            repeats=_WARMUP_ADDS,
+            tag="warmup",
+        )
+        _time_queries(index, rng, dims=dims, k=k, repeats=_WARMUP_ADDS)
+        for repeat in range(_WARMUP_ADDS):
+            index.remove_from_index(
+                sample_ids=_batch_ids("warmup", repeat, batch_size),
+                reload=False,
+            )
+
+        add_ms = _summarize(
+            "add",
+            _time_adds(
+                index,
+                rng,
+                batch_size=batch_size,
+                dims=dims,
+                repeats=repeats,
+            ),
+        )
+        query_ms = _summarize(
+            "query", _time_queries(index, rng, dims=dims, k=k, repeats=repeats)
+        )
+        remove_ms = _summarize(
+            "remove", _time_removes(index, _batch_ids("add", 0, repeats))
+        )
+        print(
+            "    %-8s %d unindexed rows, %d fragments"
+            % ("state", _unindexed_tail(index), _num_fragments(index))
+        )
+
+        return add_ms, query_ms, remove_ms
+    finally:
+        shutil.rmtree(uri, ignore_errors=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description=__doc__.split("Usage::")[0].strip(),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--sizes",
+        default="1000,100000,1000000",
+        help="comma-separated table sizes to sweep",
+    )
+    parser.add_argument(
+        "--dims",
+        type=int,
+        default=512,
+        help="embedding dimension (512 is CLIP ViT-B/32)",
+    )
+    parser.add_argument(
+        "--batch-size", type=int, default=100, help="rows per timed add"
+    )
+    parser.add_argument(
+        "--repeats", type=int, default=20, help="timed operations per size"
+    )
+    parser.add_argument(
+        "--k", type=int, default=10, help="neighbors per query"
+    )
+    parser.add_argument("--seed", type=int, default=51, help="random seed")
+    args = parser.parse_args()
+
+    sizes = [int(size) for size in args.sizes.split(",")]
+
+    dataset = fo.Dataset(_DATASET_NAME, overwrite=True)
+    dataset.add_samples(
+        [
+            fo.Sample(filepath=os.path.join(tempfile.gettempdir(), name))
+            for name in ("a.jpg", "b.jpg", "c.jpg", "d.jpg")
+        ]
+    )
+
+    print(
+        "LanceDB %s | dims=%d batch=%d repeats=%d k=%d"
+        % (
+            lancedb.__version__,
+            args.dims,
+            args.batch_size,
+            args.repeats,
+            args.k,
+        )
+    )
+
+    results = []
+    try:
+        for num_rows in sizes:
+            print("\n%d rows" % num_rows)
+            results.append(
+                (num_rows,)
+                + _run_size(
+                    dataset,
+                    num_rows,
+                    dims=args.dims,
+                    batch_size=args.batch_size,
+                    repeats=args.repeats,
+                    k=args.k,
+                    seed=args.seed,
+                )
+            )
+    finally:
+        dataset.delete()
+
+    print(
+        "\n%-12s %14s %16s %16s"
+        % ("rows", "add (ms)", "query (ms)", "remove (ms)")
+    )
+    for num_rows, add_ms, query_ms, remove_ms in results:
+        print(
+            "%-12d %14.1f %16.1f %16.1f"
+            % (num_rows, add_ms, query_ms, remove_ms)
+        )
+
+
+if __name__ == "__main__":
+    main()
