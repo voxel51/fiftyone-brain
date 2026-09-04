@@ -31,6 +31,7 @@ from fiftyone.brain.internal.core.lancedb import (  # noqa: E402 — after skip
     _id_predicate,
     _table_names,
     _to_arrow_table,
+    _to_id_list,
 )
 
 DIMS = 8
@@ -318,6 +319,80 @@ class TestTableNames:
         assert db.table_names.call_args.kwargs["limit"] > 10
 
 
+class TestStaleHandle:
+    """Two index objects open on the same table.
+
+    Lance pins a handle to the version it was opened at, so a second writer's
+    commits are invisible until the handle is moved forward. On a write path
+    that stale view breaks the uniqueness of ``id``.
+    """
+
+    def _handle(self, tmp_path):
+        index = LanceDBSimilarityIndex.__new__(LanceDBSimilarityIndex)
+        index._config = LanceDBSimilarityConfig(
+            table_name="shared", uri=str(tmp_path), metric="euclidean"
+        )
+        index._initialize()
+        return index
+
+    def test_upsert_sees_another_writers_row(self, tmp_path):
+        first = self._handle(tmp_path)
+        first.add_to_index(
+            _constant_embeddings(1, 1.0), np.array(["a"]), reload=False
+        )
+
+        second = self._handle(tmp_path)
+        second.add_to_index(
+            _constant_embeddings(1, 2.0), np.array(["b"]), reload=False
+        )
+
+        # `first` has not seen "b", so an insert-only merge would write a
+        # second row under that ID rather than updating the one there
+        first.add_to_index(
+            _constant_embeddings(1, 3.0),
+            np.array(["b"]),
+            overwrite=True,
+            reload=False,
+        )
+
+        assert _ids(first) == ["a", "b"]
+        assert _row_for(first, "b")["vector"][0] == 3.0
+
+    def test_existence_check_sees_another_writers_row(self, tmp_path):
+        first = self._handle(tmp_path)
+        first.add_to_index(
+            _random_embeddings(1), np.array(["a"]), reload=False
+        )
+
+        second = self._handle(tmp_path)
+        second.add_to_index(
+            _random_embeddings(1), np.array(["b"]), reload=False
+        )
+
+        # A stale handle reports "b" missing, so this would raise
+        first.remove_from_index(
+            sample_ids=["b"], allow_missing=False, reload=False
+        )
+
+        assert _ids(first) == ["a"]
+
+    def test_sync_opens_a_table_created_after_initialize(self, tmp_path):
+        # Both handles open before the table exists, so this one has nothing
+        # to move forward — it has to open the table instead
+        early = self._handle(tmp_path)
+        writer = self._handle(tmp_path)
+        writer.add_to_index(
+            _random_embeddings(1), np.array(["z"]), reload=False
+        )
+
+        assert early._table is None
+
+        early._sync_table()
+
+        assert early._table is not None
+        assert early.total_index_size == 1
+
+
 class TestToArrowTable:
     """Building the Arrow table that backs a write."""
 
@@ -349,6 +424,39 @@ class TestToArrowTable:
 
         assert table["vector"].type.value_type == pa.float32()
         assert table["vector"].to_pylist()[0] == [1.0] * DIMS
+
+
+class TestIdListNormalization:
+    """Turning a caller's IDs into a list."""
+
+    @pytest.mark.parametrize(
+        "ids,expected",
+        [
+            pytest.param(["a", "b"], ["a", "b"], id="list"),
+            pytest.param("abc", ["abc"], id="scalar_string_is_not_split"),
+            pytest.param(None, [], id="none_is_empty"),
+        ],
+    )
+    def test_normalizes(self, ids, expected):
+        assert _to_id_list(ids) == expected
+
+    def test_scalar_sample_id_is_not_split_by_add(self, index):
+        # `sample_ids` needs the same guard as `ids`, or the Arrow table is
+        # built with one ID and six sample IDs and fails on column length
+        index.add_to_index(
+            _random_embeddings(1), "abcdef", label_ids=["label"], reload=False
+        )
+
+        assert _sample_ids(index) == ["abcdef"]
+
+    def test_removing_nothing_removes_nothing(self, populated_index):
+        # A caller passing neither ID argument must be a no-op. Checked
+        # with `allow_missing=False`: treating None as an ID removes no rows
+        # either way, so the only visible difference is a bogus "not
+        # present" error naming an ID the caller never supplied
+        populated_index.remove_from_index(allow_missing=False, reload=False)
+
+        assert _ids(populated_index) == ["a", "b", "c"]
 
 
 class TestAddToIndex:
@@ -573,7 +681,7 @@ class TestAddToIndex:
         assert _ids(other) == ["a", "b"]
 
     def test_second_add_does_not_recreate_the_table(self, populated_index):
-        # Recreating the table is what made add cost scale with table size
+        # Recreating the table would make add cost scale with table size
         with mock.patch.object(
             type(populated_index._db), "create_table", autospec=True
         ) as create_table:

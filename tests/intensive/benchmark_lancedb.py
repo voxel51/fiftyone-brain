@@ -51,7 +51,7 @@ _SEED_BATCH_SIZE = 50000
 # Discarded before timing: these pay LanceDB's process-wide start-up and build
 # the scalar index, costs that would otherwise land on whichever size runs
 # first and read as growth
-_WARMUP_ADDS = 10
+_WARMUP_REPEATS = 10
 
 
 def _random_embeddings(num_rows, dims, rng):
@@ -186,11 +186,11 @@ def _run_size(samples, num_rows, *, dims, batch_size, repeats, k, seed):
             rng,
             batch_size=batch_size,
             dims=dims,
-            repeats=_WARMUP_ADDS,
+            repeats=_WARMUP_REPEATS,
             tag="warmup",
         )
-        _time_queries(index, rng, dims=dims, k=k, repeats=_WARMUP_ADDS)
-        for repeat in range(_WARMUP_ADDS):
+        _time_queries(index, rng, dims=dims, k=k, repeats=_WARMUP_REPEATS)
+        for repeat in range(_WARMUP_REPEATS):
             index.remove_from_index(
                 sample_ids=_batch_ids("warmup", repeat, batch_size),
                 reload=False,
@@ -209,9 +209,11 @@ def _run_size(samples, num_rows, *, dims, batch_size, repeats, k, seed):
         query_ms = _summarize(
             "query", _time_queries(index, rng, dims=dims, k=k, repeats=repeats)
         )
-        remove_ms = _summarize(
-            "remove", _time_removes(index, _batch_ids("add", 0, repeats))
-        )
+        # Removes rows the timed adds just wrote; batch 0 holds `batch_size`
+        # of them, so asking for more would time deletes of IDs that were
+        # never written and report them as removal cost
+        removed_ids = _batch_ids("add", 0, min(repeats, batch_size))
+        remove_ms = _summarize("remove", _time_removes(index, removed_ids))
         print(
             "    %-8s %d unindexed rows, %d fragments"
             % ("state", _unindexed_tail(index), _num_fragments(index))

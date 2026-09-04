@@ -91,7 +91,7 @@ def _to_arrow_table(ids, sample_ids, embeddings):
         pa.array(embeddings.reshape(-1), type=pa.float32()), dims
     )
     return pa.Table.from_arrays(
-        [list(ids), list(sample_ids), vectors],
+        [_to_id_list(ids), _to_id_list(sample_ids), vectors],
         names=["id", "sample_id", "vector"],
     )
 
@@ -105,6 +105,9 @@ def _to_id_list(ids):
     Returns:
         a list of IDs
     """
+    if ids is None:
+        return []
+
     # A bare string is iterable, so listing it would split it into characters
     # and quietly address the wrong rows
     if not etau.is_container(ids):
@@ -276,14 +279,29 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         """The ``lancedb.LanceTable`` instance for this index."""
         return self._table
 
+    def _sync_table(self):
+        """Points this index at the latest committed state of its table.
+
+        Lance pins a handle to the version it was opened at, so another
+        process's writes stay invisible for the lifetime of this object. On a
+        write path that stale view is not merely out of date: an existence
+        check misses rows that are present, so a merge inserts a second row
+        under an ID that already exists, and ``allow_existing=False`` fails to
+        raise. The refresh costs about 0.1 ms against a 2.8 ms merge.
+        """
+        if self._table is None:
+            # The table may have been created by another writer since this
+            # index opened, in which case there is a version to move to
+            if self.config.table_name in _table_names(self._db):
+                self._table = self._db.open_table(self.config.table_name)
+
+            return
+
+        self._table.checkout_latest()
+
     def reload(self):
         """Refreshes the index against the latest committed table version."""
-        if self._table is not None:
-            # A table handle is pinned to the version it was opened at, so
-            # without this a writer in another process stays invisible for the
-            # lifetime of this object
-            self._table.checkout_latest()
-
+        self._sync_table()
         super().reload()
 
     @property
@@ -349,8 +367,8 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             )
             existing_ids.extend(results["id"].to_pylist())
 
-        # A table written by the old overwrite path can hold an ID twice, and
-        # callers count these to report on them
+        # A table can hold an ID twice — written outside this connector, or
+        # by a merge that raced — and callers count these to report on them
         return list(dict.fromkeys(existing_ids))
 
     def _merge_rows(self, pa_table, overwrite):
@@ -392,6 +410,8 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 self.reload()
 
             return
+
+        self._sync_table()
 
         # A duplicate would match one target row twice, which the merge below
         # rejects, and on the insert-only path it would write two rows sharing
@@ -470,6 +490,8 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             ids = _to_id_list(label_ids)
         else:
             ids = _to_id_list(sample_ids)
+
+        self._sync_table()
 
         if not allow_missing or warn_missing:
             existing_ids = self._get_existing_ids(ids)
