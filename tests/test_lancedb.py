@@ -76,6 +76,10 @@ def _data_files(index):
     return sorted(os.listdir(path)) if os.path.isdir(path) else []
 
 
+def _num_fragments(index):
+    return index.table.stats()["fragment_stats"]["num_fragments"]
+
+
 def _deletion_files(index):
     path = os.path.join(index.table.uri, "_deletions")
     return sorted(os.listdir(path)) if os.path.isdir(path) else []
@@ -694,15 +698,52 @@ class TestAddToIndex:
         create_table.assert_not_called()
         assert _ids(populated_index) == ["a", "b", "c", "d", "e"]
 
-    def test_add_does_not_rewrite_existing_data_files(self, populated_index):
-        before = _data_files(populated_index)
-        assert before
+    def test_race_fallback_joins_a_table_created_mid_add(
+        self, index, tmp_path
+    ):
+        # `_sync_table` opens a table another writer already committed, so it
+        # handles the wide race and this narrower one is left: a table that
+        # appears between that listing and `create_table`. Patched out here
+        # because otherwise the fallback is unreachable
+        other = lancedb.connect(str(tmp_path))
+        other.create_table(
+            "test", _to_arrow_table(["a"], ["a"], _random_embeddings(1))
+        )
+
+        with mock.patch.object(LanceDBSimilarityIndex, "_sync_table"):
+            index.add_to_index(
+                _random_embeddings(1, seed=1), np.array(["b"]), reload=False
+            )
+
+        assert _ids(index) == ["a", "b"]
+
+    def test_create_failure_propagates_when_no_table_appeared(self, index):
+        # Only a lost race is recoverable; anything else must surface
+        with mock.patch.object(
+            type(index._db),
+            "create_table",
+            autospec=True,
+            side_effect=RuntimeError("disk full"),
+        ), pytest.raises(RuntimeError, match="disk full"):
+            index.add_to_index(
+                _random_embeddings(1), np.array(["a"]), reload=False
+            )
+
+    def test_add_appends_a_fragment_instead_of_rewriting(
+        self, populated_index
+    ):
+        # Fragment count, not file presence: Lance leaves a superseded data
+        # file on disk until compaction, so a whole-table rewrite also leaves
+        # the original there and any assertion about files still holding it
+        # passes against the write path this one exists to reject. A rewrite
+        # keeps the fragment count flat; appending raises it
+        before = _num_fragments(populated_index)
 
         populated_index.add_to_index(
             _random_embeddings(2, seed=1), np.array(["d", "e"]), reload=False
         )
 
-        assert set(before).issubset(_data_files(populated_index))
+        assert _num_fragments(populated_index) == before + 1
 
 
 class TestIdIndex:
@@ -723,6 +764,92 @@ class TestIdIndex:
         )
 
         assert ["id"] in _indexed_columns(index)
+
+
+    def test_second_add_does_not_rebuild_it(self, populated_index):
+        # `create_index` replaces by default, so an add that calls it
+        # unconditionally rebuilds the whole column every time, which is the
+        # table-size-proportional cost the incremental write path removes
+        with mock.patch.object(
+            type(populated_index.table), "create_index", autospec=True
+        ) as create_index:
+            populated_index.add_to_index(
+                _random_embeddings(1, seed=1),
+                np.array(["d"]),
+                reload=False,
+            )
+
+        create_index.assert_not_called()
+
+    def test_a_failed_index_does_not_fail_the_add(
+        self, populated_index, caplog
+    ):
+        # The rows are committed by this point, and concurrent writers race to
+        # build the index, so the loser must not take the add down with it
+        with mock.patch.object(
+            type(populated_index.table),
+            "list_indices",
+            autospec=True,
+            return_value=[],
+        ), mock.patch.object(
+            type(populated_index.table),
+            "create_index",
+            autospec=True,
+            side_effect=RuntimeError("retryable commit conflict"),
+        ), caplog.at_level(logging.WARNING):
+            populated_index.add_to_index(
+                _random_embeddings(1, seed=1),
+                np.array(["d"]),
+                reload=False,
+            )
+
+        assert _ids(populated_index) == ["a", "b", "c", "d"]
+        assert "Failed to index the 'id' column" in caplog.text
+
+
+class TestPredicateBatching:
+    """Splitting an ID list across predicates.
+
+    Nothing about the resulting rows observes the split — a batch size large
+    enough to hold every ID produces the same table — so these assert on the
+    predicates themselves. Without that, disabling batching entirely goes
+    unnoticed, and the row-count fixtures scale off ``_ID_BATCH_SIZE`` so they
+    cannot notice either.
+    """
+
+    @pytest.fixture(name="small_batch", autouse=True)
+    def fixture_small_batch(self, monkeypatch):
+        monkeypatch.setattr(lancedb_backend, "_ID_BATCH_SIZE", 2)
+
+    def test_lookup_splits_the_predicate(self, populated_index):
+        with mock.patch.object(
+            lancedb_backend,
+            "_id_predicate",
+            wraps=lancedb_backend._id_predicate,
+        ) as id_predicate:
+            found = populated_index._get_existing_ids(["a", "b", "c"])
+
+        assert sorted(found) == ["a", "b", "c"]
+        assert [
+            list(call.args[0]) for call in id_predicate.call_args_list
+        ] == [["a", "b"], ["c"]]
+
+    def test_delete_splits_the_predicate(self, populated_index):
+        with mock.patch.object(
+            type(populated_index.table),
+            "delete",
+            autospec=True,
+            side_effect=type(populated_index.table).delete,
+        ) as delete:
+            populated_index.remove_from_index(
+                sample_ids=["a", "b", "c"], reload=False
+            )
+
+        assert _ids(populated_index) == []
+        assert [call.args[1] for call in delete.call_args_list] == [
+            "id IN ('a', 'b')",
+            "id IN ('c')",
+        ]
 
 
 class TestGetExistingIds:
