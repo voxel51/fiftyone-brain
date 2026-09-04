@@ -35,7 +35,44 @@ _SUPPORTED_METRICS = {
 # it does at 1k, where the per-call overhead dominates
 _ID_BATCH_SIZE = 10000
 
+# Page size for the deprecated `table_names()` fallback, which defaults to 10
+_TABLE_PAGE_SIZE = 1000000
+
 logger = logging.getLogger(__name__)
+
+
+def _table_names(db):
+    """Returns the names of every table in ``db``.
+
+    ``table_names()`` is paged and defaults to 10 tables, so a database holding
+    more than that reports an existing table as missing, which would strand an
+    index and let :meth:`fiftyone.brain.internal.core.utils.get_unique_name`
+    hand out a name that is already taken. ``list_tables()`` is unpaged by
+    default but is absent on older lancedb, so fall back to an explicit page
+    size there.
+    """
+    list_tables = getattr(db, "list_tables", None)
+    if list_tables is None:
+        return list(db.table_names(limit=_TABLE_PAGE_SIZE))
+
+    names = []
+    page_token = None
+    while True:
+        response = list_tables(page_token=page_token)
+
+        # Returns a paged response object, or a plain list on versions that
+        # predate paging. Materialize it so the emptiness check below tests
+        # the rows rather than the container, which may be truthy while
+        # yielding nothing
+        page = list(getattr(response, "tables", response))
+        names.extend(page)
+
+        page_token = getattr(response, "page_token", None)
+
+        # An empty page ends the walk even when a token comes back with it,
+        # which would otherwise loop forever
+        if not page_token or not page:
+            return names
 
 
 def _to_arrow_table(ids, sample_ids, embeddings):
@@ -98,7 +135,12 @@ class LanceDBSimilarityConfig(SimilarityConfig):
             provided, a new table will be created
         metric ("cosine"): the embedding distance metric to use when creating a
             new index. Supported values are ``("cosine", "euclidean")``
-        uri ("/tmp/lancedb"): the database URI to use
+        uri ("/tmp/lancedb"): the database URI to use. May be a local path or
+            an object store prefix such as ``gs://bucket/prefix``
+        storage_options (None): a dict of storage options to pass to LanceDB,
+            used to authenticate against an object store. Refer to
+            https://lancedb.github.io/lancedb/guides/storage/ for the keys each
+            store accepts
         **kwargs: keyword arguments for :class:`SimilarityConfig`
     """
 
@@ -107,6 +149,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         table_name=None,
         metric="cosine",
         uri="/tmp/lancedb",
+        storage_options=None,
         **kwargs,
     ):
         if metric not in _SUPPORTED_METRICS:
@@ -122,6 +165,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
 
         # store privately so these aren't serialized
         self._uri = uri
+        self._storage_options = storage_options
 
     @property
     def method(self):
@@ -136,6 +180,14 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         self._uri = value
 
     @property
+    def storage_options(self):
+        return self._storage_options
+
+    @storage_options.setter
+    def storage_options(self, value):
+        self._storage_options = value
+
+    @property
     def max_k(self):
         return None
 
@@ -147,8 +199,8 @@ class LanceDBSimilarityConfig(SimilarityConfig):
     def supported_aggregations(self):
         return ("mean",)
 
-    def load_credentials(self, uri=None):
-        self._load_parameters(uri=uri)
+    def load_credentials(self, uri=None, storage_options=None):
+        self._load_parameters(uri=uri, storage_options=storage_options)
 
 
 class LanceDBSimilarity(Similarity):
@@ -188,7 +240,13 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
     def _initialize(self):
         try:
-            db = lancedb.connect(self.config.uri)
+            # An object store needs credentials, which a local path does not,
+            # so only pass the options through when they were supplied
+            kwargs = {}
+            if self.config.storage_options:
+                kwargs["storage_options"] = self.config.storage_options
+
+            db = lancedb.connect(self.config.uri, **kwargs)
         except Exception as e:
             raise ValueError(
                 "Failed to connect to LanceDB backend at URI '%s'. Refer to "
@@ -196,7 +254,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 "information" % self.config.uri
             ) from e
 
-        table_names = db.table_names()
+        table_names = _table_names(db)
 
         if self.config.table_name is None:
             root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
@@ -383,7 +441,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                     self.config.table_name, pa_table
                 )
             except Exception:
-                if self.config.table_name not in self._db.table_names():
+                if self.config.table_name not in _table_names(self._db):
                     raise
 
                 # Another writer created the table between this index opening
@@ -537,7 +595,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             self.config.table_name,
             self.config.table_name + "_filter",
         ):
-            if tbl in self._db.table_names():
+            if tbl in _table_names(self._db):
                 self._db.drop_table(tbl)
 
         self._table = None

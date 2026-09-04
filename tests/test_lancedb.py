@@ -21,11 +21,15 @@ lancedb = pytest.importorskip("lancedb")
 pa = pytest.importorskip("pyarrow")
 
 from fiftyone.brain.similarity import SimilarityIndex  # noqa: E402
+from fiftyone.brain.internal.core import (
+    lancedb as lancedb_backend,
+)  # noqa: E402
 from fiftyone.brain.internal.core.lancedb import (  # noqa: E402 — after skip
     LanceDBSimilarityConfig,
     LanceDBSimilarityIndex,
     _ID_BATCH_SIZE,
     _id_predicate,
+    _table_names,
     _to_arrow_table,
 )
 
@@ -155,6 +159,163 @@ class TestIdPredicate:
         index.remove_from_index(sample_ids=[injection], reload=False)
 
         assert _ids(index) == ["other", "plain"]
+
+
+class TestStorageOptions:
+    """Credentials for an object store."""
+
+    def test_absent_by_default(self, tmp_path):
+        config = LanceDBSimilarityConfig(uri=str(tmp_path))
+
+        assert config.storage_options is None
+
+    def test_round_trips(self, tmp_path):
+        options = {"service_account": "/path/to/key.json"}
+        config = LanceDBSimilarityConfig(
+            uri=str(tmp_path), storage_options=options
+        )
+
+        assert config.storage_options == options
+
+    def test_not_serialized(self, tmp_path):
+        # Storage options carry credentials, so they must stay off the
+        # serialized config the same way the URI does
+        config = LanceDBSimilarityConfig(
+            uri=str(tmp_path), storage_options={"secret": "value"}
+        )
+
+        serialized = config.serialize()
+        assert "storage_options" not in serialized
+        assert "uri" not in serialized
+
+    def test_load_credentials_sets_them(self, tmp_path):
+        config = LanceDBSimilarityConfig(uri=str(tmp_path))
+
+        config.load_credentials(storage_options={"key": "value"})
+
+        assert config.storage_options == {"key": "value"}
+
+    def test_passed_to_connect_only_when_set(self, tmp_path):
+        config = LanceDBSimilarityConfig(table_name="t", uri=str(tmp_path))
+        index = LanceDBSimilarityIndex.__new__(LanceDBSimilarityIndex)
+        index._config = config
+
+        # Patch the connector's lazy-import proxy rather than `lancedb`
+        # itself: the proxy copies the module's attributes into its own
+        # __dict__ the first time it resolves, so a patch applied to the real
+        # module afterwards never reaches it
+        with mock.patch.object(lancedb_backend, "lancedb") as connect_module:
+            index._initialize()
+
+            # A local path takes no storage options, and passing an empty dict
+            # would change behavior for every existing local index
+            assert connect_module.connect.call_args.kwargs == {}
+
+            config.storage_options = {"key": "value"}
+            index._initialize()
+
+            assert connect_module.connect.call_args.kwargs == {
+                "storage_options": {"key": "value"}
+            }
+
+
+class TestTableNames:
+    """Listing tables.
+
+    ``table_names()`` pages and defaults to 10, so anything that asks lancedb
+    whether a table exists sees only the first page unless it goes through
+    :func:`_table_names`.
+    """
+
+    # More tables than one default page holds
+    NUM_TABLES = 25
+
+    def _make_tables(self, uri):
+        db = lancedb.connect(uri)
+        pa_table = _to_arrow_table(["a"], ["a"], _random_embeddings(1))
+        names = ["table-%03d" % i for i in range(self.NUM_TABLES)]
+        for name in names:
+            db.create_table(name, pa_table)
+
+        return db, names
+
+    def test_returns_every_table(self, tmp_path):
+        db, names = self._make_tables(str(tmp_path))
+
+        assert sorted(_table_names(db)) == sorted(names)
+
+    def test_default_page_would_have_truncated(self, tmp_path):
+        # Guards the premise: without this helper the listing is short, so the
+        # test above is not vacuous
+        db, _ = self._make_tables(str(tmp_path))
+
+        assert len(list(db.table_names())) < self.NUM_TABLES
+
+    def test_existing_table_past_first_page_is_opened(self, tmp_path):
+        _, names = self._make_tables(str(tmp_path))
+        stranded = names[-1]
+
+        index = LanceDBSimilarityIndex.__new__(LanceDBSimilarityIndex)
+        index._config = LanceDBSimilarityConfig(
+            table_name=stranded, uri=str(tmp_path)
+        )
+        index._initialize()
+
+        # A missed table reads as a new index, which strands the rows already
+        # written and makes the next add fail against the table that is there
+        assert index._table is not None
+        assert index._table.name == stranded
+
+    def test_cleanup_drops_table_past_first_page(self, tmp_path):
+        db, names = self._make_tables(str(tmp_path))
+        stranded = names[-1]
+
+        index = LanceDBSimilarityIndex.__new__(LanceDBSimilarityIndex)
+        index._config = LanceDBSimilarityConfig(
+            table_name=stranded, uri=str(tmp_path)
+        )
+        index._initialize()
+        index.cleanup()
+
+        assert stranded not in _table_names(db)
+
+    def test_pages_through_every_response(self):
+        page_one = mock.Mock(tables=["a", "b"], page_token="next")
+        page_two = mock.Mock(tables=["c"], page_token=None)
+        db = mock.Mock(spec=["list_tables"])
+        db.list_tables.side_effect = [page_one, page_two]
+
+        assert _table_names(db) == ["a", "b", "c"]
+        assert db.list_tables.call_args_list == [
+            mock.call(page_token=None),
+            mock.call(page_token="next"),
+        ]
+
+    def test_stops_on_an_empty_page(self):
+        # A server that keeps handing back a token would otherwise spin here
+        page = mock.Mock(tables=[], page_token="always")
+        db = mock.Mock(spec=["list_tables"])
+        db.list_tables.return_value = page
+
+        assert _table_names(db) == []
+
+    def test_stops_on_a_container_that_yields_nothing(self):
+        # A MagicMock is truthy but iterates empty, so a guard that tests the
+        # response object rather than its rows never terminates here. Any
+        # test that mocks the lancedb module reaches this path
+        db = mock.MagicMock()
+
+        assert _table_names(db) == []
+
+    def test_falls_back_when_list_tables_is_absent(self):
+        db = mock.Mock(spec=["table_names"])
+        db.table_names.return_value = ["a", "b"]
+
+        assert _table_names(db) == ["a", "b"]
+
+        # The fallback must override the default page size or it reproduces
+        # the bug it exists to avoid
+        assert db.table_names.call_args.kwargs["limit"] > 10
 
 
 class TestToArrowTable:
