@@ -76,6 +76,7 @@ def test_cluster_ranker_local_is_normalized_per_cluster():
 
 
 def test_cluster_ranker_rejects_unknown_norm_method():
+    """An unknown ``norm_method`` should raise a ``ValueError``."""
     embeddings = _two_blob_embeddings(per_blob=50)
 
     with pytest.raises(ValueError):

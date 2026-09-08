@@ -186,6 +186,27 @@ def _compute_representativeness(embeddings, method="cluster-center"):
 def _cluster_ranker(
     embeddings, cluster_algorithm="kmeans", N=20, norm_method="local"
 ):
+    """Ranks samples by how representative (central) they are within their
+    cluster.
+
+    Samples close to their cluster center receive higher scores.
+
+    Args:
+        embeddings: a ``num_samples x num_dims`` array of embeddings
+        cluster_algorithm ("kmeans"): the clustering algorithm to use.
+            Supported values are ``("kmeans", "meanshift")``
+        N (20): the number of clusters to use when ``cluster_algorithm`` is
+            ``"kmeans"``
+        norm_method ("local"): how to normalize the centerness scores.
+            Supported values are ``("local", "global")``, which normalize
+            per-cluster or across all samples, respectively
+
+    Returns:
+        a tuple of
+
+        -   the ``num_samples`` array of representativeness scores
+        -   the fitted clusterer
+    """
     # Cluster
     if cluster_algorithm == "meanshift":
         bandwidth = skc.estimate_bandwidth(
