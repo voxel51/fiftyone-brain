@@ -213,20 +213,31 @@ def _cluster_ranker(
         embeddings - cluster_centers[cluster_ids], axis=1
     )
 
+    # Centerness: samples close to their cluster center are more
+    # representative, so this decreases as the distance to the center grows.
     centerness_ranking = 1 / (1 + sample_dists)
 
-    # Normalize per cluster vs globally
-    norm_method = "local"
+    # Normalize per cluster vs globally. In both cases we normalize the
+    # centerness scores (not the raw distances) so that a higher value always
+    # means "more representative".
     if norm_method == "global":
         centerness_ranking = centerness_ranking / centerness_ranking.max()
     elif norm_method == "local":
         unique_ids = np.unique(cluster_ids)
         for unique_id in unique_ids:
             cluster_indices = np.where(cluster_ids == unique_id)[0]
-            cluster_dists = sample_dists[cluster_indices]
-            cluster_dists /= cluster_dists.max()
-            sample_dists[cluster_indices] = cluster_dists
-        centerness_ranking = sample_dists
+            cluster_scores = centerness_ranking[cluster_indices]
+            centerness_ranking[cluster_indices] = (
+                cluster_scores / cluster_scores.max()
+            )
+    else:
+        raise ValueError(
+            (
+                "Normalization method '%s' not supported. Please use one of "
+                "['global', 'local']"
+            )
+            % norm_method
+        )
 
     return centerness_ranking, clusterer
 
