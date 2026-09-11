@@ -55,6 +55,10 @@ _SEED_BATCH_SIZE = 50000
 # first and read as growth
 _WARMUP_REPEATS = 10
 
+# Rows per bulk add while growing the tail to a checkpoint. Large so growing
+# is cheap; the timed adds use `batch_size` so they stay comparable.
+_TAIL_GROW_BATCH = 5000
+
 
 def _random_embeddings(num_rows, dims, rng):
     return rng.random((num_rows, dims), dtype=np.float32)
@@ -94,7 +98,21 @@ def _seed_table(uri, num_rows, dims, rng):
 
 
 def _make_index(samples, uri):
+    """Opens an index over ``uri``.
+
+    ``samples=None`` builds one without binding it to a sample collection,
+    which skips the database entirely. The write paths reach only the table,
+    the connection and the config, so add, remove and the id index all work
+    unbound -- but anything reading the view does not, so a query needs the
+    bound form.
+    """
     config = LanceDBSimilarityConfig(table_name=_TABLE_NAME, uri=uri)
+    if samples is None:
+        index = LanceDBSimilarityIndex.__new__(LanceDBSimilarityIndex)
+        index._config = config
+        index._initialize()
+        return index
+
     return LanceDBSimilarityIndex(samples, config, "benchmark")
 
 
@@ -226,6 +244,108 @@ def _run_size(samples, num_rows, *, dims, batch_size, repeats, k, seed):
         shutil.rmtree(uri, ignore_errors=True)
 
 
+def _run_tail_sweep(
+    samples,
+    num_rows,
+    *,
+    dims,
+    batch_size,
+    repeats,
+    seed,
+    checkpoints,
+    grow_batch,
+):
+    """Times adds against a growing unindexed tail.
+
+    The size sweep holds the tail near zero -- it writes `repeats` batches and
+    stops -- so its flat add cost is flat in table size at a tail of a couple
+    of thousand rows, which says nothing about what happens as the tail grows.
+    `_ensure_id_index` rebuilds only when the index is absent, never when it is
+    merely stale, so in service the tail grows until something calls
+    ``optimize()``.
+
+    At each checkpoint the tail is grown in bulk, then add cost is measured at
+    the same `batch_size` used everywhere else so the numbers are comparable.
+    The timed adds grow the tail themselves, by `repeats * batch_size` rows;
+    the tail is reported after them.
+    """
+    rng = np.random.default_rng(seed)
+    uri = tempfile.mkdtemp(prefix="lancedb-tail-")
+
+    try:
+        print("  seeding %d rows at %d dims..." % (num_rows, dims))
+        _seed_table(uri, num_rows, dims, rng)
+        index = _make_index(samples, uri)
+
+        # Builds the id index, so every later add lands in the tail
+        _time_adds(
+            index,
+            rng,
+            batch_size=batch_size,
+            dims=dims,
+            repeats=_WARMUP_REPEATS,
+            tag="warmup",
+        )
+
+        print(
+            "    %10s %12s %10s %12s"
+            % ("target", "tail after", "add median", "fragments")
+        )
+        grown = 0
+        for target in checkpoints:
+            while grown < target:
+                step = min(grow_batch, target - grown)
+                index.add_to_index(
+                    _random_embeddings(step, dims, rng),
+                    np.array(_batch_ids("grow", grown, step)),
+                    reload=False,
+                )
+                grown += step
+
+            add_ms = statistics.median(
+                _time_adds(
+                    index,
+                    rng,
+                    batch_size=batch_size,
+                    dims=dims,
+                    repeats=repeats,
+                    tag="tail%d" % target,
+                )
+            )
+            print(
+                "    %10d %12d %7.1f ms %12d"
+                % (
+                    target,
+                    _unindexed_tail(index),
+                    add_ms,
+                    _num_fragments(index),
+                )
+            )
+            grown += repeats * batch_size
+
+        # What it costs to fold the tail back in, which is the other half of
+        # any reindex cadence
+        start = time.perf_counter()
+        index.table.optimize()
+        optimize_ms = (time.perf_counter() - start) * 1000
+        after = statistics.median(
+            _time_adds(
+                index,
+                rng,
+                batch_size=batch_size,
+                dims=dims,
+                repeats=repeats,
+                tag="post",
+            )
+        )
+        print(
+            "    optimize() took %.0f ms; tail now %d, add back to %.1f ms"
+            % (optimize_ms, _unindexed_tail(index), after)
+        )
+    finally:
+        shutil.rmtree(uri, ignore_errors=True)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__.split("Usage::")[0].strip(),
@@ -252,17 +372,40 @@ def main():
         "--k", type=int, default=10, help="neighbors per query"
     )
     parser.add_argument("--seed", type=int, default=51, help="random seed")
+    parser.add_argument(
+        "--tail",
+        action="store_true",
+        help="sweep add cost against a growing unindexed tail instead of "
+        "against table size",
+    )
+    parser.add_argument(
+        "--grow-batch",
+        type=int,
+        default=_TAIL_GROW_BATCH,
+        help="rows per bulk add while growing the tail, with --tail. Every "
+        "add appends a fragment, so this separates tail cost from fragment "
+        "count: the same tail reached in few large adds or many small ones",
+    )
+    parser.add_argument(
+        "--checkpoints",
+        default="0,1000,5000,20000,50000,100000,200000,500000",
+        help="tail sizes to measure at, with --tail",
+    )
     args = parser.parse_args()
 
     sizes = [int(size) for size in args.sizes.split(",")]
 
-    dataset = fo.Dataset(_DATASET_NAME, overwrite=True)
-    dataset.add_samples(
-        [
-            fo.Sample(filepath=os.path.join(tempfile.gettempdir(), name))
-            for name in ("a.jpg", "b.jpg", "c.jpg", "d.jpg")
-        ]
-    )
+    # The tail sweep times writes only, which need no sample collection and
+    # so no database
+    dataset = None
+    if not args.tail:
+        dataset = fo.Dataset(_DATASET_NAME, overwrite=True)
+        dataset.add_samples(
+            [
+                fo.Sample(filepath=os.path.join(tempfile.gettempdir(), name))
+                for name in ("a.jpg", "b.jpg", "c.jpg", "d.jpg")
+            ]
+        )
 
     print(
         "LanceDB %s | dims=%d batch=%d repeats=%d k=%d"
@@ -274,6 +417,19 @@ def main():
             args.k,
         )
     )
+
+    if args.tail:
+        _run_tail_sweep(
+            dataset,
+            sizes[0],
+            dims=args.dims,
+            batch_size=args.batch_size,
+            repeats=args.repeats,
+            seed=args.seed,
+            checkpoints=[int(c) for c in args.checkpoints.split(",")],
+            grow_batch=args.grow_batch,
+        )
+        return
 
     results = []
     try:
