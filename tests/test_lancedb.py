@@ -312,17 +312,6 @@ class TestTableNames:
 
         assert _table_names(db) == []
 
-    def test_falls_back_when_list_tables_is_absent(self):
-        db = mock.Mock(spec=["table_names"])
-        db.table_names.return_value = ["a", "b"]
-
-        assert _table_names(db) == ["a", "b"]
-
-        # The fallback must override the default page size or it reproduces
-        # the bug it exists to avoid
-        assert db.table_names.call_args.kwargs["limit"] > 10
-
-
 class TestStaleHandle:
     """Two index objects open on the same table.
 
@@ -1031,6 +1020,119 @@ class TestKneighbors:
         assert label_ids is None
         assert dists[0] == pytest.approx(0.0)
         assert dists == sorted(dists)
+
+    @pytest.mark.parametrize(
+        "kwargs,message",
+        [
+            (dict(query=None), "full index neighbors"),
+            (dict(query=_basis_embeddings(3)[0], reverse=True), "least similarity"),
+            (
+                dict(query=_basis_embeddings(3)[0], aggregation="max"),
+                "max aggregation",
+            ),
+        ],
+    )
+    def test_unsupported_queries_raise(self, basis_index, kwargs, message):
+        with pytest.raises(ValueError, match=message):
+            basis_index._kneighbors(**kwargs)
+
+    def test_mean_aggregation_collapses_a_stack_to_one_query(self, basis_index):
+        stack = _basis_embeddings(3)[:2]
+
+        with mock.patch.object(
+            LanceDBSimilarityIndex,
+            "has_view",
+            new_callable=mock.PropertyMock,
+            return_value=False,
+        ):
+            aggregated, _, _ = basis_index._kneighbors(
+                query=stack, k=1, aggregation="mean", return_dists=True
+            )
+            direct, _, _ = basis_index._kneighbors(
+                query=stack.mean(axis=0), k=1, return_dists=True
+            )
+
+        # One result set for the stack, not one per row, and the same one
+        # querying its mean directly would give
+        assert len(aggregated) == 1
+        assert aggregated == direct
+
+    def test_a_stack_without_aggregation_queries_each_row(self, basis_index):
+        queries = _basis_embeddings(3)[:2]
+
+        with mock.patch.object(
+            LanceDBSimilarityIndex,
+            "has_view",
+            new_callable=mock.PropertyMock,
+            return_value=False,
+        ):
+            ids, _, _ = basis_index._kneighbors(
+                query=queries, k=1, return_dists=True
+            )
+
+        assert [group[0] for group in ids] == ["a", "b"]
+
+
+class TestKneighborsOverAView:
+    """The filtered query path.
+
+    Owned by B.7, which replaces the per-query table rewrite. These cover the
+    behavior so a change there has something to fail against; they are not an
+    endorsement of how it is built.
+    """
+
+    @pytest.fixture(name="basis_index")
+    def fixture_basis_index(self, index):
+        index.add_to_index(
+            _basis_embeddings(3), np.array(["a", "b", "c"]), reload=False
+        )
+        return index
+
+    def _query_over_view(self, index, visible_ids, query, k):
+        with mock.patch.object(
+            LanceDBSimilarityIndex,
+            "has_view",
+            new_callable=mock.PropertyMock,
+            return_value=True,
+        ), mock.patch.object(
+            LanceDBSimilarityIndex,
+            "current_sample_ids",
+            new_callable=mock.PropertyMock,
+            return_value=visible_ids,
+        ):
+            return index._kneighbors(query=query, k=k, return_dists=True)
+
+    def test_restricts_results_to_the_view(self, basis_index):
+        # Query nearest "a", but hide it: the answer must come from the rest
+        ids, _, _ = self._query_over_view(
+            basis_index, ["b", "c"], _basis_embeddings(3)[0], 3
+        )
+
+        assert "a" not in ids
+        assert set(ids) == {"b", "c"}
+
+    def test_an_empty_view_raises_an_unhelpful_error(self, basis_index):
+        # Pins a defect rather than endorsing it. Filtering to no rows builds
+        # a side table from an empty frame, which carries no vector column,
+        # so the search fails somewhere far from the cause. Returning no
+        # results is what a caller expects; B.7 should make that happen.
+        with pytest.raises(ValueError, match="no vector column"):
+            self._query_over_view(
+                basis_index, [], _basis_embeddings(3)[0], 3
+            )
+
+    def test_leaves_the_indexed_table_intact(self, basis_index):
+        before = basis_index._table.count_rows()
+
+        self._query_over_view(
+            basis_index, ["b"], _basis_embeddings(3)[0], 1
+        )
+
+        # The filter builds a side table; the index's own rows must survive it
+        assert basis_index._table.count_rows() == before
+        assert set(_table_names(basis_index._db)) >= {
+            basis_index.config.table_name
+        }
 
 
 class TestReload:

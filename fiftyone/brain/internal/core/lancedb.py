@@ -35,8 +35,11 @@ _SUPPORTED_METRICS = {
 # it does at 1k, where the per-call overhead dominates
 _ID_BATCH_SIZE = 10000
 
-# Page size for the deprecated `table_names()` fallback, which defaults to 10
-_TABLE_PAGE_SIZE = 1000000
+# 0.34.0 is the first release whose `create_index` accepts a `config=`, which
+# is how the scalar index on `id` is built. Everything else this backend calls
+# -- `list_tables`, `merge_insert`, `checkout_latest`, `list_indices` -- is
+# older than that, so the config parameter sets the floor.
+_LANCEDB_REQUIREMENT = "lancedb>=0.34.0"
 
 logger = logging.getLogger(__name__)
 
@@ -44,26 +47,20 @@ logger = logging.getLogger(__name__)
 def _table_names(db):
     """Returns the names of every table in ``db``.
 
-    ``table_names()`` is paged and defaults to 10 tables, so a database holding
-    more than that reports an existing table as missing, which would strand an
-    index and let :meth:`fiftyone.brain.internal.core.utils.get_unique_name`
-    hand out a name that is already taken. ``list_tables()`` is unpaged by
-    default but is absent on older lancedb, so fall back to an explicit page
-    size there.
+    The alternative, ``table_names()``, is paged and defaults to 10, so a
+    database holding more than that reports an existing table as missing --
+    which would strand an index and let
+    :meth:`fiftyone.brain.internal.core.utils.get_unique_name` hand out a name
+    that is already taken.
     """
-    list_tables = getattr(db, "list_tables", None)
-    if list_tables is None:
-        return list(db.table_names(limit=_TABLE_PAGE_SIZE))
-
     names = []
     page_token = None
     while True:
-        response = list_tables(page_token=page_token)
+        response = db.list_tables(page_token=page_token)
 
-        # Returns a paged response object, or a plain list on versions that
-        # predate paging. Materialize it so the emptiness check below tests
-        # the rows rather than the container, which may be truthy while
-        # yielding nothing
+        # Materialize the page so the emptiness check below tests the rows
+        # rather than the container, which can be truthy while yielding
+        # nothing. `getattr` because a bare list is also accepted.
         page = list(getattr(response, "tables", response))
         names.extend(page)
 
@@ -214,10 +211,10 @@ class LanceDBSimilarity(Similarity):
     """
 
     def ensure_requirements(self):
-        fou.ensure_package("lancedb")
+        fou.ensure_package(_LANCEDB_REQUIREMENT)
 
     def ensure_usage_requirements(self):
-        fou.ensure_package("lancedb")
+        fou.ensure_package(_LANCEDB_REQUIREMENT)
 
     def initialize(self, samples, brain_key):
         return LanceDBSimilarityIndex(
@@ -318,7 +315,8 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         scans the whole column for those matches unless it is indexed, which
         makes the cost of an incremental write proportional to the size of the
         table. At a million rows and a 100-row batch, a merge measures about
-        21 ms unindexed against 3 ms indexed.
+        33.9 ms unindexed against 10.6 ms indexed, and the rewrite it replaces
+        measures 4,152 ms.
         """
         try:
             # `create_index` replaces by default, so this guard is what stops

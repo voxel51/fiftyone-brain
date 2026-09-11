@@ -16,7 +16,7 @@ Usage::
 
     python tests/intensive/benchmark_lancedb.py
     python tests/intensive/benchmark_lancedb.py \\
-        --sizes 1000,100000,1000000 --dims 1024 --batch-size 100 --repeats 20
+        --sizes 1000,100000,1000000 --dims 512 --batch-size 100 --repeats 20
 
 Requires ``pip install lancedb`` and a running MongoDB, since the index is
 constructed against a throwaway dataset.
