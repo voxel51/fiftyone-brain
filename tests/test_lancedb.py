@@ -54,6 +54,16 @@ def _basis_embeddings(num_rows):
     return np.eye(num_rows, DIMS, dtype=np.float32)
 
 
+def _no_view():
+    """Patches out the view, so a query runs against the whole index."""
+    return mock.patch.object(
+        LanceDBSimilarityIndex,
+        "has_view",
+        new_callable=mock.PropertyMock,
+        return_value=False,
+    )
+
+
 def _ids(index):
     return sorted(index.table.to_arrow()["id"].to_pylist())
 
@@ -113,6 +123,19 @@ def fixture_populated_index(index):
     """An index holding rows ``a``, ``b`` and ``c``."""
     index.add_to_index(
         _random_embeddings(3), np.array(["a", "b", "c"]), reload=False
+    )
+    return index
+
+
+@pytest.fixture(name="basis_index")
+def fixture_basis_index(index):
+    """An index whose rows are unit basis vectors.
+
+    Nearest-neighbor order is then unambiguous, so a query can assert which
+    row comes back rather than only how many.
+    """
+    index.add_to_index(
+        _basis_embeddings(3), np.array(["a", "b", "c"]), reload=False
     )
     return index
 
@@ -311,6 +334,7 @@ class TestTableNames:
         db = mock.MagicMock()
 
         assert _table_names(db) == []
+
 
 class TestStaleHandle:
     """Two index objects open on the same table.
@@ -754,7 +778,6 @@ class TestIdIndex:
 
         assert ["id"] in _indexed_columns(index)
 
-
     def test_second_add_does_not_rebuild_it(self, populated_index):
         # `create_index` replaces by default, so an add that calls it
         # unconditionally rebuilds the whole column every time, which is the
@@ -785,7 +808,9 @@ class TestIdIndex:
             "create_index",
             autospec=True,
             side_effect=RuntimeError("retryable commit conflict"),
-        ), caplog.at_level(logging.WARNING):
+        ), caplog.at_level(
+            logging.WARNING
+        ):
             populated_index.add_to_index(
                 _random_embeddings(1, seed=1),
                 np.array(["d"]),
@@ -996,22 +1021,10 @@ class TestRemoveFromIndex:
 class TestKneighbors:
     """Querying the index."""
 
-    @pytest.fixture(name="basis_index")
-    def fixture_basis_index(self, index):
-        index.add_to_index(
-            _basis_embeddings(3), np.array(["a", "b", "c"]), reload=False
-        )
-        return index
-
     def test_returns_nearest_ids_and_distances(self, basis_index):
         query = _basis_embeddings(3)[1]
 
-        with mock.patch.object(
-            LanceDBSimilarityIndex,
-            "has_view",
-            new_callable=mock.PropertyMock,
-            return_value=False,
-        ):
+        with _no_view():
             ids, label_ids, dists = basis_index._kneighbors(
                 query=query, k=2, return_dists=True
             )
@@ -1024,11 +1037,18 @@ class TestKneighbors:
     @pytest.mark.parametrize(
         "kwargs,message",
         [
-            (dict(query=None), "full index neighbors"),
-            (dict(query=_basis_embeddings(3)[0], reverse=True), "least similarity"),
-            (
+            pytest.param(
+                dict(query=None), "full index neighbors", id="no_query"
+            ),
+            pytest.param(
+                dict(query=_basis_embeddings(3)[0], reverse=True),
+                "least similarity",
+                id="reverse",
+            ),
+            pytest.param(
                 dict(query=_basis_embeddings(3)[0], aggregation="max"),
                 "max aggregation",
+                id="unsupported_aggregation",
             ),
         ],
     )
@@ -1036,15 +1056,12 @@ class TestKneighbors:
         with pytest.raises(ValueError, match=message):
             basis_index._kneighbors(**kwargs)
 
-    def test_mean_aggregation_collapses_a_stack_to_one_query(self, basis_index):
+    def test_mean_aggregation_collapses_a_stack_to_one_query(
+        self, basis_index
+    ):
         stack = _basis_embeddings(3)[:2]
 
-        with mock.patch.object(
-            LanceDBSimilarityIndex,
-            "has_view",
-            new_callable=mock.PropertyMock,
-            return_value=False,
-        ):
+        with _no_view():
             aggregated, _, _ = basis_index._kneighbors(
                 query=stack, k=1, aggregation="mean", return_dists=True
             )
@@ -1052,20 +1069,15 @@ class TestKneighbors:
                 query=stack.mean(axis=0), k=1, return_dists=True
             )
 
-        # One result set for the stack, not one per row, and the same one
-        # querying its mean directly would give
-        assert len(aggregated) == 1
+        # One result set for the stack rather than one per row, and the
+        # same one that querying its mean directly gives
         assert aggregated == direct
+        assert len(aggregated) < len(stack)
 
     def test_a_stack_without_aggregation_queries_each_row(self, basis_index):
         queries = _basis_embeddings(3)[:2]
 
-        with mock.patch.object(
-            LanceDBSimilarityIndex,
-            "has_view",
-            new_callable=mock.PropertyMock,
-            return_value=False,
-        ):
+        with _no_view():
             ids, _, _ = basis_index._kneighbors(
                 query=queries, k=1, return_dists=True
             )
@@ -1080,13 +1092,6 @@ class TestKneighborsOverAView:
     behavior so a change there has something to fail against; they are not an
     endorsement of how it is built.
     """
-
-    @pytest.fixture(name="basis_index")
-    def fixture_basis_index(self, index):
-        index.add_to_index(
-            _basis_embeddings(3), np.array(["a", "b", "c"]), reload=False
-        )
-        return index
 
     def _query_over_view(self, index, visible_ids, query, k):
         with mock.patch.object(
@@ -1117,22 +1122,18 @@ class TestKneighborsOverAView:
         # so the search fails somewhere far from the cause. Returning no
         # results is what a caller expects; B.7 should make that happen.
         with pytest.raises(ValueError, match="no vector column"):
-            self._query_over_view(
-                basis_index, [], _basis_embeddings(3)[0], 3
-            )
+            self._query_over_view(basis_index, [], _basis_embeddings(3)[0], 3)
 
     def test_leaves_the_indexed_table_intact(self, basis_index):
-        before = basis_index._table.count_rows()
+        name = basis_index.config.table_name
+        before = basis_index._db.open_table(name).count_rows()
 
-        self._query_over_view(
-            basis_index, ["b"], _basis_embeddings(3)[0], 1
-        )
+        self._query_over_view(basis_index, ["b"], _basis_embeddings(3)[0], 1)
 
-        # The filter builds a side table; the index's own rows must survive it
-        assert basis_index._table.count_rows() == before
-        assert set(_table_names(basis_index._db)) >= {
-            basis_index.config.table_name
-        }
+        # Reopened rather than read off `_table`: that handle is pinned to the
+        # version it was opened at, and reports the old count even when the
+        # filter has overwritten the table underneath it
+        assert basis_index._db.open_table(name).count_rows() == before
 
 
 class TestReload:

@@ -36,9 +36,11 @@ _SUPPORTED_METRICS = {
 _ID_BATCH_SIZE = 10000
 
 # 0.34.0 is the first release whose `create_index` accepts a `config=`, which
-# is how the scalar index on `id` is built. Everything else this backend calls
-# -- `list_tables`, `merge_insert`, `checkout_latest`, `list_indices` -- is
-# older than that, so the config parameter sets the floor.
+# is how the scalar index on `id` is built. Every other call here is older, so
+# earlier versions do run -- `_ensure_id_index` catches the failure and warns
+# -- but every merge then scans the whole id column, which is the cost this
+# backend exists to avoid. The floor is where the write path is sound, not
+# where it merely executes.
 _LANCEDB_REQUIREMENT = "lancedb>=0.34.0"
 
 logger = logging.getLogger(__name__)
@@ -60,7 +62,8 @@ def _table_names(db):
 
         # Materialize the page so the emptiness check below tests the rows
         # rather than the container, which can be truthy while yielding
-        # nothing. `getattr` because a bare list is also accepted.
+        # nothing. Every supported version returns a response object; the
+        # `getattr` tolerates a bare list so a test double need not model one.
         page = list(getattr(response, "tables", response))
         names.extend(page)
 
@@ -312,11 +315,16 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         """Creates the scalar index on the ``id`` column if it is missing.
 
         Every merge, delete and existence check matches on ``id``, and Lance
-        scans the whole column for those matches unless it is indexed, which
-        makes the cost of an incremental write proportional to the size of the
-        table. At a million rows and a 100-row batch, a merge measures about
-        33.9 ms unindexed against 10.6 ms indexed, and the rewrite it replaces
-        measures 4,152 ms.
+        scans the whole column for those matches unless it is indexed, so an
+        unindexed write grows with the table: 4.1 ms at 1k rows, 8.3 ms at
+        100k, 33.9 ms at 1M. Sub-linear, because a per-commit floor of a few
+        milliseconds dominates below ~100k, but a 3.2x gap by a million.
+        Indexed, that same write is 10.6 ms.
+
+        Figures are 512 dimensions, a 100-row batch, local disk. They come
+        from a three-arm harness that is not in the repo; the committed
+        ``tests/intensive/benchmark_lancedb.py`` times only the indexed arm,
+        because it builds this index during warmup.
         """
         try:
             # `create_index` replaces by default, so this guard is what stops
@@ -371,6 +379,9 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
     def _merge_rows(self, pa_table, overwrite):
         """Upserts the given rows into the table.
+
+        At a million rows, 512 dimensions and a 100-row batch, this measures
+        33.9 ms against 4,152 ms for the whole-table rewrite it replaces.
 
         Args:
             pa_table: a ``pyarrow.Table`` in the index's schema

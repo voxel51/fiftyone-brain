@@ -15,8 +15,10 @@ on the data having cluster structure.
 Usage::
 
     python tests/intensive/benchmark_lancedb.py
-    python tests/intensive/benchmark_lancedb.py \\
-        --sizes 1000,100000,1000000 --dims 512 --batch-size 100 --repeats 20
+    python tests/intensive/benchmark_lancedb.py --sizes 10000 --dims 2048
+
+The defaults -- 1k/100k/1M rows, 512 dimensions, 100-row batches, 20 timed
+repeats -- are the settings the recorded numbers came from.
 
 Requires ``pip install lancedb`` and a running MongoDB, since the index is
 constructed against a throwaway dataset.
