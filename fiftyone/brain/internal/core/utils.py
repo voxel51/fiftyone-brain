@@ -234,9 +234,14 @@ def filter_ids(
 
     if patches_field is None:
         if samples._is_patches:
-            sample_ids = np.array(samples.values("sample_id"))
+            sample_ids = np.array(
+                samples.values("sample_id", _enforce_natural_order=False),
+                copy=False,
+            )
         else:
-            sample_ids = np.array(samples.values("id"))
+            sample_ids = np.array(
+                samples.values("id", _enforce_natural_order=False), copy=False
+            )
 
         if index_sample_ids is None:
             return sample_ids, None, None, None
