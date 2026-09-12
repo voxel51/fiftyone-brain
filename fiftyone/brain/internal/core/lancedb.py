@@ -377,18 +377,17 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         # by a merge that raced — and callers count these to report on them
         return list(dict.fromkeys(existing_ids))
 
-    def _merge_rows(self, pa_table, overwrite):
+    def _merge_rows(self, pa_table, *, overwrite):
         """Upserts the given rows into the table.
 
-        At a million rows, 512 dimensions and a 100-row batch, this measures
-        33.9 ms against 4,152 ms for the whole-table rewrite it replaces.
+        Lance merges in place, so this costs the size of the batch, not the
+        size of the table: 33.9 ms against 4,152 ms for a whole-table rewrite
+        at 1M rows, 512 dimensions and a 100-row batch.
 
         Args:
             pa_table: a ``pyarrow.Table`` in the index's schema
             overwrite: whether to replace rows whose IDs already exist
         """
-        # Lance merges in place, so this costs the size of the batch rather
-        # than the size of the table
         merge = self._table.merge_insert("id")
         merge = merge.when_not_matched_insert_all()
         if overwrite:
@@ -476,9 +475,9 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 # Another writer created the table between this index opening
                 # and this add; join it rather than replacing it
                 self._table = self._db.open_table(self.config.table_name)
-                self._merge_rows(pa_table, overwrite)
+                self._merge_rows(pa_table, overwrite=overwrite)
         else:
-            self._merge_rows(pa_table, overwrite)
+            self._merge_rows(pa_table, overwrite=overwrite)
 
         # Runs after the write so an existing table without the index picks
         # it up on its next add, with the new rows included

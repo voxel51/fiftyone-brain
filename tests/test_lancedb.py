@@ -20,11 +20,13 @@ import pytest
 lancedb = pytest.importorskip("lancedb")
 pa = pytest.importorskip("pyarrow")
 
+# Every import below is E402 by construction: it has to follow the
+# `importorskip` calls above, which decide whether this module runs at all
 from fiftyone.brain.similarity import SimilarityIndex  # noqa: E402
 from fiftyone.brain.internal.core import (
     lancedb as lancedb_backend,
 )  # noqa: E402
-from fiftyone.brain.internal.core.lancedb import (  # noqa: E402 — after skip
+from fiftyone.brain.internal.core.lancedb import (  # noqa: E402
     LanceDBSimilarityConfig,
     LanceDBSimilarityIndex,
     _ID_BATCH_SIZE,
@@ -38,6 +40,11 @@ DIMS = 8
 
 # Enough IDs to span more than one predicate batch
 BATCHED_ROWS = 2 * _ID_BATCH_SIZE + 1
+
+# Raised by a mocked pager on the page after the walk should have stopped, so
+# a non-terminating loop fails the test rather than spinning forever. A hang
+# reads in CI as a job timeout with no output
+_DID_NOT_STOP = AssertionError("_table_names did not stop paging")
 
 
 def _random_embeddings(num_rows, seed=0):
@@ -305,7 +312,11 @@ class TestTableNames:
         index._initialize()
         index.cleanup()
 
-        assert stranded not in _table_names(db)
+        # Asserted through `open_table` rather than `_table_names`: a
+        # truncated listing would not contain the 25th table either, so
+        # checking absence there passes whether or not the drop happened
+        with pytest.raises(ValueError, match="was not found"):
+            db.open_table(stranded)
 
     def test_pages_through_every_response(self):
         page_one = mock.Mock(tables=["a", "b"], page_token="next")
@@ -320,10 +331,12 @@ class TestTableNames:
         ]
 
     def test_stops_on_an_empty_page(self):
-        # A server that keeps handing back a token would otherwise spin here
+        # A server that keeps handing back a token would otherwise spin here.
+        # The side effect is bounded so a walk that fails to stop raises on
+        # its second page instead of hanging the suite
         page = mock.Mock(tables=[], page_token="always")
         db = mock.Mock(spec=["list_tables"])
-        db.list_tables.return_value = page
+        db.list_tables.side_effect = [page, _DID_NOT_STOP]
 
         assert _table_names(db) == []
 
@@ -332,6 +345,7 @@ class TestTableNames:
         # response object rather than its rows never terminates here. Any
         # test that mocks the lancedb module reaches this path
         db = mock.MagicMock()
+        db.list_tables.side_effect = [mock.MagicMock(), _DID_NOT_STOP]
 
         assert _table_names(db) == []
 
@@ -590,12 +604,23 @@ class TestAddToIndex:
         assert _ids(populated_index) == ["a", "b", "c", "d"]
         assert _row_for(populated_index, "d")["vector"] == [1.0] * DIMS
 
-    def test_allow_existing_false_raises(self, populated_index):
+    @pytest.mark.parametrize(
+        "warn_existing",
+        [
+            pytest.param(False, id="without_warn_existing"),
+            pytest.param(True, id="with_warn_existing"),
+        ],
+    )
+    def test_allow_existing_false_raises(self, populated_index, warn_existing):
+        # Both terms of the lookup guard matter: with `warn_existing` also
+        # set, an `or` that collapsed to the wrong operand would skip the
+        # lookup and upsert over the existing row instead of raising
         with pytest.raises(ValueError, match="already exist"):
             populated_index.add_to_index(
                 _random_embeddings(1),
                 np.array(["a"]),
                 allow_existing=False,
+                warn_existing=warn_existing,
                 reload=False,
             )
 
@@ -886,6 +911,17 @@ class TestGetExistingIds:
         )
 
         assert populated_index._get_existing_ids(["d"]) == ["d"]
+
+    def test_a_duplicated_row_is_reported_once(self, populated_index):
+        # A raw `add` bypasses the merge, so the table can hold an ID twice.
+        # Callers take `len()` of this list for the count they report, so a
+        # duplicate row would inflate "Found N IDs" for a single ID
+        populated_index.table.add(
+            _to_arrow_table(["a"], ["a"], _random_embeddings(1, seed=2))
+        )
+
+        assert populated_index.total_index_size == 4
+        assert populated_index._get_existing_ids(["a"]) == ["a"]
 
     def test_spans_more_ids_than_one_batch(self, batched_index):
         index, ids = batched_index
