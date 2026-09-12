@@ -29,6 +29,28 @@ _SUPPORTED_METRICS = {
     "euclidean": "l2",
 }
 
+# Vector index families, mapped to their `lancedb.index` class name. The
+# default suits 512 dimensions; at 2048, `ivf_pq` with `num_sub_vectors=256`
+# matches its recall at a ninth of the index size and builds 3.5x faster, so
+# the family is configuration rather than a constant
+_SUPPORTED_INDEX_TYPES = {
+    "ivf_flat": "IvfFlat",
+    "ivf_sq": "IvfSq",
+    "ivf_pq": "IvfPq",
+    "ivf_rq": "IvfRq",
+    "ivf_hnsw_flat": "IvfHnswFlat",
+    "ivf_hnsw_sq": "IvfHnswSq",
+    "ivf_hnsw_pq": "IvfHnswPq",
+}
+
+# The column every vector index here is built on, and the one name used for
+# it. `replace=True` is scoped to the index *name*, not the column: two builds
+# under different names leave both indexes in place and the query keeps using
+# whichever was created first, with no error and no way to select the other at
+# query time. Reusing one name is what makes a rebuild a replacement
+_VECTOR_COLUMN = "vector"
+_VECTOR_INDEX_NAME = "vector_idx"
+
 # IDs per predicate. Lance parses a predicate as a single expression, so an
 # unbounded `IN` list turns a large removal into a multi-megabyte string. At
 # 10k the predicate is ~180 KB and an existence scan runs about 3x faster than
@@ -144,6 +166,20 @@ class LanceDBSimilarityConfig(SimilarityConfig):
             used to authenticate against an object store. Refer to
             https://lancedb.github.io/lancedb/guides/storage/ for the keys each
             store accepts
+        index_type ("ivf_hnsw_sq"): the vector index family to build. Supported
+            values are the keys of ``_SUPPORTED_INDEX_TYPES``
+        index_params (None): a dict of keyword arguments for the index family,
+            such as ``num_sub_vectors`` for ``"ivf_pq"``. The distance type is
+            set from ``metric`` and cannot be overridden here
+        nprobes (None): the number of partitions to probe per query. Left
+            auto-tuned by default, which is LanceDB's guidance: the partition
+            count grows with the table, so a pinned value probes an
+            ever-smaller share of it and recall falls as rows are added
+        ef (None): the HNSW search-list size, for the ``ivf_hnsw_*`` families.
+            Must be at least ``k * refine_factor`` when both are set
+        refine_factor (None): how many extra candidates to retrieve and re-rank
+            by exact distance. Costs a second pass over ``k * refine_factor``
+            vectors and raises recall
         **kwargs: keyword arguments for :class:`SimilarityConfig`
     """
 
@@ -153,6 +189,11 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         metric="cosine",
         uri="/tmp/lancedb",
         storage_options=None,
+        index_type="ivf_hnsw_sq",
+        index_params=None,
+        nprobes=None,
+        ef=None,
+        refine_factor=None,
         **kwargs,
     ):
         if metric not in _SUPPORTED_METRICS:
@@ -161,10 +202,21 @@ class LanceDBSimilarityConfig(SimilarityConfig):
                 % (metric, tuple(_SUPPORTED_METRICS.keys()))
             )
 
+        if index_type not in _SUPPORTED_INDEX_TYPES:
+            raise ValueError(
+                "Unsupported index type '%s'. Supported values are %s"
+                % (index_type, tuple(_SUPPORTED_INDEX_TYPES.keys()))
+            )
+
         super().__init__(**kwargs)
 
         self.table_name = table_name
         self.metric = metric
+        self.index_type = index_type
+        self.index_params = index_params or {}
+        self.nprobes = nprobes
+        self.ef = ef
+        self.refine_factor = refine_factor
 
         # store privately so these aren't serialized
         self._uri = uri
@@ -347,6 +399,46 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             # losers with a conflict it labels retryable
             logger.warning("Failed to index the 'id' column: %s", e)
 
+    def _ensure_vector_index(self):
+        """Creates the vector index on the ``vector`` column if it is missing.
+
+        Without one, every similarity query scans every vector: measured at
+        512 dimensions on local disk, 3.7 ms at 1k rows, 47.3 ms at 100k and
+        417.6 ms at 1M, which spends the whole 500 ms query budget before any
+        network hop.
+
+        The index is built with the distance type the queries use. LanceDB
+        answers a query whose metric disagrees with the index by falling back
+        to a brute-force scan, and reports that only as a log line from its
+        Rust layer -- no exception, no Python warning -- so a mismatch here
+        looks exactly like a working index that is merely slow.
+        """
+        try:
+            indexed_columns = [
+                table_index.columns
+                for table_index in self._table.list_indices()
+            ]
+            if [_VECTOR_COLUMN] in indexed_columns:
+                return
+
+            index_type = _SUPPORTED_INDEX_TYPES[self.config.index_type]
+            config = getattr(lancedb.index, index_type)(
+                distance_type=_SUPPORTED_METRICS[self.config.metric],
+                **self.config.index_params,
+            )
+
+            # Named rather than left to default, so that a later build under a
+            # changed family replaces this index instead of stranding it
+            self._table.create_index(
+                _VECTOR_COLUMN, config=config, name=_VECTOR_INDEX_NAME
+            )
+        except Exception as e:
+            # The rows are committed by this point and a query without the
+            # index is slow rather than wrong, so a failure here must not fail
+            # the add. Concurrent writers race to create it and Lance rejects
+            # the losers
+            logger.warning("Failed to index the 'vector' column: %s", e)
+
     def _get_existing_ids(self, ids):
         """Returns the subset of ``ids`` that are present in the index.
 
@@ -479,9 +571,10 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         else:
             self._merge_rows(pa_table, overwrite=overwrite)
 
-        # Runs after the write so an existing table without the index picks
-        # it up on its next add, with the new rows included
+        # Both run after the write so an existing table without an index
+        # picks one up on its next add, with the new rows included
         self._ensure_id_index()
+        self._ensure_vector_index()
 
         if reload:
             self.reload()
@@ -682,7 +775,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         label_ids = [] if self.config.patches_field is not None else None
         dists = []
         for q in query:
-            results = table.search(q).metric(metric).limit(k).to_pandas()
+            results = self._search(table, q, metric, k).to_pandas()
 
             if self.config.patches_field is not None:
                 sample_ids.append(results.sample_id.tolist())
@@ -704,6 +797,36 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             return sample_ids, label_ids, dists
 
         return sample_ids, label_ids
+
+    def _search(self, table, query, metric, k):
+        """Builds the vector query, applying whichever knobs are configured.
+
+        Each knob is applied only when set, because LanceDB tunes ``nprobes``
+        from the partition count and the partition count grows with the table.
+        Pinning it probes an ever-smaller share as rows are added, which reads
+        as recall decaying with scale.
+
+        Args:
+            table: the ``lancedb.LanceTable`` to query
+            query: a query vector
+            metric: the LanceDB distance type to query with
+            k: the number of neighbors to return
+
+        Returns:
+            a ``lancedb`` query builder
+        """
+        search = table.search(query).metric(metric).limit(k)
+
+        if self.config.nprobes is not None:
+            search = search.nprobes(self.config.nprobes)
+
+        if self.config.ef is not None:
+            search = search.ef(self.config.ef)
+
+        if self.config.refine_factor is not None:
+            search = search.refine_factor(self.config.refine_factor)
+
+        return search
 
     def _parse_neighbors_query(self, query):
         if etau.is_str(query):
