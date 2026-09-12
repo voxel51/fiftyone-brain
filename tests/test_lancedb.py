@@ -27,6 +27,7 @@ from fiftyone.brain.internal.core import (
     lancedb as lancedb_backend,
 )  # noqa: E402
 from fiftyone.brain.internal.core.lancedb import (  # noqa: E402
+    LanceDBSimilarity,
     LanceDBSimilarityConfig,
     LanceDBSimilarityIndex,
     _ID_BATCH_SIZE,
@@ -194,6 +195,32 @@ class TestIdPredicate:
         index.remove_from_index(sample_ids=[injection], reload=False)
 
         assert _ids(index) == ["other", "plain"]
+
+
+class TestRequirements:
+    """The declared lancedb floor."""
+
+    @pytest.mark.parametrize(
+        "method",
+        [
+            pytest.param("ensure_requirements", id="install"),
+            pytest.param("ensure_usage_requirements", id="usage"),
+        ],
+    )
+    def test_the_floor_is_declared_to_fiftyone(self, method):
+        # 0.34.0 is the first release whose `create_index` accepts `config=`;
+        # 0.33.0 raises `TypeError` on it. Declaring a bare "lancedb" would
+        # satisfy this check on a version the write path cannot run on
+        backend = LanceDBSimilarity(LanceDBSimilarityConfig())
+
+        with mock.patch.object(
+            lancedb_backend.fou, "ensure_package"
+        ) as ensure_package:
+            getattr(backend, method)()
+
+        # The literal rather than the constant, which would compare equal to
+        # itself whatever it was set to
+        ensure_package.assert_called_once_with("lancedb>=0.34.0")
 
 
 class TestStorageOptions:
