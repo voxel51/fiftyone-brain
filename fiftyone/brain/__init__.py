@@ -962,3 +962,71 @@ def compute_leaky_splits(
         skip_failures=skip_failures,
         progress=progress,
     )
+
+
+def create_redaction(
+    samples,
+    label_field=None,
+    label_classes=None,
+    redaction_type="bounding_box",
+    redaction_method="gaussian_blur",
+    redaction_field=None,
+    remote_redacted_media_dir=None,
+    num_workers=None,
+    skip_failures=True,
+    progress=None,
+):
+    """Creates a redacted media file for the specified label classes in the specified label field.
+    Requires the label field to already be present in the samples.
+
+    Replaces the regions (based on the redaction_type = bounding_box/segmentation_mask)
+    with a blurred/masked image based on the redaction_method.
+
+    The redacted media is added as a new media field specified by the redaction_field.
+
+    Args:
+        samples: a :class:`fiftyone.core.collections.SampleCollection`
+        label_field: the name of the label field to process. Can be of type
+            :class:`fiftyone.core.labels.Detection` or
+            :class:`fiftyone.core.labels.Detections`
+        label_classes: a list of the label classes to redact, containing sensitive data
+        redaction_type: the area in which to perform the redaction. Can be one of the following:
+            "bounding_box": apply to the bounding box of the label class
+            "segmentation_mask": apply to the segmentation mask of the label class
+        redaction_method: the method to use to perform the redaction. Can be one of the following:
+            "mask": mask the sensitive data
+            "gaussian_blur": blur the sensitive data using a Gaussian blur
+            "stack_blur": blur the sensitive data using a moving stack of colors
+        redaction_field: the name of the field to store the redaction in.
+            If None: the redaction will be stored in a new field with the name
+            "redacted_{label_field}_{redaction_type}_{redaction_method}"
+        remote_redacted_media_dir: the remote directory to store the redacted media in.
+            Only available with FiftyOne Teams.
+            If None: the redacted media will not be uploaded to the cloud.
+        num_workers (None): the number of worker processes to use when processing
+            samples. If None, uses the default from ``map_samples``. Only applicable
+            if ``map_samples`` supports multiprocessing.
+        skip_failures (True): whether to gracefully continue without raising an
+            error if redaction cannot be performed for a sample. Only applicable
+            if ``map_samples`` supports this parameter.
+        progress: whether to render a progress bar (True/False), use the
+            default value ``fiftyone.config.show_progress_bars`` (None), or a
+            progress callback function to invoke instead
+    Returns:
+        a :class:`fiftyone.brain.redaction.RedactionResults`
+        This has a method generate_redacted_dataset() to generate a new dataset with the redaction.
+    """
+    import fiftyone.brain.internal.core.redaction as fbr
+
+    return fbr.create_redaction(
+        samples,
+        label_field,
+        label_classes,
+        redaction_type,
+        redaction_method,
+        redaction_field,
+        remote_redacted_media_dir,
+        num_workers,
+        skip_failures,
+        progress,
+    )
