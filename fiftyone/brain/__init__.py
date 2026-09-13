@@ -442,12 +442,15 @@ def compute_visualization(
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
-        patches_field (None): a sample field defining the image patches in each
-            sample that have been/will be embedded. Must be of type
-            :class:`fiftyone.core.labels.Detection`,
+        patches_field (None): a sample field defining the patches in each
+            sample that have been/will be embedded. For image collections, must
+            be of type :class:`fiftyone.core.labels.Detection`,
             :class:`fiftyone.core.labels.Detections`,
             :class:`fiftyone.core.labels.Polyline`, or
-            :class:`fiftyone.core.labels.Polylines`
+            :class:`fiftyone.core.labels.Polylines`. For video collections,
+            must be of type :class:`fiftyone.core.labels.TemporalDetection` or
+            :class:`fiftyone.core.labels.TemporalDetections`, whose embeddings
+            must be supplied rather than computed
         embeddings (None): if no ``model`` is provided, this argument specifies
             pre-computed embeddings to use, which can be any of the following:
 
@@ -611,12 +614,15 @@ def compute_similarity(
 
     Args:
         samples: a :class:`fiftyone.core.collections.SampleCollection`
-        patches_field (None): a sample field defining the image patches in each
-            sample that have been/will be embedded. Must be of type
-            :class:`fiftyone.core.labels.Detection`,
+        patches_field (None): a sample field defining the patches in each
+            sample that have been/will be embedded. For image collections, must
+            be of type :class:`fiftyone.core.labels.Detection`,
             :class:`fiftyone.core.labels.Detections`,
             :class:`fiftyone.core.labels.Polyline`, or
-            :class:`fiftyone.core.labels.Polylines`
+            :class:`fiftyone.core.labels.Polylines`. For video collections,
+            must be of type :class:`fiftyone.core.labels.TemporalDetection` or
+            :class:`fiftyone.core.labels.TemporalDetections`, whose embeddings
+            must be supplied rather than computed
         roi_field (None): an optional :class:`fiftyone.core.labels.Detection`,
             :class:`fiftyone.core.labels.Detections`,
             :class:`fiftyone.core.labels.Polyline`, or
