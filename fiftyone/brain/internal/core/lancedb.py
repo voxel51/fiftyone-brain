@@ -41,6 +41,9 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         metric ("cosine"): the embedding distance metric to use when creating a
             new index. Supported values are ``("cosine", "euclidean")``
         uri ("/tmp/lancedb"): the database URI to use
+        storage_options (None): a dict of storage options for the object store
+            backing ``uri``, eg credentials for a cloud bucket. Passed through
+            to ``lancedb.connect()``
         **kwargs: keyword arguments for :class:`SimilarityConfig`
     """
 
@@ -49,6 +52,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         table_name=None,
         metric="cosine",
         uri="/tmp/lancedb",
+        storage_options=None,
         **kwargs,
     ):
         if metric not in _SUPPORTED_METRICS:
@@ -64,6 +68,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
 
         # store privately so these aren't serialized
         self._uri = uri
+        self._storage_options = storage_options
 
     @property
     def method(self):
@@ -78,6 +83,14 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         self._uri = value
 
     @property
+    def storage_options(self):
+        return self._storage_options
+
+    @storage_options.setter
+    def storage_options(self, value):
+        self._storage_options = value
+
+    @property
     def max_k(self):
         return None
 
@@ -89,8 +102,8 @@ class LanceDBSimilarityConfig(SimilarityConfig):
     def supported_aggregations(self):
         return ("mean",)
 
-    def load_credentials(self, uri=None):
-        self._load_parameters(uri=uri)
+    def load_credentials(self, uri=None, storage_options=None):
+        self._load_parameters(uri=uri, storage_options=storage_options)
 
 
 class LanceDBSimilarity(Similarity):
@@ -130,7 +143,9 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
     def _initialize(self):
         try:
-            db = lancedb.connect(self.config.uri)
+            db = lancedb.connect(
+                self.config.uri, storage_options=self.config.storage_options
+            )
         except Exception as e:
             raise ValueError(
                 "Failed to connect to LanceDB backend at URI '%s'. Refer to "
