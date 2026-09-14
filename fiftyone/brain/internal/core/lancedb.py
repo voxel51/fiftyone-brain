@@ -70,7 +70,8 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         self.table_name = table_name
         self.metric = metric
 
-        # store privately so these aren't serialized
+        # store privately so these aren't serialized; the storage options are
+        # assigned through their setter, which copies
         self._uri = uri
         self.storage_options = storage_options
 
