@@ -6,6 +6,7 @@ LanceDB similarity backend.
 |
 """
 import logging
+from copy import deepcopy
 
 import numpy as np
 
@@ -43,7 +44,10 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         uri ("/tmp/lancedb"): the database URI to use
         storage_options (None): a dict of storage options for the object store
             backing ``uri``, eg credentials for a cloud bucket. Passed through
-            to ``lancedb.connect()``
+            to ``lancedb.connect()``. Like ``uri``, this is not serialized, so
+            it must be supplied again each time the index is loaded. A value
+            given here replaces any configured for the backend rather than
+            merging with it
         **kwargs: keyword arguments for :class:`SimilarityConfig`
     """
 
@@ -68,7 +72,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
 
         # store privately so these aren't serialized
         self._uri = uri
-        self._storage_options = storage_options
+        self.storage_options = storage_options
 
     @property
     def method(self):
@@ -88,7 +92,10 @@ class LanceDBSimilarityConfig(SimilarityConfig):
 
     @storage_options.setter
     def storage_options(self, value):
-        self._storage_options = value
+        # Copy: `_load_parameters` hands over the dict owned by the global
+        # brain config, and refreshing a credential in place would rewrite it
+        # for every other index in the process
+        self._storage_options = deepcopy(value)
 
     @property
     def max_k(self):
@@ -142,10 +149,14 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         self._initialize()
 
     def _initialize(self):
+        # Only pass storage options when there are some: no minimum lancedb
+        # version is declared, and older releases have no such parameter
+        connect_kwargs = {}
+        if self.config.storage_options is not None:
+            connect_kwargs["storage_options"] = self.config.storage_options
+
         try:
-            db = lancedb.connect(
-                self.config.uri, storage_options=self.config.storage_options
-            )
+            db = lancedb.connect(self.config.uri, **connect_kwargs)
         except Exception as e:
             raise ValueError(
                 "Failed to connect to LanceDB backend at URI '%s'. Refer to "
@@ -167,6 +178,11 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         else:
             table = None
 
+        # Storage options given to `connect()` reach `create_table()` and
+        # `open_table()` through the connection, so those calls need none of
+        # their own. Keep the connection private: its own `serialize()`
+        # includes the storage options, so a public name here would write the
+        # credential into the brain document
         self._db = db
         self._table = table
 
