@@ -151,9 +151,10 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
     def _initialize(self):
         # Only pass storage options when there are some: no minimum lancedb
-        # version is declared, and older releases have no such parameter
+        # version is declared, and older releases have no such parameter. An
+        # empty dict carries no credential, so it counts as none
         connect_kwargs = {}
-        if self.config.storage_options is not None:
+        if self.config.storage_options:
             connect_kwargs["storage_options"] = self.config.storage_options
 
         try:

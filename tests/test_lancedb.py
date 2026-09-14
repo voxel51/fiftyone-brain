@@ -140,10 +140,16 @@ class TestConnect:
             "s3://bucket/org-abc", storage_options=options
         )
 
-    def test_the_argument_is_omitted_when_unset(self):
+    @pytest.mark.parametrize(
+        "options",
+        [pytest.param(None, id="none"), pytest.param({}, id="empty")],
+    )
+    def test_the_argument_is_omitted_when_unset(self, options):
         # No minimum lancedb version is declared, so a release without the
         # parameter must still work for callers that set no options
-        config = LanceDBSimilarityConfig(table_name="a-table")
+        config = LanceDBSimilarityConfig(
+            table_name="a-table", storage_options=options
+        )
 
         with mock.patch.object(foblancedb, "lancedb") as lancedb:
             lancedb.connect.return_value.table_names.return_value = []
