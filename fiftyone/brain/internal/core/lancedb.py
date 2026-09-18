@@ -5,13 +5,14 @@ LanceDB similarity backend.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+
 import logging
+import re
 
 import numpy as np
 
 import eta.core.utils as etau
 
-import fiftyone.core.storage as fos
 import fiftyone.core.utils as fou
 import fiftyone.brain.internal.core.utils as fbu
 from fiftyone.brain.similarity import (
@@ -28,6 +29,13 @@ _SUPPORTED_METRICS = {
     "cosine": "cosine",
     "euclidean": "l2",
 }
+
+# How LanceDB says a table is not there, as against any other refusal from
+# `open_table` -- a store it cannot reach raises the same type
+_NOT_FOUND = re.compile(r"was not found", re.IGNORECASE)
+
+# Page size when paginating LanceDB table listings
+_DB_TABLE_PG_LIMIT = 100
 
 logger = logging.getLogger(__name__)
 
@@ -138,19 +146,18 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 "information" % self.config.uri
             ) from e
 
-        table_names = db.table_names()
-
         if self.config.table_name is None:
             root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
-            table_name = fbu.get_unique_name(root, table_names)
+            table_name = fbu.get_unique_name(root, _table_names(db))
 
             self.config.table_name = table_name
             self.save_config()
 
-        if self.config.table_name in table_names:
-            table = db.open_table(self.config.table_name)
-        else:
+            # A name minted against the listing above names no table yet;
+            # `add_to_index` is what creates it
             table = None
+        else:
+            table = _open_table(db, self.config.table_name)
 
         self._db = db
         self._table = table
@@ -387,7 +394,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             self.config.table_name,
             self.config.table_name + "_filter",
         ):
-            if tbl in self._db.table_names():
+            if isinstance(tbl, str) and tbl in _table_names(self._db):
                 self._db.drop_table(tbl)
 
         self._table = None
@@ -499,3 +506,41 @@ class LanceDBSimilarityIndex(SimilarityIndex):
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):
         return cls(samples, config, brain_key)
+
+
+def _open_table(db, table_name):
+    # Asked for rather than looked up: an existence check means listing
+    # every table, and the listing is paged. A run whose table has yet to
+    # be written is the ordinary case, so its absence is not an error
+    try:
+        return db.open_table(table_name)
+    except ValueError as e:
+        # Absence and unreachability are both bare `ValueError` here, and
+        # only the message separates them. Re-raising anything else keeps a
+        # store this process cannot read from reading as an empty index --
+        # and if the wording ever moves, a missing table starts raising
+        # instead of going quiet, which is the safer way to be wrong
+        if _NOT_FOUND.search(str(e)):
+            return None
+
+        raise
+
+
+def _table_names(db):
+    # `list_tables` caps a page at ten by default, so the whole listing has
+    # to be paged for. The cursor is the token the response carries, which
+    # is a storage key rather than a table name, and it is exclusive: a page
+    # begins after the last name of the page before it. The response carries
+    # no token once it has returned the last page
+    page_token = None
+    table_names = []
+    while True:
+        response = db.list_tables(
+            page_token=page_token, limit=_DB_TABLE_PG_LIMIT
+        )
+        table_names.extend(response.tables)
+        page_token = response.page_token
+        if not page_token:
+            break
+
+    return table_names
