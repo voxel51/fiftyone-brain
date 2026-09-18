@@ -13,6 +13,7 @@ against a real database in ``tests/test_lancedb_tables.py``.
 """
 import logging
 import os
+import shutil
 from unittest import mock
 
 import numpy as np
@@ -34,6 +35,7 @@ from fiftyone.brain.internal.core.lancedb import (  # noqa: E402
     _DB_TABLE_PG_LIMIT,
     _ID_BATCH_SIZE,
     _id_predicate,
+    _open_table,
     _table_names,
     _to_arrow_table,
     _to_id_list,
@@ -1100,23 +1102,55 @@ class TestAnIndexWithNoTable:
         with pytest.raises(ValueError, match="do not exist in the index"):
             tableless.get_embeddings(sample_ids=["a"], allow_missing=False)
 
-    @pytest.mark.parametrize(
-        "return_dists,expected",
-        [
-            pytest.param(False, ([], None), id="ids_only"),
-            pytest.param(True, ([], None, []), id="with_dists"),
-        ],
-    )
-    def test_a_query_returns_nothing(self, tableless, return_dists, expected):
+    @pytest.mark.parametrize("return_dists", [False, True])
+    @pytest.mark.parametrize("patches", [False, True])
+    @pytest.mark.parametrize("single", [True, False])
+    def test_a_query_returns_nothing(
+        self, tableless, return_dists, patches, single
+    ):
+        # The empty result decides on all three of these, and its shape has
+        # to match what a populated query returns for each combination
+        tableless._config.patches_field = "ground_truth" if patches else None
+        query = (
+            np.zeros(DIMS, dtype=np.float32)
+            if single
+            else np.zeros((2, DIMS), dtype=np.float32)
+        )
+        empty = [] if single else [[], []]
+
         with _no_view():
-            assert (
-                tableless._kneighbors(
-                    query=np.zeros(DIMS, dtype=np.float32),
-                    k=3,
-                    return_dists=return_dists,
-                )
-                == expected
+            got = tableless._kneighbors(
+                query=query, k=3, return_dists=return_dists
             )
+
+        expected_labels = empty if patches else None
+        if return_dists:
+            assert got == (empty, expected_labels, empty)
+        else:
+            assert got == (empty, expected_labels)
+
+    def test_the_empty_slots_are_separate_lists(self, tableless):
+        # `_set_list_values_by_id` in fiftyone-core takes all three, and one
+        # list under three names would have a mutation of any show up in all
+        tableless._config.patches_field = "ground_truth"
+
+        with _no_view():
+            sample_ids, label_ids, dists = tableless._kneighbors(
+                query=np.zeros(DIMS, dtype=np.float32),
+                k=3,
+                return_dists=True,
+            )
+
+        assert sample_ids is not label_ids
+        assert sample_ids is not dists
+        assert label_ids is not dists
+
+    def test_the_empty_embeddings_are_two_dimensional(self, tableless):
+        # A reducer handed a (0,) array reports "Expected 2D array" from
+        # somewhere unrelated to the index that produced it
+        embeddings, _, _ = tableless.get_embeddings()
+
+        assert embeddings.ndim == 2
 
     def test_a_query_by_id_says_the_id_is_not_there(self, tableless):
         with _no_view():
@@ -1133,6 +1167,39 @@ class TestAnIndexWithNoTable:
 
         assert embeddings.shape == (1, DIMS)
         assert list(sample_ids) == ["a"]
+
+
+class TestADamagedTable:
+    """A table that is listed but will not open."""
+
+    @pytest.mark.parametrize(
+        "damage",
+        [
+            pytest.param("delete_manifest", id="manifest_deleted"),
+            pytest.param("remove_versions", id="versions_removed"),
+        ],
+    )
+    def test_it_is_raised_rather_than_read_as_absent(
+        self, populated_index, damage
+    ):
+        # Both of these make `open_table` say "was not found" for a table
+        # whose data files are still there and whose name is still listed.
+        # Reported as absent, the next add replaces it and the rows go.
+        versions = os.path.join(populated_index.table.uri, "_versions")
+        if damage == "delete_manifest":
+            for name in os.listdir(versions):
+                os.remove(os.path.join(versions, name))
+        else:
+            shutil.rmtree(versions)
+
+        db = populated_index._db
+        assert "test" in _table_names(db)
+
+        with pytest.raises(ValueError):
+            _open_table(db, "test")
+
+    def test_a_name_that_is_simply_absent_is_not(self, index):
+        assert _open_table(index._db, "never-written") is None
 
 
 class TestKneighbors:

@@ -7,11 +7,9 @@ LanceDB similarity backend.
 """
 
 import logging
-import re
 from collections import Counter
 
 import numpy as np
-import pandas as pd
 
 import eta.core.utils as etau
 
@@ -25,6 +23,7 @@ from fiftyone.brain.similarity import (
 
 lancedb = fou.lazy_import("lancedb")
 pa = fou.lazy_import("pyarrow")
+pd = fou.lazy_import("pandas")
 
 
 _SUPPORTED_METRICS = {
@@ -46,13 +45,15 @@ _ID_BATCH_SIZE = 10000
 # key, which resuming after is correct. A lost name reads as a free name, so
 # `get_unique_name` hands out one that is taken and strands the index
 # already written under it -- and no client can un-skip a server-side skip.
+#
+# Exposure is narrower than that sounds: `_DB_TABLE_PG_LIMIT` asks for 100
+# names at a time, so a database holding 100 or fewer never reaches a page
+# boundary and never loses one. `list_tables(limit=)` itself exists on every
+# release back to 0.34.0, so nothing here fails to run below the floor -- it
+# is correctness past 100 tables that the floor buys, and nothing else.
 # `create_index(config=)`, which the id index needs, lands earlier at
 # 0.34.0, so this floor covers that too.
 _LANCEDB_REQUIREMENT = "lancedb>=0.38.0"
-
-# How LanceDB says a table is not there, as against any other refusal from
-# `open_table` -- a store it cannot reach raises the same type
-_NOT_FOUND = re.compile(r"was not found", re.IGNORECASE)
 
 # Page size when paginating LanceDB table listings
 _DB_TABLE_PG_LIMIT = 100
@@ -615,7 +616,14 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                     num_missing_ids,
                 )
 
-        embeddings = np.array(found_embeddings)
+        # Two-dimensional even when empty, as `sklearn.py` is careful to
+        # be: a reducer handed a (0,) array reports "Expected 2D array",
+        # nowhere near whatever produced the empty result
+        embeddings = (
+            np.array(found_embeddings)
+            if found_embeddings
+            else np.empty((0, 0))
+        )
         sample_ids = np.array(found_sample_ids)
         if label_ids is not None:
             label_ids = np.array(found_label_ids)
@@ -670,16 +678,20 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         table = self._table
 
         if table is None:
-            # No table means no rows to be near. The empty shape has to match
-            # what a populated query returns, because callers unpack it
-            empty = [] if single_query else [[] for _ in query]
+            # No table means no rows to be near. The shape has to match what
+            # a populated query returns, because callers unpack it -- and
+            # each slot gets its own list, because the populated path
+            # returns three and `_set_list_values_by_id` takes all three
+            def empty():
+                return [] if single_query else [[] for _ in query]
+
             label_ids = (
-                empty if self.config.patches_field is not None else None
+                empty() if self.config.patches_field is not None else None
             )
             if return_dists:
-                return empty, label_ids, empty
+                return empty(), label_ids, empty()
 
-            return empty, label_ids
+            return empty(), label_ids
 
         if self.has_view:
             if self.config.patches_field is not None:
@@ -757,21 +769,34 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
 
 def _open_table(db, table_name):
-    # Asked for rather than looked up: an existence check means listing
-    # every table, and the listing is paged. A run whose table has yet to
-    # be written is the ordinary case, so its absence is not an error
+    """Opens a table, or returns ``None`` when the name holds none.
+
+    Asked for rather than looked up, because an existence check means paging
+    the whole listing and a run whose table has yet to be written is the
+    ordinary case.
+
+    Args:
+        db: a ``lancedb`` connection
+        table_name: the name to open
+
+    Returns:
+        a ``lancedb.LanceTable``, or None if no table has that name
+    """
     try:
         return db.open_table(table_name)
-    except ValueError as e:
-        # Absence and unreachability are both bare `ValueError` here, and
-        # only the message separates them. Re-raising anything else keeps a
-        # store this process cannot read from reading as an empty index --
-        # and if the wording ever moves, a missing table starts raising
-        # instead of going quiet, which is the safer way to be wrong
-        if _NOT_FOUND.search(str(e)):
-            return None
+    except ValueError:
+        # A table that is absent and one that will not open raise the same
+        # type, and only the message separates them. The listing decides it
+        # instead: a name that is there names a table that exists, whatever
+        # is wrong with it, and calling that absent would let the next add
+        # replace it -- `create_table` succeeds over a directory whose
+        # manifests are gone and drops the rows still sitting in it. Going
+        # through the listing also keeps this off LanceDB's wording, which
+        # differs between the embedded and remote paths
+        if table_name in _table_names(db):
+            raise
 
-        raise
+        return None
 
 
 def _table_names(db):
