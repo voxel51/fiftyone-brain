@@ -126,7 +126,7 @@ class TestOpenTable:
     )
     def test_any_other_refusal_is_raised(self, error):
         # Absence and unreachability share a type here, so swallowing
-        # everything would let a store this process cannot read read as an
+        # everything would let a store this process cannot read pass for an
         # index holding nothing.
         database = RefusingDatabase(error)
 
