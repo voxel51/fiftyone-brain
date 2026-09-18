@@ -34,9 +34,7 @@ _SUPPORTED_METRICS = {
 # `open_table` -- a store it cannot reach raises the same type
 _NOT_FOUND = re.compile(r"was not found", re.IGNORECASE)
 
-# Page size when paginating LanceDB table listings. At least two, because
-# the page cursor is inclusive: a page of one would return only the cursor
-# and the listing could never advance past it
+# Page size when paginating LanceDB table listings
 _DB_TABLE_PG_LIMIT = 100
 
 logger = logging.getLogger(__name__)
@@ -530,23 +528,19 @@ def _open_table(db, table_name):
 
 def _table_names(db):
     # `list_tables` caps a page at ten by default, so the whole listing has
-    # to be paged for. The cursor is the last name of the page just read,
-    # and it is inclusive -- a page opens with the name it was given -- so
-    # every page after the first repeats one name and drops it
+    # to be paged for. The cursor is the token the response carries, which
+    # is a storage key rather than a table name, and it is exclusive: a page
+    # begins after the last name of the page before it. The response carries
+    # no token once it has returned the last page
     page_token = None
     table_names = []
     while True:
-        tables = db.list_tables(
+        response = db.list_tables(
             page_token=page_token, limit=_DB_TABLE_PG_LIMIT
-        ).tables
-        fresh = tables if page_token is None else tables[1:]
-        table_names.extend(fresh)
-
-        # A short page is the last one. `fresh` guards the cursor as well:
-        # a page that repeats only its cursor would leave it unmoved
-        if len(tables) < _DB_TABLE_PG_LIMIT or not fresh:
+        )
+        table_names.extend(response.tables)
+        page_token = response.page_token
+        if not page_token:
             break
-
-        page_token = tables[-1]
 
     return table_names
