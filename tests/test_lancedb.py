@@ -222,7 +222,7 @@ class TestRequirements:
 
         # The literal rather than the constant, which would compare equal to
         # itself whatever it was set to
-        ensure_package.assert_called_once_with("lancedb>=0.34.0")
+        ensure_package.assert_called_once_with("lancedb>=0.38.0")
 
 
 class TestStorageOptions:

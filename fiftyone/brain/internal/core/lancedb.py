@@ -37,13 +37,17 @@ _SUPPORTED_METRICS = {
 # it does at 1k, where the per-call overhead dominates
 _ID_BATCH_SIZE = 10000
 
-# 0.34.0 is the first release whose `create_index` accepts a `config=`, which
-# is how the scalar index on `id` is built. Every other call here is older, so
-# earlier versions do run -- `_ensure_id_index` catches the failure and warns
-# -- but every merge then scans the whole id column, which is the cost this
-# backend exists to avoid. The floor is where the write path is sound, not
-# where it merely executes.
-_LANCEDB_REQUIREMENT = "lancedb>=0.34.0"
+# 0.38.0 is the first release whose paged `list_tables` returns every table.
+# Before it the token names the next table not yet returned and the server
+# then resumes *after* it, so exactly one name is lost per page boundary:
+# against 12 tables, 0.34.0, 0.36.0 and 0.37.1 each return 6 at a page size
+# of 1 and 9 at 3. 0.38.0 makes the token the last *returned* row's storage
+# key, which resuming after is correct. A lost name reads as a free name, so
+# `get_unique_name` hands out one that is taken and strands the index
+# already written under it -- and no client can un-skip a server-side skip.
+# `create_index(config=)`, which the id index needs, lands earlier at
+# 0.34.0, so this floor covers that too.
+_LANCEDB_REQUIREMENT = "lancedb>=0.38.0"
 
 # How LanceDB says a table is not there, as against any other refusal from
 # `open_table` -- a store it cannot reach raises the same type
