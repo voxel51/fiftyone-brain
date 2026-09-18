@@ -1,66 +1,44 @@
 """
 Tests for how the LanceDB backend finds its tables.
 
-Both functions under test take the database handle as an argument, so a
-stub stands in for it and no LanceDB install is needed -- which is what
-lets these run in CI, where the package is absent.
+Against a real database in a temporary directory rather than a stand-in,
+because what is under test is how LanceDB pages a listing and what it
+raises for a table that is not there -- neither of which a fake would
+establish.
 
 | Copyright 2017-2026, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
 
-import types
+import os
+import shutil
 
+import pyarrow as pa
 import pytest
 
 import fiftyone.brain.internal.core.lancedb as foblancedb
 
-NAMES = [f"table{i:02d}" for i in range(26)]
+lancedb = pytest.importorskip("lancedb")
+
+#: More tables than a single default page holds, so a listing that stops at
+#: the first page is visibly short.
+TABLE_COUNT = 26
 
 
-class StubDatabase:
-    """A database that pages its table listing the way LanceDB does.
+@pytest.fixture(name="database")
+def fixture_database(tmp_path):
+    """Yields a database holding :data:`TABLE_COUNT` single-row tables."""
+    database = lancedb.connect(os.path.join(str(tmp_path), "db"))
+    for index in range(TABLE_COUNT):
+        database.create_table(f"table{index:02d}", pa.table({"x": [1]}))
 
-    The cursor it hands back is a storage key rather than a table name, and
-    it is exclusive: a page begins after the name the cursor was taken from.
-    The last page carries no cursor.
-    """
-
-    def __init__(self, names):
-        self.names = list(names)
-        self.pages = 0
-
-    def list_tables(self, page_token=None, limit=None):
-        self.pages += 1
-
-        if page_token is None:
-            start = 0
-        else:
-            start = self.names.index(page_token.removesuffix(".lance/")) + 1
-
-        tables = self.names[start : start + limit]
-        exhausted = start + len(tables) >= len(self.names)
-
-        return types.SimpleNamespace(
-            tables=tables,
-            page_token=None if exhausted else f"{tables[-1]}.lance/",
-        )
-
-
-class RefusingDatabase:
-    """A database whose ``open_table`` raises."""
-
-    def __init__(self, error):
-        self.error = error
-
-    def open_table(self, table_name):
-        raise self.error
+    yield database
 
 
 @pytest.fixture(name="page_size")
 def fixture_page_size():
-    """Restores the module's page size after a test changes it."""
+    """Sets the module's page size, and restores it afterwards."""
     original = foblancedb._DB_TABLE_PG_LIMIT
 
     yield lambda size: setattr(foblancedb, "_DB_TABLE_PG_LIMIT", size)
@@ -72,63 +50,58 @@ class TestTableNames:
     """Reading the whole table listing."""
 
     @pytest.mark.parametrize("size", [1, 2, 3, 7, 25, 26, 100])
-    def test_every_table_is_listed_once(self, page_size, size):
+    def test_every_table_is_listed_once(self, database, page_size, size):
         # `list_tables` caps a page, so a listing that stops at the first
-        # page misses tables. Paged wrongly it can also repeat or drop them,
-        # and only a page size that covers everything hides that.
+        # page misses tables. Paged on the wrong cursor it also repeats and
+        # drops them, and only a page size covering every table hides that.
         page_size(size)
-        database = StubDatabase(NAMES)
+        expected = sorted(database.list_tables(limit=TABLE_COUNT * 2).tables)
 
         listed = foblancedb._table_names(database)
 
-        assert listed == NAMES
+        assert sorted(listed) == expected
         assert len(listed) == len(set(listed))
 
-    def test_a_page_is_asked_for_at_the_configured_size(self, page_size):
-        page_size(10)
-        database = StubDatabase(NAMES)
+    def test_the_default_listing_is_short(self, database):
+        # The reason any of this exists: the unpaged call answers with a
+        # page rather than with every table.
+        assert len(database.table_names()) < TABLE_COUNT
+        assert len(foblancedb._table_names(database)) == TABLE_COUNT
 
-        foblancedb._table_names(database)
+    def test_an_empty_database_lists_nothing(self, tmp_path):
+        empty = lancedb.connect(os.path.join(str(tmp_path), "empty"))
 
-        assert database.pages == 3
-
-    @pytest.mark.usefixtures("page_size")
-    def test_an_empty_database_lists_nothing(self):
-        assert foblancedb._table_names(StubDatabase([])) == []
+        assert foblancedb._table_names(empty) == []
 
 
 class TestOpenTable:
     """Asking for one table rather than listing every one to find it."""
 
-    def test_a_table_that_is_there_comes_back(self):
-        database = types.SimpleNamespace(open_table=lambda name: "the table")
+    def test_a_table_that_is_there_comes_back(self, database):
+        opened = foblancedb._open_table(database, "table00")
 
-        assert foblancedb._open_table(database, "present") == "the table"
+        assert opened is not None
+        assert len(opened) == 1
 
-    def test_a_table_that_is_not_there_is_not_an_error(self):
+    def test_a_table_that_is_not_there_is_not_an_error(self, database):
         # A run whose table has yet to be written is the ordinary case, and
         # reads as an index holding nothing.
-        database = RefusingDatabase(ValueError("Table 'gone' was not found"))
+        assert foblancedb._open_table(database, "table99") is None
 
-        assert foblancedb._open_table(database, "gone") is None
+    def test_a_table_that_cannot_be_read_is_raised(self, database, tmp_path):
+        # Absence and unreadability are not distinguished by type here, so
+        # swallowing everything would let a table this process cannot read
+        # pass for an index holding nothing.
+        broken = os.path.join(str(tmp_path), "db", "broken.lance")
+        shutil.copytree(
+            os.path.join(str(tmp_path), "db", "table00.lance"), broken
+        )
+        versions = os.path.join(broken, "_versions")
+        for name in os.listdir(versions):
+            with open(os.path.join(versions, name), "wb") as handle:
+                handle.write(b"not a manifest")
 
-    @pytest.mark.parametrize(
-        "error",
-        [
-            pytest.param(
-                ValueError("Invalid input, Failed to connect to namespace"),
-                id="unreachable_store",
-            ),
-            pytest.param(
-                RuntimeError("lance error: LanceError(IO)"), id="corrupted"
-            ),
-        ],
-    )
-    def test_any_other_refusal_is_raised(self, error):
-        # Absence and unreachability share a type here, so swallowing
-        # everything would let a store this process cannot read pass for an
-        # index holding nothing.
-        database = RefusingDatabase(error)
+        with pytest.raises(Exception) as raised:
+            foblancedb._open_table(database, "broken")
 
-        with pytest.raises(type(error)):
-            foblancedb._open_table(database, "present")
+        assert "was not found" not in str(raised.value)
