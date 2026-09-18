@@ -2,9 +2,10 @@
 Unit tests for the LanceDB similarity backend.
 
 LanceDB is embedded, so these exercise a real table under ``tmp_path`` and
-need no service. They are skipped where ``lancedb`` is not installed, which
-includes CI, since it is an optional dependency. The tests that build an index
-over a dataset live in ``tests/intensive/test_similarity.py``.
+need no service. They are skipped where ``lancedb`` is not installed; CI
+installs it. The tests that build an index over a dataset live in
+``tests/intensive/test_similarity.py``, and the table listing is covered
+against a real database in ``tests/test_lancedb_tables.py``.
 
 | Copyright 2017-2026, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -30,6 +31,7 @@ from fiftyone.brain.internal.core.lancedb import (  # noqa: E402
     LanceDBSimilarity,
     LanceDBSimilarityConfig,
     LanceDBSimilarityIndex,
+    _DB_TABLE_PG_LIMIT,
     _ID_BATCH_SIZE,
     _id_predicate,
     _table_names,
@@ -282,11 +284,12 @@ class TestStorageOptions:
 
 
 class TestTableNames:
-    """Listing tables.
+    """What the connector does with a listing longer than one page.
 
-    ``table_names()`` pages and defaults to 10, so anything that asks lancedb
-    whether a table exists sees only the first page unless it goes through
-    :func:`_table_names`.
+    That :func:`_table_names` pages correctly is covered against a real
+    database in ``tests/test_lancedb_tables.py``. These cover the callers --
+    the paths that would strand a table if the listing came back short --
+    and the two ways the walk could fail to terminate.
     """
 
     # More tables than one default page holds
@@ -300,18 +303,6 @@ class TestTableNames:
             db.create_table(name, pa_table)
 
         return db, names
-
-    def test_returns_every_table(self, tmp_path):
-        db, names = self._make_tables(str(tmp_path))
-
-        assert sorted(_table_names(db)) == sorted(names)
-
-    def test_default_page_would_have_truncated(self, tmp_path):
-        # Guards the premise: without this helper the listing is short, so the
-        # test above is not vacuous
-        db, _ = self._make_tables(str(tmp_path))
-
-        assert len(list(db.table_names())) < self.NUM_TABLES
 
     def test_existing_table_past_first_page_is_opened(self, tmp_path):
         _, names = self._make_tables(str(tmp_path))
@@ -353,8 +344,8 @@ class TestTableNames:
 
         assert _table_names(db) == ["a", "b", "c"]
         assert db.list_tables.call_args_list == [
-            mock.call(page_token=None),
-            mock.call(page_token="next"),
+            mock.call(page_token=None, limit=_DB_TABLE_PG_LIMIT),
+            mock.call(page_token="next", limit=_DB_TABLE_PG_LIMIT),
         ]
 
     def test_stops_on_an_empty_page(self):

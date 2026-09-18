@@ -5,7 +5,9 @@ LanceDB similarity backend.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+
 import logging
+import re
 from collections import Counter
 
 import numpy as np
@@ -43,36 +45,14 @@ _ID_BATCH_SIZE = 10000
 # where it merely executes.
 _LANCEDB_REQUIREMENT = "lancedb>=0.34.0"
 
+# How LanceDB says a table is not there, as against any other refusal from
+# `open_table` -- a store it cannot reach raises the same type
+_NOT_FOUND = re.compile(r"was not found", re.IGNORECASE)
+
+# Page size when paginating LanceDB table listings
+_DB_TABLE_PG_LIMIT = 100
+
 logger = logging.getLogger(__name__)
-
-
-def _table_names(db):
-    """Returns the names of every table in ``db``.
-
-    The alternative, ``table_names()``, is paged and defaults to 10, so a
-    database holding more than that reports an existing table as missing --
-    which would strand an index and let
-    :meth:`fiftyone.brain.internal.core.utils.get_unique_name` hand out a name
-    that is already taken.
-    """
-    names = []
-    page_token = None
-    while True:
-        response = db.list_tables(page_token=page_token)
-
-        # Materialize the page so the emptiness check below tests the rows
-        # rather than the container, which can be truthy while yielding
-        # nothing. Every supported version returns a response object; the
-        # `getattr` tolerates a bare list so a test double need not model one.
-        page = list(getattr(response, "tables", response))
-        names.extend(page)
-
-        page_token = getattr(response, "page_token", None)
-
-        # An empty page ends the walk even when a token comes back with it,
-        # which would otherwise loop forever
-        if not page_token or not page:
-            return names
 
 
 def _to_arrow_table(ids, sample_ids, embeddings):
@@ -257,19 +237,18 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 "information" % self.config.uri
             ) from e
 
-        table_names = _table_names(db)
-
         if self.config.table_name is None:
             root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
-            table_name = fbu.get_unique_name(root, table_names)
+            table_name = fbu.get_unique_name(root, _table_names(db))
 
             self.config.table_name = table_name
             self.save_config()
 
-        if self.config.table_name in table_names:
-            table = db.open_table(self.config.table_name)
-        else:
+            # A name minted against the listing above names no table yet;
+            # `add_to_index` is what creates it
             table = None
+        else:
+            table = _open_table(db, self.config.table_name)
 
         self._db = db
         self._table = table
@@ -290,10 +269,10 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         raise. The refresh costs about 0.1 ms against a 2.8 ms merge.
         """
         if self._table is None:
-            # The table may have been created by another writer since this
-            # index opened, in which case there is a version to move to
-            if self.config.table_name in _table_names(self._db):
-                self._table = self._db.open_table(self.config.table_name)
+            # Asked for rather than looked up in the listing: another writer
+            # may have created it since this index opened, and absence is the
+            # ordinary case rather than an error
+            self._table = _open_table(self._db, self.config.table_name)
 
             return
 
@@ -625,7 +604,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             self.config.table_name,
             self.config.table_name + "_filter",
         ):
-            if tbl in _table_names(self._db):
+            if isinstance(tbl, str) and tbl in _table_names(self._db):
                 self._db.drop_table(tbl)
 
         self._table = None
@@ -737,3 +716,47 @@ class LanceDBSimilarityIndex(SimilarityIndex):
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):
         return cls(samples, config, brain_key)
+
+
+def _open_table(db, table_name):
+    # Asked for rather than looked up: an existence check means listing
+    # every table, and the listing is paged. A run whose table has yet to
+    # be written is the ordinary case, so its absence is not an error
+    try:
+        return db.open_table(table_name)
+    except ValueError as e:
+        # Absence and unreachability are both bare `ValueError` here, and
+        # only the message separates them. Re-raising anything else keeps a
+        # store this process cannot read from reading as an empty index --
+        # and if the wording ever moves, a missing table starts raising
+        # instead of going quiet, which is the safer way to be wrong
+        if _NOT_FOUND.search(str(e)):
+            return None
+
+        raise
+
+
+def _table_names(db):
+    # `list_tables` caps a page at ten by default, so the whole listing has
+    # to be paged for. The cursor is the token the response carries, which
+    # is a storage key rather than a table name, and it is exclusive: a page
+    # begins after the last name of the page before it. The response carries
+    # no token once it has returned the last page
+    page_token = None
+    table_names = []
+    while True:
+        response = db.list_tables(
+            page_token=page_token, limit=_DB_TABLE_PG_LIMIT
+        )
+
+        # Materialized so the guard below tests the rows rather than the
+        # container, which can be truthy while yielding nothing
+        page = list(response.tables)
+        table_names.extend(page)
+
+        page_token = response.page_token
+
+        # An empty page ends the walk even when a token comes back with it,
+        # which would otherwise spin
+        if not page_token or not page:
+            return table_names
