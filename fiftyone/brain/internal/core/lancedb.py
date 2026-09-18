@@ -7,6 +7,7 @@ LanceDB similarity backend.
 """
 
 import logging
+import re
 
 import numpy as np
 
@@ -28,6 +29,10 @@ _SUPPORTED_METRICS = {
     "cosine": "cosine",
     "euclidean": "l2",
 }
+
+# How LanceDB says a table is not there, as against any other refusal from
+# `open_table` -- a store it cannot reach raises the same type
+_NOT_FOUND = re.compile(r"was not found", re.IGNORECASE)
 
 # Page size when paginating LanceDB table listings. At least two, because
 # the page cursor is inclusive: a page of one would return only the cursor
@@ -153,12 +158,8 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             # A name minted against the listing above names no table yet;
             # `add_to_index` is what creates it
             table = None
-        elif self.config.table_name in _table_names(db):
-            table = db.open_table(self.config.table_name)
         else:
-            # `open_table` raises for a table that is not there, and a run
-            # whose table has yet to be written is the ordinary case
-            table = None
+            table = _open_table(db, self.config.table_name)
 
         self._db = db
         self._table = table
@@ -507,6 +508,24 @@ class LanceDBSimilarityIndex(SimilarityIndex):
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):
         return cls(samples, config, brain_key)
+
+
+def _open_table(db, table_name):
+    # Asked for rather than looked up: an existence check means listing
+    # every table, and the listing is paged. A run whose table has yet to
+    # be written is the ordinary case, so its absence is not an error
+    try:
+        return db.open_table(table_name)
+    except ValueError as e:
+        # Absence and unreachability are both bare `ValueError` here, and
+        # only the message separates them. Re-raising anything else keeps a
+        # store this process cannot read from reading as an empty index --
+        # and if the wording ever moves, a missing table starts raising
+        # instead of going quiet, which is the safer way to be wrong
+        if _NOT_FOUND.search(str(e)):
+            return None
+
+        raise
 
 
 def _table_names(db):
