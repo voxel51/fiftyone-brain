@@ -12,7 +12,6 @@ establish.
 """
 
 import os
-import shutil
 
 import pyarrow as pa
 import pytest
@@ -22,14 +21,21 @@ import fiftyone.brain.internal.core.lancedb as foblancedb
 lancedb = pytest.importorskip("lancedb")
 
 #: More tables than a single default page holds, so a listing that stops at
-#: the first page is visibly short.
-TABLE_COUNT = 26
+#: the first page is visibly short. Kept as low as that allows: writing a
+#: table costs a directory and four files, which is slow enough on a CI disk
+#: to dominate the suite if this is built per test.
+TABLE_COUNT = 12
 
 
-@pytest.fixture(name="database")
-def fixture_database(tmp_path):
-    """Yields a database holding :data:`TABLE_COUNT` single-row tables."""
-    database = lancedb.connect(os.path.join(str(tmp_path), "db"))
+@pytest.fixture(name="database", scope="module")
+def fixture_database(tmp_path_factory):
+    """Yields a database holding :data:`TABLE_COUNT` single-row tables.
+
+    Built once for the module: every test that takes it only reads, and a
+    test that needs to write builds its own.
+    """
+    path = tmp_path_factory.mktemp("listing")
+    database = lancedb.connect(os.path.join(str(path), "db"))
     for index in range(TABLE_COUNT):
         database.create_table(f"table{index:02d}", pa.table({"x": [1]}))
 
@@ -49,7 +55,7 @@ def fixture_page_size():
 class TestTableNames:
     """Reading the whole table listing."""
 
-    @pytest.mark.parametrize("size", [1, 2, 3, 7, 25, 26, 100])
+    @pytest.mark.parametrize("size", [1, 2, 3, 5, 11, 12, 100])
     def test_every_table_is_listed_once(self, database, page_size, size):
         # `list_tables` caps a page, so a listing that stops at the first
         # page misses tables. Paged on the wrong cursor it also repeats and
@@ -88,15 +94,16 @@ class TestOpenTable:
         # reads as an index holding nothing.
         assert foblancedb._open_table(database, "table99") is None
 
-    def test_a_table_that_cannot_be_read_is_raised(self, database, tmp_path):
+    def test_a_table_that_cannot_be_read_is_raised(self, tmp_path):
         # Absence and unreadability are not distinguished by type here, so
         # swallowing everything would let a table this process cannot read
         # pass for an index holding nothing.
-        broken = os.path.join(str(tmp_path), "db", "broken.lance")
-        shutil.copytree(
-            os.path.join(str(tmp_path), "db", "table00.lance"), broken
-        )
-        versions = os.path.join(broken, "_versions")
+        #
+        # Its own database, since corrupting a table writes to one.
+        root = os.path.join(str(tmp_path), "db")
+        database = lancedb.connect(root)
+        database.create_table("broken", pa.table({"x": [1]}))
+        versions = os.path.join(root, "broken.lance", "_versions")
         for name in os.listdir(versions):
             with open(os.path.join(versions, name), "wb") as handle:
                 handle.write(b"not a manifest")
