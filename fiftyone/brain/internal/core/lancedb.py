@@ -11,6 +11,7 @@ import re
 from collections import Counter
 
 import numpy as np
+import pandas as pd
 
 import eta.core.utils as etau
 
@@ -330,6 +331,27 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             # losers with a conflict it labels retryable
             logger.warning("Failed to index the 'id' column: %s", e)
 
+    def _rows(self):
+        """The table's rows, or an empty frame when there is no table yet.
+
+        An index whose adds all yielded no embeddings never creates a table:
+        `fbu.get_embeddings()` hands back an empty array for a collection
+        that yields none, and a run saved from it is a brain key pointing at
+        nothing. Reading that as an empty index rather than dereferencing
+        `None` is what the other backends do -- sklearn's arrays are simply
+        empty -- and it keeps the missing-ID reporting below working, since
+        every ID asked for is then correctly missing.
+
+        Returns:
+            a ``pandas.DataFrame`` in the index's schema
+        """
+        if self._table is None:
+            return pd.DataFrame(
+                {"id": [], "sample_id": [], "vector": []}
+            ).astype({"id": str, "sample_id": str})
+
+        return self._table.to_pandas()
+
     def _get_existing_ids(self, ids):
         """Returns the subset of ``ids`` that are present in the index.
 
@@ -529,7 +551,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                     "Ignoring sample IDs when label IDs are provided"
                 )
 
-        df = self._table.to_pandas()
+        df = self._rows()
 
         found_embeddings = []
         found_sample_ids = []
@@ -647,6 +669,18 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         table = self._table
 
+        if table is None:
+            # No table means no rows to be near. The empty shape has to match
+            # what a populated query returns, because callers unpack it
+            empty = [] if single_query else [[] for _ in query]
+            label_ids = (
+                empty if self.config.patches_field is not None else None
+            )
+            if return_dists:
+                return empty, label_ids, empty
+
+            return empty, label_ids
+
         if self.has_view:
             if self.config.patches_field is not None:
                 index_ids = list(self.current_label_ids)
@@ -703,7 +737,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             single_query = False
 
         # Query by ID(s)
-        df = self._table.to_pandas()
+        df = self._rows()
         df = df[df["id"].isin(query_ids)]
         query = np.array([v for v in df["vector"]])
 

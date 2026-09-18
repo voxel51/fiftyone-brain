@@ -1072,6 +1072,69 @@ class TestRemoveFromIndex:
         assert index.total_index_size == 0
 
 
+class TestAnIndexWithNoTable:
+    """Reads against an index whose adds never created a table.
+
+    ``fbu.get_embeddings()`` returns an empty array for a collection that
+    yields no embeddings, and ``similarity.py`` guards only on ``None``, so
+    ``compute_similarity`` saves a brain key whose table was never written.
+    Every read below reached a ``NoneType`` attribute before.
+    """
+
+    @pytest.fixture(name="tableless")
+    def fixture_tableless(self, index):
+        index.add_to_index(np.empty((0, 0)), [], reload=False)
+        assert index.table is None
+        return index
+
+    def test_get_embeddings_is_empty(self, tableless):
+        embeddings, sample_ids, label_ids = tableless.get_embeddings()
+
+        assert embeddings.size == 0
+        assert sample_ids.size == 0
+        assert label_ids is None
+
+    def test_get_embeddings_reports_the_ids_as_missing(self, tableless):
+        # The rows are absent, so every ID asked for is missing -- which is
+        # what `allow_missing` exists to report
+        with pytest.raises(ValueError, match="do not exist in the index"):
+            tableless.get_embeddings(sample_ids=["a"], allow_missing=False)
+
+    @pytest.mark.parametrize(
+        "return_dists,expected",
+        [
+            pytest.param(False, ([], None), id="ids_only"),
+            pytest.param(True, ([], None, []), id="with_dists"),
+        ],
+    )
+    def test_a_query_returns_nothing(self, tableless, return_dists, expected):
+        with _no_view():
+            assert (
+                tableless._kneighbors(
+                    query=np.zeros(DIMS, dtype=np.float32),
+                    k=3,
+                    return_dists=return_dists,
+                )
+                == expected
+            )
+
+    def test_a_query_by_id_says_the_id_is_not_there(self, tableless):
+        with _no_view():
+            with pytest.raises(ValueError, match="were not found in the"):
+                tableless._kneighbors(query="a", k=3)
+
+    def test_a_row_arriving_later_is_read(self, tableless):
+        # The empty add is a no-op, not a terminal state
+        tableless.add_to_index(
+            _basis_embeddings(1), np.array(["a"]), reload=False
+        )
+
+        embeddings, sample_ids, _ = tableless.get_embeddings()
+
+        assert embeddings.shape == (1, DIMS)
+        assert list(sample_ids) == ["a"]
+
+
 class TestKneighbors:
     """Querying the index."""
 
