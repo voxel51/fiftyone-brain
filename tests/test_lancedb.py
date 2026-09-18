@@ -1,27 +1,23 @@
 """
-Unit tests for the LanceDB similarity backend.
+Unit tests for the LanceDB similarity backend's configuration.
 
-These tests do not require a LanceDB store or object storage, so unlike the
-LanceDB tests in ``tests/intensive/``, they run in CI. The integration tests
-live in ``tests/intensive/test_similarity.py``.
+Credentials, serialization, and which store a run resolves to -- none of
+which needs a database, so these run wherever the suite does. What the
+backend does against a real store is covered in ``test_lancedb_store.py``,
+and the integration tests live in ``tests/intensive/test_similarity.py``.
 
 | Copyright 2017-2026, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
 
-import importlib.util
-import types
 from unittest import mock
 
 import pytest
 
 import fiftyone.brain as fob
 from fiftyone.brain.internal.core import lancedb as foblancedb
-from fiftyone.brain.internal.core.lancedb import (
-    LanceDBSimilarityConfig,
-    LanceDBSimilarityIndex,
-)
+from fiftyone.brain.internal.core.lancedb import LanceDBSimilarityConfig
 
 
 @pytest.fixture(name="empty_backend_config")
@@ -113,60 +109,6 @@ class TestStorageOptions:
 
             assert other.storage_options == {"aws_session_token": "first"}
             assert options == {"aws_session_token": "first"}
-
-
-#: Whether the optional extra is installed. Only the tests that open a
-#: connection need it; the rest read and write configuration.
-_HAS_LANCEDB = importlib.util.find_spec("lancedb") is not None
-
-
-@pytest.mark.skipif(not _HAS_LANCEDB, reason="lancedb is an optional extra")
-class TestConnect:
-    """What reaches the LanceDB connection."""
-
-    def _connect(self, config):
-        # `_initialize` reads only the config when the table name is set, so
-        # a full index -- which needs a dataset -- is not required to observe
-        # what the connection was opened with
-        index = types.SimpleNamespace(config=config)
-        LanceDBSimilarityIndex._initialize(index)
-
-        return index._db
-
-    def test_storage_options_reach_the_connection(self, tmp_path):
-        options = {"timeout": "30s"}
-        config = LanceDBSimilarityConfig(
-            table_name="a-table",
-            uri=str(tmp_path),
-            storage_options=options,
-        )
-
-        database = self._connect(config)
-
-        assert database.storage_options == options
-
-    @pytest.mark.parametrize(
-        "options",
-        [pytest.param(None, id="none"), pytest.param({}, id="empty")],
-    )
-    def test_the_argument_is_omitted_when_unset(self, tmp_path, options):
-        # No minimum lancedb version is declared, so a release without the
-        # parameter must still work for callers that set no options, which
-        # means passing none rather than an empty dict
-        config = LanceDBSimilarityConfig(
-            table_name="a-table", uri=str(tmp_path), storage_options=options
-        )
-
-        database = self._connect(config)
-
-        assert database.storage_options is None
-
-    def test_the_run_s_own_store_is_the_one_opened(self, tmp_path):
-        config = LanceDBSimilarityConfig(
-            table_name="a-table", uri=str(tmp_path)
-        )
-
-        assert self._connect(config).uri == str(tmp_path)
 
 
 class TestSerialization:

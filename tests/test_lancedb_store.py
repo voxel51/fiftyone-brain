@@ -1,10 +1,11 @@
 """
-Tests for how the LanceDB backend finds its tables.
+Tests for the LanceDB backend against a real store.
 
-Against a real database in a temporary directory rather than a stand-in,
-because what is under test is how LanceDB pages a listing and what it
-raises for a table that is not there -- neither of which a fake would
-establish.
+A database in a temporary directory rather than a stand-in, because what is
+under test is what LanceDB itself does: how it pages a listing, what it
+raises for a table that is not there, and what a connection carries --
+none of which a fake would establish. Configuration that needs no database
+is covered in ``test_lancedb.py``.
 
 | Copyright 2017-2026, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -12,11 +13,16 @@ establish.
 """
 
 import os
+import types
 
 import pyarrow as pa
 import pytest
 
 import fiftyone.brain.internal.core.lancedb as foblancedb
+from fiftyone.brain.internal.core.lancedb import (
+    LanceDBSimilarityConfig,
+    LanceDBSimilarityIndex,
+)
 
 lancedb = pytest.importorskip("lancedb")
 
@@ -112,3 +118,51 @@ class TestOpenTable:
             foblancedb._open_table(database, "broken")
 
         assert "was not found" not in str(raised.value)
+
+
+class TestConnect:
+    """What reaches the LanceDB connection."""
+
+    def _connect(self, config):
+        # `_initialize` reads only the config when the table name is set, so
+        # a full index -- which needs a dataset -- is not required to observe
+        # what the connection was opened with
+        index = types.SimpleNamespace(config=config)
+        LanceDBSimilarityIndex._initialize(index)
+
+        return index._db
+
+    def test_storage_options_reach_the_connection(self, tmp_path):
+        options = {"timeout": "30s"}
+        config = LanceDBSimilarityConfig(
+            table_name="a-table",
+            uri=str(tmp_path),
+            storage_options=options,
+        )
+
+        database = self._connect(config)
+
+        assert database.storage_options == options
+
+    @pytest.mark.parametrize(
+        "options",
+        [pytest.param(None, id="none"), pytest.param({}, id="empty")],
+    )
+    def test_the_argument_is_omitted_when_unset(self, tmp_path, options):
+        # No minimum lancedb version is declared, so a release without the
+        # parameter must still work for callers that set no options, which
+        # means passing none rather than an empty dict
+        config = LanceDBSimilarityConfig(
+            table_name="a-table", uri=str(tmp_path), storage_options=options
+        )
+
+        database = self._connect(config)
+
+        assert database.storage_options is None
+
+    def test_the_run_s_own_store_is_the_one_opened(self, tmp_path):
+        config = LanceDBSimilarityConfig(
+            table_name="a-table", uri=str(tmp_path)
+        )
+
+        assert self._connect(config).uri == str(tmp_path)
