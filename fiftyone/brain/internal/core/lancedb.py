@@ -5,6 +5,7 @@ LanceDB similarity backend.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+
 import logging
 from copy import deepcopy
 
@@ -12,6 +13,7 @@ import numpy as np
 
 import eta.core.utils as etau
 
+import fiftyone.brain as fb
 import fiftyone.core.storage as fos
 import fiftyone.core.utils as fou
 import fiftyone.brain.internal.core.utils as fbu
@@ -20,6 +22,9 @@ from fiftyone.brain.similarity import (
     Similarity,
     SimilarityIndex,
 )
+
+#: The store a run opens when neither it nor the backend names one.
+DEFAULT_URI = "/tmp/lancedb"
 
 lancedb = fou.lazy_import("lancedb")
 pa = fou.lazy_import("pyarrow")
@@ -41,13 +46,16 @@ class LanceDBSimilarityConfig(SimilarityConfig):
             provided, a new table will be created
         metric ("cosine"): the embedding distance metric to use when creating a
             new index. Supported values are ``("cosine", "euclidean")``
-        uri ("/tmp/lancedb"): the database URI to use
+        uri (None): the database URI to use. Recorded on the run, so two
+            runs may keep their tables in different stores. A run that names
+            none opens whatever the backend is configured with, which lets a
+            deployment move every unnamed run's store at once
         storage_options (None): a dict of storage options for the object store
             backing ``uri``, eg credentials for a cloud bucket. Passed through
-            to ``lancedb.connect()``. Like ``uri``, this is not serialized, so
-            it must be supplied again each time the index is loaded. A value
-            given here replaces any configured for the backend rather than
-            merging with it
+            to ``lancedb.connect()``. Unlike ``uri`` this is not serialized,
+            since it carries credentials, so it must be supplied again each
+            time the index is loaded. A value given here replaces any
+            configured for the backend rather than merging with it
         **kwargs: keyword arguments for :class:`SimilarityConfig`
     """
 
@@ -55,7 +63,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         self,
         table_name=None,
         metric="cosine",
-        uri="/tmp/lancedb",
+        uri=None,
         storage_options=None,
         **kwargs,
     ):
@@ -69,23 +77,18 @@ class LanceDBSimilarityConfig(SimilarityConfig):
 
         self.table_name = table_name
         self.metric = metric
+        # Serialized, so a run keeps the store it was built in rather than
+        # whatever the process reading it happens to be configured with
+        self.uri = uri
 
-        # store privately so these aren't serialized; the storage options are
-        # assigned through their setter, which copies
-        self._uri = uri
+        # Assigned through its setter, which copies. Private: unlike the URI
+        # this carries credentials, and a run document is readable by anyone
+        # who can read the dataset
         self.storage_options = storage_options
 
     @property
     def method(self):
         return "lancedb"
-
-    @property
-    def uri(self):
-        return self._uri
-
-    @uri.setter
-    def uri(self, value):
-        self._uri = value
 
     @property
     def storage_options(self):
@@ -111,7 +114,36 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         return ("mean",)
 
     def load_credentials(self, uri=None, storage_options=None):
-        self._load_parameters(uri=uri, storage_options=storage_options)
+        self._load_parameters(storage_options=storage_options)
+
+        # Not through `_load_parameters`, which lets a configured value
+        # overwrite what is already set: the run's own URI has to win over
+        # the backend's, or a deployment default would move a run's table
+        # out from under it
+        if uri is not None:
+            self.uri = uri
+
+    def resolve_uri(self):
+        """The store this run opens.
+
+        Its own URI where it recorded one, else whatever the backend is
+        configured with, else a local directory.
+
+        The fallback is resolved here rather than assigned to :attr:`uri`,
+        so a run that named no store does not silently acquire the one that
+        happened to be configured the first time something read it.
+
+        Returns:
+            the database URI
+        """
+        if self.uri:
+            return self.uri
+
+        configured = fb.brain_config.similarity_backends.get(
+            self.method, {}
+        ).get("uri")
+
+        return configured or DEFAULT_URI
 
 
 class LanceDBSimilarity(Similarity):
@@ -157,13 +189,14 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         if self.config.storage_options:
             connect_kwargs["storage_options"] = self.config.storage_options
 
+        uri = self.config.resolve_uri()
         try:
-            db = lancedb.connect(self.config.uri, **connect_kwargs)
+            db = lancedb.connect(uri, **connect_kwargs)
         except Exception as e:
             raise ValueError(
                 "Failed to connect to LanceDB backend at URI '%s'. Refer to "
                 "https://docs.voxel51.com/integrations/lancedb.html for more "
-                "information" % self.config.uri
+                "information" % uri
             ) from e
 
         table_names = db.table_names()

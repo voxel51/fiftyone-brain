@@ -9,6 +9,7 @@ live in ``tests/intensive/test_similarity.py``.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+
 import types
 from unittest import mock
 
@@ -161,25 +162,82 @@ class TestConnect:
 class TestSerialization:
     """What reaches the database when a brain run is saved."""
 
-    @pytest.mark.parametrize(
-        "field,value",
-        [
-            pytest.param(
-                "storage_options",
-                {"aws_secret_access_key": "SENSITIVE"},
-                id="storage_options",
-            ),
-            pytest.param("uri", "s3://bucket/SENSITIVE/dataset-1", id="uri"),
-        ],
-    )
-    def test_credentials_are_not_serialized(self, field, value):
-        # These are stored privately so a vended credential never lands in
-        # the dataset's brain document
-        config = LanceDBSimilarityConfig(**{field: value})
+    def test_credentials_are_not_serialized(self):
+        # Stored privately so a vended credential never lands in the
+        # dataset's brain document
+        config = LanceDBSimilarityConfig(
+            storage_options={"aws_secret_access_key": "SENSITIVE"}
+        )
         serialized = config.serialize()
 
-        assert field not in serialized
+        assert "storage_options" not in serialized
         assert "SENSITIVE" not in str(serialized)
+
+    def test_the_uri_is_serialized(self):
+        # A location rather than a credential, and no more revealing than
+        # the sample filepaths in the same database. Recorded so two runs
+        # may keep their tables in different stores, and so a run keeps the
+        # one it was built in whatever a later reader is configured with
+        config = LanceDBSimilarityConfig(uri="s3://bucket/vectors")
+
+        assert config.serialize()["uri"] == "s3://bucket/vectors"
+
+    def test_a_run_naming_no_store_serializes_none(self):
+        # The fallback is resolved when the store is opened rather than
+        # assigned here, so an unnamed run cannot acquire whichever store
+        # happened to be configured the first time something read it
+        config = LanceDBSimilarityConfig(table_name="a-table")
+
+        assert config.serialize()["uri"] is None
+
+
+class TestResolveUri:
+    """Which store a run opens."""
+
+    @pytest.fixture(name="backend")
+    def fixture_backend(self):
+        backends = fob.brain_config.similarity_backends
+        original = backends.get("lancedb", {}).copy()
+        entry = backends.setdefault("lancedb", {})
+        entry.pop("uri", None)
+
+        yield entry
+
+        backends["lancedb"] = original
+
+    def test_the_run_s_own_uri_wins(self, backend):
+        backend["uri"] = "s3://configured/vectors"
+        config = LanceDBSimilarityConfig(uri="s3://recorded/vectors")
+
+        config.load_credentials()
+
+        assert config.resolve_uri() == "s3://recorded/vectors"
+
+    def test_an_unnamed_run_takes_the_configured_store(self, backend):
+        backend["uri"] = "s3://configured/vectors"
+        config = LanceDBSimilarityConfig()
+
+        config.load_credentials()
+
+        assert config.resolve_uri() == "s3://configured/vectors"
+        # Resolved, not assigned: a later save must not record it
+        assert config.uri is None
+
+    @pytest.mark.usefixtures("backend")
+    def test_neither_falls_back_to_a_local_directory(self):
+        config = LanceDBSimilarityConfig()
+
+        config.load_credentials()
+
+        assert config.resolve_uri() == foblancedb.DEFAULT_URI
+
+    def test_an_explicit_argument_wins_over_both(self, backend):
+        backend["uri"] = "s3://configured/vectors"
+        config = LanceDBSimilarityConfig(uri="s3://recorded/vectors")
+
+        config.load_credentials(uri="s3://explicit/vectors")
+
+        assert config.resolve_uri() == "s3://explicit/vectors"
 
     def test_the_rest_of_the_config_still_serializes(self):
         config = LanceDBSimilarityConfig(
