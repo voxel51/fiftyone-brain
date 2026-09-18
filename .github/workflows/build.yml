@@ -130,10 +130,7 @@ jobs:
           pip install --force-reinstall --no-deps dist/*.whl
       - name: Install test dependencies
         run: |
-          pip install imageio pytest torch torchvision
-          # The LanceDB backend is an optional extra, so nothing above
-          # pulls it in and its tests would otherwise be skipped here
-          pip install lancedb
+          pip install imageio pytest torch torchvision lancedb
       - name: Cache Zoo
         id: fiftyone-cache
         uses: actions/cache@v6
