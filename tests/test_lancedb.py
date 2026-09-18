@@ -2,8 +2,8 @@
 Unit tests for the LanceDB similarity backend's configuration.
 
 Credentials, serialization, and which store a run resolves to -- none of
-which needs a database, so these run wherever the suite does. What the
-backend does against a real store is covered in ``test_lancedb_store.py``,
+which needs a database, so these run wherever the suite does. What runs
+LanceDB itself is covered in ``test_lancedb_store.py``,
 and the integration tests live in ``tests/intensive/test_similarity.py``.
 
 | Copyright 2017-2026, Voxel51, Inc.
