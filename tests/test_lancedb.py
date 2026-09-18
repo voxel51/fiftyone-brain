@@ -10,6 +10,7 @@ live in ``tests/intensive/test_similarity.py``.
 |
 """
 
+import importlib.util
 import types
 from unittest import mock
 
@@ -114,49 +115,58 @@ class TestStorageOptions:
             assert options == {"aws_session_token": "first"}
 
 
-class TestConnect:
-    """What reaches ``lancedb.connect()``."""
+#: Whether the optional extra is installed. Only the tests that open a
+#: connection need it; the rest read and write configuration.
+_HAS_LANCEDB = importlib.util.find_spec("lancedb") is not None
 
-    def _initialize(self, config):
-        # `_initialize` reads only the config when the table name is set and
-        # the store reports no tables, so a full index -- which needs a
-        # dataset -- is not required to observe the connect call
+
+@pytest.mark.skipif(not _HAS_LANCEDB, reason="lancedb is an optional extra")
+class TestConnect:
+    """What reaches the LanceDB connection."""
+
+    def _connect(self, config):
+        # `_initialize` reads only the config when the table name is set, so
+        # a full index -- which needs a dataset -- is not required to observe
+        # what the connection was opened with
         index = types.SimpleNamespace(config=config)
         LanceDBSimilarityIndex._initialize(index)
-        return index
 
-    def test_storage_options_are_passed(self):
-        options = {"aws_access_key_id": "key"}
+        return index._db
+
+    def test_storage_options_reach_the_connection(self, tmp_path):
+        options = {"timeout": "30s"}
         config = LanceDBSimilarityConfig(
             table_name="a-table",
-            uri="s3://bucket/org-abc",
+            uri=str(tmp_path),
             storage_options=options,
         )
 
-        with mock.patch.object(foblancedb, "lancedb") as lancedb:
-            lancedb.connect.return_value.table_names.return_value = []
-            self._initialize(config)
+        database = self._connect(config)
 
-        lancedb.connect.assert_called_once_with(
-            "s3://bucket/org-abc", storage_options=options
-        )
+        assert database.storage_options == options
 
     @pytest.mark.parametrize(
         "options",
         [pytest.param(None, id="none"), pytest.param({}, id="empty")],
     )
-    def test_the_argument_is_omitted_when_unset(self, options):
+    def test_the_argument_is_omitted_when_unset(self, tmp_path, options):
         # No minimum lancedb version is declared, so a release without the
-        # parameter must still work for callers that set no options
+        # parameter must still work for callers that set no options, which
+        # means passing none rather than an empty dict
         config = LanceDBSimilarityConfig(
-            table_name="a-table", storage_options=options
+            table_name="a-table", uri=str(tmp_path), storage_options=options
         )
 
-        with mock.patch.object(foblancedb, "lancedb") as lancedb:
-            lancedb.connect.return_value.table_names.return_value = []
-            self._initialize(config)
+        database = self._connect(config)
 
-        lancedb.connect.assert_called_once_with("/tmp/lancedb")
+        assert database.storage_options is None
+
+    def test_the_run_s_own_store_is_the_one_opened(self, tmp_path):
+        config = LanceDBSimilarityConfig(
+            table_name="a-table", uri=str(tmp_path)
+        )
+
+        assert self._connect(config).uri == str(tmp_path)
 
 
 class TestSerialization:

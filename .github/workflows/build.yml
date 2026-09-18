@@ -160,7 +160,7 @@ jobs:
           pip install --force-reinstall --no-deps dist/*.whl
       - name: Install test dependencies
         run: |
-          pip install imageio pytest torch torchvision
+          pip install imageio pytest torch torchvision lancedb
       - name: Cache Zoo
         id: fiftyone-cache
         uses: actions/cache@v6
