@@ -1229,9 +1229,56 @@ class TestQueryKnobs:
         ]
 
     def test_a_set_knob_reaches_the_plan(self, tmp_path):
+        # Reaching the plan is not the same as changing the answer -- see
+        # the two tests below, which pin where it actually bites
         index = _seeded_index(tmp_path, nprobes=3)
 
         assert "minimum_nprobes=3" in _plan(index, _basis_embeddings(3)[0])
+
+    # Enough rows that a partitioned family separates on probe count
+    PARTITION_ROWS = 300
+
+    def _ids_at_nprobes(self, index, nprobes):
+        return (
+            index.table.search(_random_embeddings(1, seed=9)[0])
+            .metric("l2")
+            .limit(10)
+            .nprobes(nprobes)
+            .to_pandas()["id"]
+            .tolist()
+        )
+
+    def _partitioned(self, tmp_path, **config_kwargs):
+        index = _unbound_index(tmp_path, **config_kwargs)
+        index.add_to_index(
+            _random_embeddings(self.PARTITION_ROWS),
+            _row_ids(self.PARTITION_ROWS),
+            reload=False,
+        )
+        return index
+
+    def test_nprobes_does_nothing_on_the_default_family(self, tmp_path):
+        # `ivf_hnsw_sq` builds one IVF partition, so there is nothing for a
+        # probe count to choose between. The plan still prints the value and
+        # the engine ignores it, which is why the config documents `ef` as
+        # the pruning knob there rather than this one
+        index = self._partitioned(tmp_path)
+
+        assert self._ids_at_nprobes(index, 1) == self._ids_at_nprobes(
+            index, 50
+        )
+
+    def test_nprobes_bites_once_the_family_has_partitions(self, tmp_path):
+        # Guards the premise above: without it, a release that gave the HNSW
+        # families real partitions would leave that test passing while its
+        # reasoning had gone stale
+        index = self._partitioned(
+            tmp_path, index_params={"num_partitions": 16}
+        )
+
+        assert self._ids_at_nprobes(index, 1) != self._ids_at_nprobes(
+            index, 50
+        )
 
 
 class TestConfigValidation:

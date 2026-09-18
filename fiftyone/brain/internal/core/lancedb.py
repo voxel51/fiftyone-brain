@@ -174,9 +174,14 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         nprobes (None): the number of partitions to probe per query. Left
             auto-tuned by default, which is LanceDB's guidance: the partition
             count grows with the table, so a pinned value probes an
-            ever-smaller share of it and recall falls as rows are added
-        ef (None): the HNSW search-list size, for the ``ivf_hnsw_*`` families.
-            Must be at least ``k * refine_factor`` when both are set
+            ever-smaller share of it and recall falls as rows are added.
+            **Inert on the ``ivf_hnsw_*`` families**, which build a single IVF
+            partition, leaving nothing to choose between: the query plan
+            still reports the value and the engine ignores it. Use ``ef``
+            there
+        ef (None): the HNSW search-list size, and the only pruning knob the
+            ``ivf_hnsw_*`` families have. Must be at least
+            ``k * refine_factor`` when both are set
         refine_factor (10): how many extra candidates to retrieve and re-rank
             by exact distance. An indexed query is approximate, and for
             ``"cosine"`` it also reports distance on the scale the index was
@@ -854,6 +859,10 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         from the partition count and the partition count grows with the table.
         Pinning it probes an ever-smaller share as rows are added, which reads
         as recall decaying with scale.
+
+        ``nprobes`` reaches the plan on every family but only changes results
+        on those that build more than one IVF partition, which the
+        ``ivf_hnsw_*`` families do not.
 
         Args:
             table: the ``lancedb.LanceTable`` to query
