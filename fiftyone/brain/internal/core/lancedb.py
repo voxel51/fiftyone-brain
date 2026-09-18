@@ -5,6 +5,7 @@ LanceDB similarity backend.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+
 import logging
 
 import numpy as np
@@ -28,7 +29,9 @@ _SUPPORTED_METRICS = {
     "euclidean": "l2",
 }
 
-# Page size when paginating LanceDB table listings
+# Page size when paginating LanceDB table listings. At least two, because
+# the page cursor is inclusive: a page of one would return only the cursor
+# and the listing could never advance past it
 _DB_TABLE_PG_LIMIT = 100
 
 logger = logging.getLogger(__name__)
@@ -141,18 +144,21 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             ) from e
 
         if self.config.table_name is None:
-            table_names = _table_names(db)
             root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
-            table_name = fbu.get_unique_name(root, table_names)
+            table_name = fbu.get_unique_name(root, _table_names(db))
 
             self.config.table_name = table_name
             self.save_config()
 
-        table = (
-            db.open_table(self.config.table_name)
-            if isinstance(self.config.table_name, str)
-            else None
-        )
+            # A name minted against the listing above names no table yet;
+            # `add_to_index` is what creates it
+            table = None
+        elif self.config.table_name in _table_names(db):
+            table = db.open_table(self.config.table_name)
+        else:
+            # `open_table` raises for a table that is not there, and a run
+            # whose table has yet to be written is the ordinary case
+            table = None
 
         self._db = db
         self._table = table
@@ -504,16 +510,22 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
 
 def _table_names(db):
-    # Cursor on the last name of each page; the response page_token is an
-    # exclusive start_after that drops a table across page boundaries
+    # `list_tables` caps a page at ten by default, so the whole listing has
+    # to be paged for. The cursor is the last name of the page just read,
+    # and it is inclusive -- a page opens with the name it was given -- so
+    # every page after the first repeats one name and drops it
     page_token = None
     table_names = []
     while True:
         tables = db.list_tables(
             page_token=page_token, limit=_DB_TABLE_PG_LIMIT
         ).tables
-        table_names.extend(tables)
-        if len(tables) < _DB_TABLE_PG_LIMIT:
+        fresh = tables if page_token is None else tables[1:]
+        table_names.extend(fresh)
+
+        # A short page is the last one. `fresh` guards the cursor as well:
+        # a page that repeats only its cursor would leave it unmoved
+        if len(tables) < _DB_TABLE_PG_LIMIT or not fresh:
             break
 
         page_token = tables[-1]
