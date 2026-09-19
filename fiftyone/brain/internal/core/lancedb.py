@@ -53,6 +53,60 @@ _SUPPORTED_INDEX_TYPES = {
 _VECTOR_COLUMN = "vector"
 _VECTOR_INDEX_NAME = "vector_idx"
 
+# Widths at or below this take IVF_RQ. Its 1-bit codes are best in class at
+# 768 -- 0.9993 mean / 0.900 worst against IVF_PQ m=96's 0.9977 / 0.800, at a
+# third of the latency and a 2 s build against 32 s -- and collapse at 2048
+# (0.088-0.173 mean, 0.000 worst). The boundary sits at the widest measured
+# good rather than anywhere interpolated: 1024 and 1536 are untested and take
+# PQ deliberately.
+_RQ_MAX_DIMS = 768
+
+# Sub-vectors per PQ code, as a divisor of the width. LanceDB's own default
+# is a sixteenth, which at 768 measures 0.9447 mean / 0.200 worst against an
+# eighth's 0.9963 / 0.800 -- so the family default is the one setting here
+# that has to be supplied rather than left alone.
+_PQ_DIMS_PER_SUB_VECTOR = 8
+
+# Partitions probed per query where the family does not escalate. LanceDB's
+# implicit value is 20.
+_DEFAULT_NPROBES = 25
+
+# Families that escalate instead of pinning. They build about twice the
+# partitions of the others at the same row count, so one pinned value probes
+# half the share and reads as recall decaying with scale: at 400k by 768,
+# nprobes=25 reaches 26% of an RQ index against 52% of a PQ one, and RQ goes
+# 0.9943/0.700 pinned against 0.9993/0.900 escalating.
+_ESCALATING_FAMILIES = frozenset({"ivf_rq", "ivf_sq"})
+
+
+def _default_index_type(dims):
+    """The index family for embeddings of the given width.
+
+    Args:
+        dims: the embedding dimension
+
+    Returns:
+        a key of ``_SUPPORTED_INDEX_TYPES``
+    """
+    return "ivf_rq" if dims <= _RQ_MAX_DIMS else "ivf_pq"
+
+
+def _default_index_params(index_type, dims):
+    """The family's parameters when the config supplies none.
+
+    Args:
+        index_type: a key of ``_SUPPORTED_INDEX_TYPES``
+        dims: the embedding dimension
+
+    Returns:
+        a dict of keyword arguments for the family
+    """
+    if index_type in ("ivf_pq", "ivf_hnsw_pq"):
+        return {"num_sub_vectors": dims // _PQ_DIMS_PER_SUB_VECTOR}
+
+    return {}
+
+
 # IDs per predicate. Lance parses a predicate as a single expression, so an
 # unbounded `IN` list turns a large removal into a multi-megabyte string. At
 # 10k the predicate is ~180 KB and an existence scan runs about 3x faster than
@@ -140,19 +194,25 @@ class LanceDBSimilarityConfig(SimilarityConfig):
             used to authenticate against an object store. Refer to
             https://lancedb.github.io/lancedb/guides/storage/ for the keys each
             store accepts
-        index_type ("ivf_hnsw_sq"): the vector index family to build. Supported
-            values are the keys of ``_SUPPORTED_INDEX_TYPES``
-        index_params (None): a dict of keyword arguments for the index family,
-            such as ``num_sub_vectors`` for ``"ivf_pq"``. The distance type is
-            set from ``metric`` and cannot be overridden here
-        nprobes (None): the number of partitions to probe per query. Left
-            auto-tuned by default, which is LanceDB's guidance: the partition
-            count grows with the table, so a pinned value probes an
-            ever-smaller share of it and recall falls as rows are added.
-            **Inert on the ``ivf_hnsw_*`` families**, which build a single IVF
-            partition, leaving nothing to choose between: the query plan
-            still reports the value and the engine ignores it. Use ``ef``
-            there
+        index_type (None): the vector index family to build. Supported
+            values are ``("ivf_flat", "ivf_sq", "ivf_pq", "ivf_rq",
+            "ivf_hnsw_flat", "ivf_hnsw_sq", "ivf_hnsw_pq")``. Chosen from the
+            embedding width when unset: ``"ivf_rq"`` at 768 dimensions and
+            below, ``"ivf_pq"`` above
+        index_params (None): a dict of keyword arguments for the index
+            family, such as ``num_sub_vectors`` for ``"ivf_pq"``. The PQ
+            families take an eighth of the width when unset, rather than
+            LanceDB's sixteenth. The distance type is set from ``metric`` and
+            cannot be overridden here
+        nprobes (None): the number of partitions to probe per query. Set from
+            the family when unset -- the escalating families search outward
+            until they have enough, and the rest take a fixed 25 -- because
+            the partition count grows with the table, so one pinned value
+            probes an ever-smaller share as rows arrive and recall falls for
+            that reason rather than with scale. **Inert on the
+            ``ivf_hnsw_*`` families**, which build a single IVF partition,
+            leaving nothing to choose between: the query plan still reports
+            the value and the engine ignores it. Use ``ef`` there
         ef (None): the HNSW search-list size, and the only pruning knob the
             ``ivf_hnsw_*`` families have. Must be at least
             ``k * refine_factor`` when both are set
@@ -173,7 +233,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         metric="cosine",
         uri="/tmp/lancedb",
         storage_options=None,
-        index_type="ivf_hnsw_sq",
+        index_type=None,
         index_params=None,
         nprobes=None,
         ef=None,
@@ -186,7 +246,7 @@ class LanceDBSimilarityConfig(SimilarityConfig):
                 % (metric, tuple(_SUPPORTED_METRICS.keys()))
             )
 
-        if index_type not in _SUPPORTED_INDEX_TYPES:
+        if index_type is not None and index_type not in _SUPPORTED_INDEX_TYPES:
             raise ValueError(
                 "Unsupported index type '%s'. Supported values are %s"
                 % (index_type, tuple(_SUPPORTED_INDEX_TYPES.keys()))
@@ -425,6 +485,14 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         return self._table.to_pandas()
 
+    def _dims(self):
+        """The width of the table's vector column.
+
+        Returns:
+            the embedding dimension
+        """
+        return self._table.schema.field(_VECTOR_COLUMN).type.list_size
+
     def _is_indexed(self, column):
         """Whether the table carries an index on the given column.
 
@@ -464,9 +532,15 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 if stats is not None and stats.distance_type == distance_type:
                     return
 
-            index_class_name = _SUPPORTED_INDEX_TYPES[self.config.index_type]
+            index_type = self.config.index_type or _default_index_type(
+                self._dims()
+            )
+            index_params = self.config.index_params or _default_index_params(
+                index_type, self._dims()
+            )
+            index_class_name = _SUPPORTED_INDEX_TYPES[index_type]
             index_config = getattr(lancedb.index, index_class_name)(
-                distance_type=distance_type, **self.config.index_params
+                distance_type=distance_type, **index_params
             )
 
             # Pinned rather than left implicit: `replace=True` is scoped to
@@ -896,8 +970,17 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         if bypass_index:
             return search.bypass_vector_index()
 
+        index_type = self.config.index_type or _default_index_type(len(query))
+
         if self.config.nprobes is not None:
             search = search.nprobes(self.config.nprobes)
+        elif index_type in _ESCALATING_FAMILIES:
+            # `maximum_nprobes` first: a minimum above the standing maximum
+            # is rejected. Zero means unbounded, so the floor is where the
+            # search starts rather than where it stops
+            search = search.maximum_nprobes(0).minimum_nprobes(k)
+        else:
+            search = search.nprobes(_DEFAULT_NPROBES)
 
         if self.config.ef is not None:
             search = search.ef(self.config.ef)

@@ -34,6 +34,8 @@ from fiftyone.brain.internal.core.lancedb import (  # noqa: E402
     LanceDBSimilarityIndex,
     _DB_TABLE_PG_LIMIT,
     _ID_BATCH_SIZE,
+    _DEFAULT_NPROBES,
+    _RQ_MAX_DIMS,
     _SUPPORTED_METRICS,
     _VECTOR_INDEX_NAME,
     _id_predicate,
@@ -134,6 +136,13 @@ def _id_index(index):
         for config in index.table.list_indices()
         if config.columns == ["id"]
     )
+
+
+def _lance_index_meta(index):
+    """The vector index's metadata, which `index_stats` does not carry."""
+    return index.table.to_lance().stats.index_stats(_VECTOR_INDEX_NAME)[
+        "indices"
+    ][0]
 
 
 def _vector_indexes(index):
@@ -964,8 +973,49 @@ class TestVectorIndex:
     def test_created_on_first_add(self, populated_index):
         assert ["vector"] in _indexed_columns(populated_index)
 
-    def test_defaults_to_ivf_hnsw_sq(self, populated_index):
-        assert _vector_indexes(populated_index)[0].index_type == "IvfHnswSq"
+    def test_narrow_embeddings_default_to_ivf_rq(self, populated_index):
+        # RQ's 1-bit codes are best in class up to 768 and collapse above it
+        assert _vector_indexes(populated_index)[0].index_type == "IvfRq"
+
+    @pytest.mark.parametrize(
+        "dims,expected",
+        [
+            pytest.param(_RQ_MAX_DIMS, "IvfRq", id="at_the_boundary"),
+            pytest.param(_RQ_MAX_DIMS + 256, "IvfPq", id="above_it"),
+        ],
+    )
+    def test_the_family_follows_the_width(self, tmp_path, dims, expected):
+        index = _unbound_index(tmp_path)
+        rows = PQ_TRAINING_ROWS
+        index.add_to_index(
+            np.random.default_rng(0).random((rows, dims), dtype=np.float32),
+            _row_ids(rows),
+            reload=False,
+        )
+
+        assert _vector_indexes(index)[0].index_type == expected
+
+    def test_a_pq_default_supplies_its_own_sub_vectors(self, tmp_path):
+        # LanceDB's own default is a sixteenth of the width, which measures
+        # 0.9447 mean / 0.200 worst at 768 against an eighth's 0.9963 / 0.800
+        dims = _RQ_MAX_DIMS + 256
+        index = _unbound_index(tmp_path)
+        index.add_to_index(
+            np.random.default_rng(0).random(
+                (PQ_TRAINING_ROWS, dims), dtype=np.float32
+            ),
+            _row_ids(PQ_TRAINING_ROWS),
+            reload=False,
+        )
+
+        sub_index = _lance_index_meta(index)["sub_index"]
+
+        assert sub_index["num_sub_vectors"] == dims // 8
+
+    def test_an_explicit_family_overrides_the_width(self, tmp_path):
+        index = _seeded_index(tmp_path, index_type="ivf_flat")
+
+        assert _vector_indexes(index)[0].index_type == "IvfFlat"
 
     def test_named_so_a_rebuild_replaces(self, populated_index):
         assert _vector_indexes(populated_index)[0].name == _VECTOR_INDEX_NAME
@@ -1205,7 +1255,13 @@ class TestQueryKnobs:
         """
         builder = index.table.search(query).metric("l2").limit(1)
         recorder = mock.Mock()
-        for knob in ("nprobes", "ef", "refine_factor"):
+        for knob in (
+            "nprobes",
+            "minimum_nprobes",
+            "maximum_nprobes",
+            "ef",
+            "refine_factor",
+        ):
             stub = getattr(recorder, knob)
             stub.return_value = builder
             setattr(builder, knob, stub)
@@ -1217,19 +1273,45 @@ class TestQueryKnobs:
 
         return recorder.mock_calls
 
-    def test_only_refine_factor_is_applied_by_default(self, basis_index):
-        # `nprobes` and `ef` are left auto-tuned: LanceDB derives them from
-        # the partition count, which grows with the table, so a pinned value
-        # probes an ever-smaller share as rows are added and recall decays
-        # for that reason rather than with scale
+    def test_the_default_family_escalates_rather_than_pinning(
+        self, basis_index
+    ):
+        # A narrow width defaults to RQ, which builds about twice the
+        # partitions of PQ at the same row count -- so one pinned value
+        # probes half the share and recall falls as the table grows. The
+        # maximum goes first: a minimum above the standing maximum is
+        # rejected. Zero means unbounded
         assert self._knobs(basis_index, _basis_embeddings(3)[0]) == [
-            mock.call.refine_factor(10)
+            mock.call.maximum_nprobes(0),
+            mock.call.minimum_nprobes(1),
+            mock.call.refine_factor(10),
+        ]
+
+    def test_a_pinning_family_takes_the_deliberate_value(self, tmp_path):
+        # Not left at LanceDB's implicit 20
+        index = _seeded_index(tmp_path, index_type="ivf_pq")
+
+        assert self._knobs(index, _basis_embeddings(3)[0]) == [
+            mock.call.nprobes(_DEFAULT_NPROBES),
+            mock.call.refine_factor(10),
+        ]
+
+    def test_an_explicit_value_wins_over_either_regime(self, tmp_path):
+        index = _seeded_index(tmp_path, nprobes=7)
+
+        assert self._knobs(index, _basis_embeddings(3)[0]) == [
+            mock.call.nprobes(7),
+            mock.call.refine_factor(10),
         ]
 
     def test_refine_factor_can_be_turned_off(self, tmp_path):
+        # The probe regime is independent of it and still applies
         index = _seeded_index(tmp_path, refine_factor=None)
 
-        assert self._knobs(index, _basis_embeddings(3)[0]) == []
+        assert self._knobs(index, _basis_embeddings(3)[0]) == [
+            mock.call.maximum_nprobes(0),
+            mock.call.minimum_nprobes(1),
+        ]
 
     def test_each_is_applied_when_set(self, tmp_path):
         # Built from constructor kwargs rather than by assigning to the
@@ -1362,20 +1444,16 @@ class TestIndexedDistances:
 
         np.testing.assert_allclose(indexed, scanned, atol=1e-5)
 
-    def test_without_the_refine_cosine_reports_a_different_scale(
-        self, tmp_path
-    ):
-        # Guards the premise of the test above: LanceDB builds a cosine index
-        # on normalized vectors and reports squared distance against them,
-        # which is twice the cosine distance a scan reports
+    def test_without_the_refine_they_disagree(self, tmp_path):
+        # Guards the premise of the test above. How far the indexed values
+        # sit from the scanned ones is the family's business -- SQ reports
+        # twice, RQ a little under, PQ something else again -- so this pins
+        # only that they differ, which is what the re-rank is there for
         index = _seeded_index(tmp_path, metric="cosine", refine_factor=None)
 
         indexed, scanned = self._both_paths(index, _basis_embeddings(3)[0])
 
         assert indexed != pytest.approx(scanned, abs=1e-5)
-        np.testing.assert_allclose(
-            indexed, [2 * d for d in scanned], atol=1e-5
-        )
 
 
 class TestExactK:
