@@ -37,23 +37,11 @@ _SUPPORTED_METRICS = {
 # it does at 1k, where the per-call overhead dominates
 _ID_BATCH_SIZE = 10000
 
-# 0.38.0 is the first release whose paged `list_tables` returns every table.
-# Before it the token names the next table not yet returned and the server
-# then resumes *after* it, so exactly one name is lost per page boundary:
-# against 12 tables, 0.34.0, 0.36.0 and 0.37.1 each return 6 at a page size
-# of 1 and 9 at 3. 0.38.0 makes the token the last *returned* row's storage
-# key, which resuming after is correct. A lost name reads as a free name, so
-# `get_unique_name` hands out one that is taken and strands the index
-# already written under it -- and no client can un-skip a server-side skip.
-#
-# Exposure is narrower than that sounds: `_DB_TABLE_PG_LIMIT` asks for 100
-# names at a time, so a database holding 100 or fewer never reaches a page
-# boundary and never loses one. `list_tables(limit=)` itself exists on every
-# release back to 0.34.0, so nothing here fails to run below the floor -- it
-# is correctness past 100 tables that the floor buys, and nothing else.
-# `create_index(config=)`, which the id index needs, lands earlier at
-# 0.34.0, so this floor covers that too.
-_LANCEDB_REQUIREMENT = "lancedb>=0.38.0"
+# 0.34.0 is the first release whose `create_index` accepts a `config=`,
+# which is how both indexes here are built; 0.33.0 raises `TypeError` on it.
+# The paged-listing defect in 0.34.0 through 0.37.1 is compensated for in
+# `_table_names` rather than floored out, so those releases stay supported.
+_LANCEDB_REQUIREMENT = "lancedb>=0.34.0"
 
 # Page size when paginating LanceDB table listings
 _DB_TABLE_PG_LIMIT = 100
@@ -807,6 +795,7 @@ def _table_names(db):
     # no token once it has returned the last page
     page_token = None
     table_names = []
+    seen = set()
     while True:
         response = db.list_tables(
             page_token=page_token, limit=_DB_TABLE_PG_LIMIT
@@ -816,6 +805,7 @@ def _table_names(db):
         # container, which can be truthy while yielding nothing
         page = list(response.tables)
         table_names.extend(page)
+        seen.update(page)
 
         page_token = response.page_token
 
@@ -823,3 +813,13 @@ def _table_names(db):
         # which would otherwise spin
         if not page_token or not page:
             return table_names
+
+        # Before 0.38.0 the token is the name of the next table rather than
+        # the storage key of the last one returned, and the request it is
+        # passed to resumes *after* it -- so that one table is never listed,
+        # once per page boundary. The name is the token itself, so take it.
+        # A key carries the "/" that LanceDB forbids in a table name, which
+        # is what tells the two forms apart. Past 0.38.0 this never fires.
+        if "/" not in page_token and page_token not in seen:
+            table_names.append(page_token)
+            seen.add(page_token)

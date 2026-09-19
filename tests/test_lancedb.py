@@ -224,7 +224,7 @@ class TestRequirements:
 
         # The literal rather than the constant, which would compare equal to
         # itself whatever it was set to
-        ensure_package.assert_called_once_with("lancedb>=0.38.0")
+        ensure_package.assert_called_once_with("lancedb>=0.34.0")
 
 
 class TestStorageOptions:
@@ -339,7 +339,9 @@ class TestTableNames:
             db.open_table(stranded)
 
     def test_pages_through_every_response(self):
-        page_one = mock.Mock(tables=["a", "b"], page_token="next")
+        # A storage key, the form 0.38.0 and later hand back: the last row
+        # returned, which has already been collected
+        page_one = mock.Mock(tables=["a", "b"], page_token="b.lance/")
         page_two = mock.Mock(tables=["c"], page_token=None)
         db = mock.Mock(spec=["list_tables"])
         db.list_tables.side_effect = [page_one, page_two]
@@ -347,8 +349,28 @@ class TestTableNames:
         assert _table_names(db) == ["a", "b", "c"]
         assert db.list_tables.call_args_list == [
             mock.call(page_token=None, limit=_DB_TABLE_PG_LIMIT),
-            mock.call(page_token="next", limit=_DB_TABLE_PG_LIMIT),
+            mock.call(page_token="b.lance/", limit=_DB_TABLE_PG_LIMIT),
         ]
+
+    def test_recovers_the_name_an_older_cursor_skips(self):
+        # Before 0.38.0 the token is the next table's name and the request
+        # it is passed to resumes after it, so that table is never listed.
+        # Taking the token is what puts it back
+        page_one = mock.Mock(tables=["a", "b"], page_token="c")
+        page_two = mock.Mock(tables=["d"], page_token=None)
+        db = mock.Mock(spec=["list_tables"])
+        db.list_tables.side_effect = [page_one, page_two]
+
+        assert _table_names(db) == ["a", "b", "c", "d"]
+
+    def test_a_recovered_name_is_not_repeated(self):
+        # A token naming something already collected is not a skip
+        page_one = mock.Mock(tables=["a", "b"], page_token="b")
+        page_two = mock.Mock(tables=["c"], page_token=None)
+        db = mock.Mock(spec=["list_tables"])
+        db.list_tables.side_effect = [page_one, page_two]
+
+        assert _table_names(db) == ["a", "b", "c"]
 
     def test_stops_on_an_empty_page(self):
         # A server that keeps handing back a token would otherwise spin here.
@@ -1195,7 +1217,10 @@ class TestADamagedTable:
         db = populated_index._db
         assert "test" in _table_names(db)
 
-        with pytest.raises(ValueError):
+        # 0.37.1 raises `RuntimeError: ... exists but could not be
+        # loaded`; the releases either side raise `ValueError: ... was not
+        # found`. Which one matters far less than that it is raised
+        with pytest.raises((ValueError, RuntimeError)):
             _open_table(db, "test")
 
     def test_a_name_that_is_simply_absent_is_not(self, index):
