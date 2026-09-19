@@ -167,7 +167,15 @@ jobs:
         with:
           path: |
             .fiftyone
+          # What is cached are the zoo datasets and models the tests ask
+          # for, but the key changes whenever any test file does -- so an
+          # edit anywhere under tests/ used to re-download CIFAR-10 and a
+          # model on every matrix leg. The prefix restores the newest cache
+          # whatever the hash, and a fresh one is still saved under the new
+          # key, so an added asset is picked up without paying for the rest
           key: zoo-${{ hashFiles('tests/**') }}
+          restore-keys: |
+            zoo-
       - name: Run tests
         run: |
           pytest --verbose tests/ --ignore tests/intensive/
