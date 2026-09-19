@@ -2,9 +2,10 @@
 Unit tests for the LanceDB similarity backend.
 
 LanceDB is embedded, so these exercise a real table under ``tmp_path`` and
-need no service. They are skipped where ``lancedb`` is not installed, which
-includes CI, since it is an optional dependency. The tests that build an index
-over a dataset live in ``tests/intensive/test_similarity.py``.
+need no service. They are skipped where ``lancedb`` is not installed; CI
+installs it. The tests that build an index over a dataset live in
+``tests/intensive/test_similarity.py``, and the table listing is covered
+against a real database in ``tests/test_lancedb_tables.py``.
 
 | Copyright 2017-2026, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -12,6 +13,7 @@ over a dataset live in ``tests/intensive/test_similarity.py``.
 """
 import logging
 import os
+import shutil
 from unittest import mock
 
 import numpy as np
@@ -30,10 +32,12 @@ from fiftyone.brain.internal.core.lancedb import (  # noqa: E402
     LanceDBSimilarity,
     LanceDBSimilarityConfig,
     LanceDBSimilarityIndex,
+    _DB_TABLE_PG_LIMIT,
     _ID_BATCH_SIZE,
     _SUPPORTED_METRICS,
     _VECTOR_INDEX_NAME,
     _id_predicate,
+    _open_table,
     _table_names,
     _to_arrow_table,
     _to_id_list,
@@ -349,11 +353,12 @@ class TestStorageOptions:
 
 
 class TestTableNames:
-    """Listing tables.
+    """What the connector does with a listing longer than one page.
 
-    ``table_names()`` pages and defaults to 10, so anything that asks lancedb
-    whether a table exists sees only the first page unless it goes through
-    :func:`_table_names`.
+    That :func:`_table_names` pages correctly is covered against a real
+    database in ``tests/test_lancedb_tables.py``. These cover the callers --
+    the paths that would strand a table if the listing came back short --
+    and the two ways the walk could fail to terminate.
     """
 
     # More tables than one default page holds
@@ -367,18 +372,6 @@ class TestTableNames:
             db.create_table(name, pa_table)
 
         return db, names
-
-    def test_returns_every_table(self, tmp_path):
-        db, names = self._make_tables(str(tmp_path))
-
-        assert sorted(_table_names(db)) == sorted(names)
-
-    def test_default_page_would_have_truncated(self, tmp_path):
-        # Guards the premise: without this helper the listing is short, so the
-        # test above is not vacuous
-        db, _ = self._make_tables(str(tmp_path))
-
-        assert len(list(db.table_names())) < self.NUM_TABLES
 
     def test_existing_table_past_first_page_is_opened(self, tmp_path):
         _, names = self._make_tables(str(tmp_path))
@@ -413,16 +406,38 @@ class TestTableNames:
             db.open_table(stranded)
 
     def test_pages_through_every_response(self):
-        page_one = mock.Mock(tables=["a", "b"], page_token="next")
+        # A storage key, the form 0.38.0 and later hand back: the last row
+        # returned, which has already been collected
+        page_one = mock.Mock(tables=["a", "b"], page_token="b.lance/")
         page_two = mock.Mock(tables=["c"], page_token=None)
         db = mock.Mock(spec=["list_tables"])
         db.list_tables.side_effect = [page_one, page_two]
 
         assert _table_names(db) == ["a", "b", "c"]
         assert db.list_tables.call_args_list == [
-            mock.call(page_token=None),
-            mock.call(page_token="next"),
+            mock.call(page_token=None, limit=_DB_TABLE_PG_LIMIT),
+            mock.call(page_token="b.lance/", limit=_DB_TABLE_PG_LIMIT),
         ]
+
+    def test_recovers_the_name_an_older_cursor_skips(self):
+        # Before 0.38.0 the token is the next table's name and the request
+        # it is passed to resumes after it, so that table is never listed.
+        # Taking the token is what puts it back
+        page_one = mock.Mock(tables=["a", "b"], page_token="c")
+        page_two = mock.Mock(tables=["d"], page_token=None)
+        db = mock.Mock(spec=["list_tables"])
+        db.list_tables.side_effect = [page_one, page_two]
+
+        assert _table_names(db) == ["a", "b", "c", "d"]
+
+    def test_a_recovered_name_is_not_repeated(self):
+        # A token naming something already collected is not a skip
+        page_one = mock.Mock(tables=["a", "b"], page_token="b")
+        page_two = mock.Mock(tables=["c"], page_token=None)
+        db = mock.Mock(spec=["list_tables"])
+        db.list_tables.side_effect = [page_one, page_two]
+
+        assert _table_names(db) == ["a", "b", "c"]
 
     def test_stops_on_an_empty_page(self):
         # A server that keeps handing back a token would otherwise spin here.
@@ -1622,6 +1637,137 @@ class TestRemoveFromIndex:
         index.remove_from_index(sample_ids=["a"], reload=False)
 
         assert index.total_index_size == 0
+
+
+class TestAnIndexWithNoTable:
+    """Reads against an index whose adds never created a table.
+
+    ``fbu.get_embeddings()`` returns an empty array for a collection that
+    yields no embeddings, and ``similarity.py`` guards only on ``None``, so
+    ``compute_similarity`` saves a brain key whose table was never written.
+    Every read below reached a ``NoneType`` attribute before.
+    """
+
+    @pytest.fixture(name="tableless")
+    def fixture_tableless(self, index):
+        index.add_to_index(np.empty((0, 0)), [], reload=False)
+        assert index.table is None
+        return index
+
+    def test_get_embeddings_is_empty(self, tableless):
+        embeddings, sample_ids, label_ids = tableless.get_embeddings()
+
+        assert embeddings.size == 0
+        assert sample_ids.size == 0
+        assert label_ids is None
+
+    def test_get_embeddings_reports_the_ids_as_missing(self, tableless):
+        # The rows are absent, so every ID asked for is missing -- which is
+        # what `allow_missing` exists to report
+        with pytest.raises(ValueError, match="do not exist in the index"):
+            tableless.get_embeddings(sample_ids=["a"], allow_missing=False)
+
+    @pytest.mark.parametrize("return_dists", [False, True])
+    @pytest.mark.parametrize("patches", [False, True])
+    @pytest.mark.parametrize("single", [True, False])
+    def test_a_query_returns_nothing(
+        self, tableless, return_dists, patches, single
+    ):
+        # The empty result decides on all three of these, and its shape has
+        # to match what a populated query returns for each combination
+        tableless._config.patches_field = "ground_truth" if patches else None
+        query = (
+            np.zeros(DIMS, dtype=np.float32)
+            if single
+            else np.zeros((2, DIMS), dtype=np.float32)
+        )
+        empty = [] if single else [[], []]
+
+        with _no_view():
+            got = tableless._kneighbors(
+                query=query, k=3, return_dists=return_dists
+            )
+
+        expected_labels = empty if patches else None
+        if return_dists:
+            assert got == (empty, expected_labels, empty)
+        else:
+            assert got == (empty, expected_labels)
+
+    def test_the_empty_slots_are_separate_lists(self, tableless):
+        # `_set_list_values_by_id` in fiftyone-core takes all three, and one
+        # list under three names would have a mutation of any show up in all
+        tableless._config.patches_field = "ground_truth"
+
+        with _no_view():
+            sample_ids, label_ids, dists = tableless._kneighbors(
+                query=np.zeros(DIMS, dtype=np.float32),
+                k=3,
+                return_dists=True,
+            )
+
+        assert sample_ids is not label_ids
+        assert sample_ids is not dists
+        assert label_ids is not dists
+
+    def test_the_empty_embeddings_are_two_dimensional(self, tableless):
+        # A reducer handed a (0,) array reports "Expected 2D array" from
+        # somewhere unrelated to the index that produced it
+        embeddings, _, _ = tableless.get_embeddings()
+
+        assert embeddings.ndim == 2
+
+    def test_a_query_by_id_says_the_id_is_not_there(self, tableless):
+        with _no_view():
+            with pytest.raises(ValueError, match="were not found in the"):
+                tableless._kneighbors(query="a", k=3)
+
+    def test_a_row_arriving_later_is_read(self, tableless):
+        # The empty add is a no-op, not a terminal state
+        tableless.add_to_index(
+            _basis_embeddings(1), np.array(["a"]), reload=False
+        )
+
+        embeddings, sample_ids, _ = tableless.get_embeddings()
+
+        assert embeddings.shape == (1, DIMS)
+        assert list(sample_ids) == ["a"]
+
+
+class TestADamagedTable:
+    """A table that is listed but will not open."""
+
+    @pytest.mark.parametrize(
+        "damage",
+        [
+            pytest.param("delete_manifest", id="manifest_deleted"),
+            pytest.param("remove_versions", id="versions_removed"),
+        ],
+    )
+    def test_it_is_raised_rather_than_read_as_absent(
+        self, populated_index, damage
+    ):
+        # Both of these make `open_table` say "was not found" for a table
+        # whose data files are still there and whose name is still listed.
+        # Reported as absent, the next add replaces it and the rows go.
+        versions = os.path.join(populated_index.table.uri, "_versions")
+        if damage == "delete_manifest":
+            for name in os.listdir(versions):
+                os.remove(os.path.join(versions, name))
+        else:
+            shutil.rmtree(versions)
+
+        db = populated_index._db
+        assert "test" in _table_names(db)
+
+        # 0.37.1 raises `RuntimeError: ... exists but could not be
+        # loaded`; the releases either side raise `ValueError: ... was not
+        # found`. Which one matters far less than that it is raised
+        with pytest.raises((ValueError, RuntimeError)):
+            _open_table(db, "test")
+
+    def test_a_name_that_is_simply_absent_is_not(self, index):
+        assert _open_table(index._db, "never-written") is None
 
 
 class TestKneighbors:

@@ -5,6 +5,7 @@ LanceDB similarity backend.
 | `voxel51.com <https://voxel51.com/>`_
 |
 """
+
 import logging
 from collections import Counter
 
@@ -22,6 +23,7 @@ from fiftyone.brain.similarity import (
 
 lancedb = fou.lazy_import("lancedb")
 pa = fou.lazy_import("pyarrow")
+pd = fou.lazy_import("pandas")
 
 
 _SUPPORTED_METRICS = {
@@ -57,44 +59,16 @@ _VECTOR_INDEX_NAME = "vector_idx"
 # it does at 1k, where the per-call overhead dominates
 _ID_BATCH_SIZE = 10000
 
-# 0.34.0 is the first release whose `create_index` accepts a `config=`, which
-# is how the scalar index on `id` is built. Every other call here is older, so
-# earlier versions do run -- `_ensure_id_index` catches the failure and warns
-# -- but every merge then scans the whole id column, which is the cost this
-# backend exists to avoid. The floor is where the write path is sound, not
-# where it merely executes.
+# 0.34.0 is the first release whose `create_index` accepts a `config=`,
+# which is how both indexes here are built; 0.33.0 raises `TypeError` on it.
+# The paged-listing defect in 0.34.0 through 0.37.1 is compensated for in
+# `_table_names` rather than floored out, so those releases stay supported.
 _LANCEDB_REQUIREMENT = "lancedb>=0.34.0"
 
+# Page size when paginating LanceDB table listings
+_DB_TABLE_PG_LIMIT = 100
+
 logger = logging.getLogger(__name__)
-
-
-def _table_names(db):
-    """Returns the names of every table in ``db``.
-
-    The alternative, ``table_names()``, is paged and defaults to 10, so a
-    database holding more than that reports an existing table as missing --
-    which would strand an index and let
-    :meth:`fiftyone.brain.internal.core.utils.get_unique_name` hand out a name
-    that is already taken.
-    """
-    names = []
-    page_token = None
-    while True:
-        response = db.list_tables(page_token=page_token)
-
-        # Materialize the page so the emptiness check below tests the rows
-        # rather than the container, which can be truthy while yielding
-        # nothing. Every supported version returns a response object; the
-        # `getattr` tolerates a bare list so a test double need not model one.
-        page = list(getattr(response, "tables", response))
-        names.extend(page)
-
-        page_token = getattr(response, "page_token", None)
-
-        # An empty page ends the walk even when a token comes back with it,
-        # which would otherwise loop forever
-        if not page_token or not page:
-            return names
 
 
 def _to_arrow_table(ids, sample_ids, embeddings):
@@ -346,19 +320,18 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 "information" % self.config.uri
             ) from e
 
-        table_names = _table_names(db)
-
         if self.config.table_name is None:
             root = "fiftyone-" + fou.to_slug(self.samples._root_dataset.name)
-            table_name = fbu.get_unique_name(root, table_names)
+            table_name = fbu.get_unique_name(root, _table_names(db))
 
             self.config.table_name = table_name
             self.save_config()
 
-        if self.config.table_name in table_names:
-            table = db.open_table(self.config.table_name)
-        else:
+            # A name minted against the listing above names no table yet;
+            # `add_to_index` is what creates it
             table = None
+        else:
+            table = _open_table(db, self.config.table_name)
 
         self._db = db
         self._table = table
@@ -379,10 +352,10 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         raise. The refresh costs about 0.1 ms against a 2.8 ms merge.
         """
         if self._table is None:
-            # The table may have been created by another writer since this
-            # index opened, in which case there is a version to move to
-            if self.config.table_name in _table_names(self._db):
-                self._table = self._db.open_table(self.config.table_name)
+            # Asked for rather than looked up in the listing: another writer
+            # may have created it since this index opened, and absence is the
+            # ordinary case rather than an error
+            self._table = _open_table(self._db, self.config.table_name)
 
             return
 
@@ -431,6 +404,26 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             # add. Concurrent writers race to create it and Lance rejects the
             # losers with a conflict it labels retryable
             logger.warning("Failed to index the 'id' column: %s", e)
+
+    def _rows(self):
+        """The table's rows, or an empty frame when there is no table yet.
+
+        An index whose adds all yielded no embeddings never creates a table:
+        `fbu.get_embeddings()` hands back an empty array for a collection
+        that yields none, and a run saved from it is a brain key pointing at
+        nothing. Reading that as an empty index rather than dereferencing
+        `None` keeps the missing-ID reporting below working, since every ID
+        asked for is then correctly missing.
+
+        Returns:
+            a ``pandas.DataFrame`` in the index's schema
+        """
+        if self._table is None:
+            return pd.DataFrame(
+                {"id": [], "sample_id": [], "vector": []}
+            ).astype({"id": str, "sample_id": str})
+
+        return self._table.to_pandas()
 
     def _is_indexed(self, column):
         """Whether the table carries an index on the given column.
@@ -693,7 +686,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                     "Ignoring sample IDs when label IDs are provided"
                 )
 
-        df = self._table.to_pandas()
+        df = self._rows()
 
         found_embeddings = []
         found_sample_ids = []
@@ -757,7 +750,14 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                     num_missing_ids,
                 )
 
-        embeddings = np.array(found_embeddings)
+        # Two-dimensional even when empty, as `sklearn.py` is careful to
+        # be: a reducer handed a (0,) array reports "Expected 2D array",
+        # nowhere near whatever produced the empty result
+        embeddings = (
+            np.array(found_embeddings)
+            if found_embeddings
+            else np.empty((0, 0))
+        )
         sample_ids = np.array(found_sample_ids)
         if label_ids is not None:
             label_ids = np.array(found_label_ids)
@@ -772,7 +772,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             self.config.table_name,
             self.config.table_name + "_filter",
         ):
-            if tbl in _table_names(self._db):
+            if isinstance(tbl, str) and tbl in _table_names(self._db):
                 self._db.drop_table(tbl)
 
         self._table = None
@@ -810,6 +810,22 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             query = [query]
 
         table = self._table
+
+        if table is None:
+            # No table means no rows to be near. The shape has to match what
+            # a populated query returns, because callers unpack it -- and
+            # each slot gets its own list, because the populated path
+            # returns three and `_set_list_values_by_id` takes all three
+            def empty():
+                return [] if single_query else [[] for _ in query]
+
+            label_ids = (
+                empty() if self.config.patches_field is not None else None
+            )
+            if return_dists:
+                return empty(), label_ids, empty()
+
+            return empty(), label_ids
 
         if self.has_view:
             if self.config.patches_field is not None:
@@ -940,7 +956,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             single_query = False
 
         # Query by ID(s)
-        df = self._table.to_pandas()
+        df = self._rows()
         df = df[df["id"].isin(query_ids)]
         query = np.array([v for v in df["vector"]])
 
@@ -957,3 +973,72 @@ class LanceDBSimilarityIndex(SimilarityIndex):
     @classmethod
     def _from_dict(cls, d, samples, config, brain_key):
         return cls(samples, config, brain_key)
+
+
+def _open_table(db, table_name):
+    """Opens a table, or returns ``None`` when the name holds none.
+
+    Asked for rather than looked up, because an existence check means paging
+    the whole listing and a run whose table has yet to be written is the
+    ordinary case.
+
+    Args:
+        db: a ``lancedb`` connection
+        table_name: the name to open
+
+    Returns:
+        a ``lancedb.LanceTable``, or None if no table has that name
+    """
+    try:
+        return db.open_table(table_name)
+    except ValueError:
+        # A table that is absent and one that will not open raise the same
+        # type, and only the message separates them. The listing decides it
+        # instead: a name that is there names a table that exists, whatever
+        # is wrong with it, and calling that absent would let the next add
+        # replace it -- `create_table` succeeds over a directory whose
+        # manifests are gone and drops the rows still sitting in it. Going
+        # through the listing also keeps this off LanceDB's wording, which
+        # differs between the embedded and remote paths
+        if table_name in _table_names(db):
+            raise
+
+        return None
+
+
+def _table_names(db):
+    # `list_tables` caps a page at ten by default, so the whole listing has
+    # to be paged for. The cursor is the token the response carries, which
+    # is a storage key rather than a table name, and it is exclusive: a page
+    # begins after the last name of the page before it. The response carries
+    # no token once it has returned the last page
+    page_token = None
+    table_names = []
+    seen = set()
+    while True:
+        response = db.list_tables(
+            page_token=page_token, limit=_DB_TABLE_PG_LIMIT
+        )
+
+        # Materialized so the guard below tests the rows rather than the
+        # container, which can be truthy while yielding nothing
+        page = list(response.tables)
+        table_names.extend(page)
+        seen.update(page)
+
+        page_token = response.page_token
+
+        # An empty page ends the walk even when a token comes back with it,
+        # which would otherwise spin
+        if not page_token or not page:
+            return table_names
+
+        # Before 0.38.0 the token is the name of the next table rather than
+        # the storage key of the last one returned, and the request it is
+        # passed to resumes *after* it -- so that one table is never listed,
+        # once per page boundary. The name is the token itself, so take it.
+        # A key carries the "/" that LanceDB forbids in a table name, which
+        # is what tells the two forms apart. Past 0.38.0 this never fires.
+        if "/" not in page_token and page_token not in seen:
+            table_names.append(page_token)
+            seen.add(page_token)
