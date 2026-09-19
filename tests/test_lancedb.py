@@ -68,12 +68,27 @@ class TestStorageOptions:
         assert config.storage_options == {"aws_session_token": "token"}
 
     @pytest.mark.usefixtures("empty_backend_config")
-    def test_load_credentials_leaves_existing_options_alone(self):
+    def test_refreshing_only_the_uri_keeps_the_options(self):
         # ``None`` means "not supplied", so a caller that only refreshes the
         # URI must not blank out the credential it is still using
         config = LanceDBSimilarityConfig(storage_options={"key": "value"})
         config.load_credentials(uri="/tmp/lancedb")
         assert config.storage_options == {"key": "value"}
+
+    def test_assigned_options_win_over_the_backend(self):
+        # The backend supplies options only where the config carries none.
+        # Routing an assigned value through `_load_parameters` would let the
+        # deployment's credential replace the one the caller handed in.
+        assigned = {"aws_session_token": "assigned"}
+        with mock.patch.object(
+            fob.brain_config,
+            "similarity_backends",
+            {"lancedb": {"storage_options": {"google_service_account": "sa"}}},
+        ):
+            config = LanceDBSimilarityConfig(storage_options=assigned)
+            config.load_credentials()
+
+        assert config.storage_options == assigned
 
     def test_load_credentials_falls_back_to_the_brain_config(self):
         # The backend entry in ``~/.fiftyone/brain_config.json`` supplies the

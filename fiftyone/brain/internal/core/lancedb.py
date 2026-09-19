@@ -121,7 +121,12 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         return ("mean",)
 
     def load_credentials(self, uri=None, storage_options=None):
-        self._load_parameters(storage_options=storage_options)
+        # `_load_parameters` lets a configured value overwrite one already
+        # assigned, so the backend is consulted only where this config
+        # carries none: a bare refresh must not swap the credential the
+        # caller is holding for whatever the deployment is configured with
+        if storage_options is not None or self.storage_options is None:
+            self._load_parameters(storage_options=storage_options)
 
         # Not through `_load_parameters`, which lets a configured value
         # overwrite what is already set: the run's own URI has to win over
