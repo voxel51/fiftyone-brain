@@ -36,7 +36,12 @@ from fiftyone.brain.internal.core.lancedb import (  # noqa: E402
     LanceDBSimilarityIndex,
     _DB_TABLE_PG_LIMIT,
     _ID_BATCH_SIZE,
+    _DEFAULT_NPROBES,
     _ID_INDEX_REQUIREMENT,
+    _RQ_MAX_DIMS,
+    _SUPPORTED_INDEX_TYPES,
+    _SUPPORTED_METRICS,
+    _VECTOR_INDEX_NAME,
     _id_predicate,
     _open_table,
     _table_names,
@@ -44,10 +49,11 @@ from fiftyone.brain.internal.core.lancedb import (  # noqa: E402
     _to_id_list,
 )
 
-#: `create_index(config=)` arrives in lancedb 0.34.0. The backend runs
-#: without it -- writes scan the id column instead -- so the tests that
-#: assert the index exists are the ones that cannot run below it
-builds_scalar_indexes = pytest.mark.skipif(
+#: `create_index(config=)` arrives in lancedb 0.34.0, and both indexes are
+#: built through it. The backend runs without them -- writes scan the id
+#: column and queries scan every vector -- so the tests that assert an index
+#: exists are the ones that cannot run below it
+builds_indexes = pytest.mark.skipif(
     "config"
     not in inspect.signature(lancedb.table.Table.create_index).parameters,
     reason="create_index(config=) arrives in lancedb 0.34.0",
@@ -57,6 +63,10 @@ DIMS = 8
 
 # Enough IDs to span more than one predicate batch
 BATCHED_ROWS = 2 * _ID_BATCH_SIZE + 1
+
+# Rows a product quantizer needs before it can train, so the `ivf_pq` and
+# `ivf_hnsw_pq` families cannot be exercised on the 3-row fixtures
+PQ_TRAINING_ROWS = 256
 
 # Raised by a mocked pager on the page after the walk should have stopped, so
 # a non-terminating loop fails the test rather than spinning forever. A hang
@@ -71,6 +81,38 @@ def _random_embeddings(num_rows, seed=0):
 
 def _constant_embeddings(num_rows, fill):
     return np.full((num_rows, DIMS), fill, dtype=np.float32)
+
+
+def _row_ids(num_rows):
+    """``["id-00000", ...]``, enough unique IDs for a table of that size."""
+    return np.array(["id-%05d" % i for i in range(num_rows)])
+
+
+def _seeded_index(tmp_path, **config_kwargs):
+    """An unbound index already holding the three basis rows."""
+    index = _unbound_index(tmp_path, **config_kwargs)
+    index.add_to_index(
+        _basis_embeddings(3), np.array(["a", "b", "c"]), reload=False
+    )
+    return index
+
+
+def _unbound_index(tmp_path, **config_kwargs):
+    """An index over a temp URI, built without a sample collection.
+
+    The same shortcut as the ``index`` fixture, for the tests that need a
+    config the fixture does not build.
+    """
+    index = LanceDBSimilarityIndex.__new__(LanceDBSimilarityIndex)
+    config_kwargs.setdefault("metric", "euclidean")
+    # These fixtures hold a handful of rows, well under the crossover the
+    # default protects. The threshold has its own tests
+    config_kwargs.setdefault("min_index_rows", 0)
+    index._config = LanceDBSimilarityConfig(
+        table_name="test", uri=str(tmp_path), **config_kwargs
+    )
+    index._initialize()
+    return index
 
 
 def _basis_embeddings(num_rows):
@@ -105,6 +147,45 @@ def _indexed_columns(index):
     return [config.columns for config in index.table.list_indices()]
 
 
+def _id_index(index):
+    return next(
+        config
+        for config in index.table.list_indices()
+        if config.columns == ["id"]
+    )
+
+
+def _lance_index_meta(index):
+    """The vector index's metadata, which `index_stats` does not carry."""
+    return index.table.to_lance().stats.index_stats(_VECTOR_INDEX_NAME)[
+        "indices"
+    ][0]
+
+
+def _vector_indexes(index):
+    return [
+        config
+        for config in index.table.list_indices()
+        if config.columns == ["vector"]
+    ]
+
+
+def _plan(index, query, k=1, **kwargs):
+    """The plan for the query the connector itself builds.
+
+    Routed through ``_search`` rather than rebuilt here, so that a knob the
+    connector stops applying shows up as a changed plan.
+    """
+    search = index._search(
+        index.table,
+        query,
+        _SUPPORTED_METRICS[index.config.metric],
+        k,
+        **kwargs
+    )
+    return " ".join(search.explain_plan(True).split())
+
+
 def _data_files(index):
     path = os.path.join(index.table.uri, "data")
     return sorted(os.listdir(path)) if os.path.isdir(path) else []
@@ -133,7 +214,10 @@ def fixture_index(tmp_path):
     """
     index = LanceDBSimilarityIndex.__new__(LanceDBSimilarityIndex)
     index._config = LanceDBSimilarityConfig(
-        table_name="test", uri=str(tmp_path), metric="euclidean"
+        table_name="test",
+        uri=str(tmp_path),
+        metric="euclidean",
+        min_index_rows=0,
     )
     index._initialize()
 
@@ -807,6 +891,7 @@ class TestAddToIndex:
 class TestIdIndex:
     """The scalar index on the ``id`` column."""
 
+    @builds_indexes
     def test_a_release_without_config_keeps_the_backend(self, index, caplog):
         # `create_index(config=)` arrives in 0.34.0 and is the only call
         # here that needs it. Older releases reject the keyword, and the
@@ -830,22 +915,25 @@ class TestIdIndex:
             )
 
         assert _ids(index) == ["a", "b", "c"]
-        assert not _indexed_columns(index)
+        assert ["id"] not in _indexed_columns(index)
         assert _ID_INDEX_REQUIREMENT in caplog.text
         # Warned once, not once per add
         assert len(caplog.records) == after_first == 1
 
-    @builds_scalar_indexes
+    @builds_indexes
     def test_created_on_first_add(self, populated_index):
         assert ["id"] in _indexed_columns(populated_index)
 
-    @builds_scalar_indexes
+    @builds_indexes
     def test_added_to_a_table_that_lacks_it(self, index):
         index.add_to_index(
             _random_embeddings(2), np.array(["a", "b"]), reload=False
         )
-        index.table.drop_index(index.table.list_indices()[0].name)
-        assert not index.table.list_indices()
+
+        # Named rather than taken by position: the table carries a vector
+        # index too, and dropping that one would test nothing
+        index.table.drop_index(_id_index(index).name)
+        assert ["id"] not in _indexed_columns(index)
 
         index.add_to_index(
             _random_embeddings(1, seed=1), np.array(["c"]), reload=False
@@ -868,7 +956,7 @@ class TestIdIndex:
 
         create_index.assert_not_called()
 
-    @builds_scalar_indexes
+    @builds_indexes
     def test_a_failed_index_does_not_fail_the_add(
         self, populated_index, caplog
     ):
@@ -895,6 +983,641 @@ class TestIdIndex:
 
         assert _ids(populated_index) == ["a", "b", "c", "d"]
         assert "Failed to index the 'id' column" in caplog.text
+
+
+class TestVectorIndex:
+    """The vector index on the ``vector`` column."""
+
+    @builds_indexes
+    def test_every_supported_family_names_a_real_class(self):
+        # The map holds class names rather than classes so that importing
+        # this module does not import lancedb, which is optional -- the
+        # cost being that a name LanceDB has renamed is not caught until
+        # a build tries it, and `_ensure_vector_index` answers that with a
+        # warning. Here, where lancedb is present, it is caught
+        missing = [
+            name
+            for name in _SUPPORTED_INDEX_TYPES.values()
+            if not hasattr(lancedb.index, name)
+        ]
+
+        assert missing == []
+
+    @builds_indexes
+    def test_a_table_under_the_crossover_is_left_unindexed(self, tmp_path):
+        # A scan beats an indexed query on a small table, because the index
+        # read is a fixed cost the scan does not pay
+        index = _unbound_index(tmp_path, min_index_rows=8)
+        index.add_to_index(_random_embeddings(4), _row_ids(4), reload=False)
+
+        assert not _vector_indexes(index)
+
+    @builds_indexes
+    def test_the_add_that_crosses_it_builds_the_index(self, tmp_path):
+        # Checked per add, so growth past the threshold is picked up rather
+        # than settled once when the table was small
+        index = _unbound_index(tmp_path, min_index_rows=8)
+        index.add_to_index(_random_embeddings(4), _row_ids(4), reload=False)
+        assert not _vector_indexes(index)
+
+        index.add_to_index(
+            _random_embeddings(4, seed=1),
+            np.array(["late-%d" % i for i in range(4)]),
+            reload=False,
+        )
+
+        assert _vector_indexes(index)[0].index_type == "IvfRq"
+
+    @builds_indexes
+    def test_created_on_first_add(self, populated_index):
+        assert ["vector"] in _indexed_columns(populated_index)
+
+    @builds_indexes
+    def test_narrow_embeddings_default_to_ivf_rq(self, populated_index):
+        # RQ's 1-bit codes are best in class up to 768 and collapse above it
+        assert _vector_indexes(populated_index)[0].index_type == "IvfRq"
+
+    @pytest.mark.parametrize(
+        "dims,expected",
+        [
+            pytest.param(_RQ_MAX_DIMS, "IvfRq", id="at_the_boundary"),
+            pytest.param(_RQ_MAX_DIMS + 256, "IvfPq", id="above_it"),
+        ],
+    )
+    @builds_indexes
+    def test_the_family_follows_the_width(self, tmp_path, dims, expected):
+        index = _unbound_index(tmp_path)
+        rows = PQ_TRAINING_ROWS
+        index.add_to_index(
+            np.random.default_rng(0).random((rows, dims), dtype=np.float32),
+            _row_ids(rows),
+            reload=False,
+        )
+
+        assert _vector_indexes(index)[0].index_type == expected
+
+    @builds_indexes
+    def test_a_pq_default_supplies_its_own_sub_vectors(self, tmp_path):
+        # LanceDB's own default is a sixteenth of the width, which measures
+        # 0.9447 mean / 0.200 worst at 768 against an eighth's 0.9963 / 0.800
+        dims = _RQ_MAX_DIMS + 256
+        index = _unbound_index(tmp_path)
+        index.add_to_index(
+            np.random.default_rng(0).random(
+                (PQ_TRAINING_ROWS, dims), dtype=np.float32
+            ),
+            _row_ids(PQ_TRAINING_ROWS),
+            reload=False,
+        )
+
+        sub_index = _lance_index_meta(index)["sub_index"]
+
+        assert sub_index["num_sub_vectors"] == dims // 8
+
+    @builds_indexes
+    def test_an_explicit_family_overrides_the_width(self, tmp_path):
+        index = _seeded_index(tmp_path, index_type="ivf_flat")
+
+        assert _vector_indexes(index)[0].index_type == "IvfFlat"
+
+    @builds_indexes
+    def test_named_so_a_rebuild_replaces(self, populated_index):
+        assert _vector_indexes(populated_index)[0].name == _VECTOR_INDEX_NAME
+
+    @pytest.mark.parametrize(
+        "index_type,index_params,num_rows,expected",
+        [
+            pytest.param("ivf_flat", {}, 8, "IvfFlat", id="ivf_flat"),
+            pytest.param("ivf_sq", {}, 8, "IvfSq", id="ivf_sq"),
+            pytest.param(
+                "ivf_hnsw_flat", {}, 8, "IvfHnswFlat", id="ivf_hnsw_flat"
+            ),
+            pytest.param(
+                "ivf_hnsw_pq",
+                {"num_sub_vectors": 2},
+                PQ_TRAINING_ROWS,
+                "IvfHnswPq",
+                id="ivf_hnsw_pq",
+            ),
+            # A product quantizer trains on 256 rows, so this arm is the
+            # expensive one and the reason `num_rows` is a parameter
+            pytest.param(
+                "ivf_pq",
+                {"num_sub_vectors": 2},
+                PQ_TRAINING_ROWS,
+                "IvfPq",
+                id="ivf_pq",
+            ),
+            pytest.param("ivf_rq", {}, PQ_TRAINING_ROWS, "IvfRq", id="ivf_rq"),
+        ],
+    )
+    @builds_indexes
+    def test_family_is_configurable(
+        self, tmp_path, index_type, index_params, num_rows, expected
+    ):
+        index = _unbound_index(
+            tmp_path, index_type=index_type, index_params=index_params
+        )
+        index.add_to_index(
+            _random_embeddings(num_rows), _row_ids(num_rows), reload=False
+        )
+
+        assert _vector_indexes(index)[0].index_type == expected
+
+    @builds_indexes
+    def test_unsupported_index_type_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="Unsupported index type"):
+            LanceDBSimilarityConfig(
+                table_name="test", uri=str(tmp_path), index_type="brute_force"
+            )
+
+    @builds_indexes
+    def test_index_params_reach_the_family(self, tmp_path, caplog):
+        # `index_params` is the only route to a family's own knobs, so a bad
+        # value has to surface as a failed build rather than be dropped. 8
+        # dimensions does not divide into 3 sub-vectors
+        index = _unbound_index(
+            tmp_path,
+            index_type="ivf_pq",
+            index_params={"num_sub_vectors": 3},
+        )
+
+        with caplog.at_level(logging.WARNING):
+            index.add_to_index(
+                _random_embeddings(PQ_TRAINING_ROWS),
+                _row_ids(PQ_TRAINING_ROWS),
+                reload=False,
+            )
+
+        assert not _vector_indexes(index)
+        assert "Failed to index the 'vector' column" in caplog.text
+
+    @builds_indexes
+    def test_a_build_too_small_to_train_is_retried_on_the_next_add(
+        self, tmp_path, caplog
+    ):
+        # The guard is "build when absent", so a family that cannot train on
+        # the rows present yet picks its index up once enough have arrived
+        # rather than losing it for the life of the table
+        index = _unbound_index(
+            tmp_path, index_type="ivf_pq", index_params={"num_sub_vectors": 2}
+        )
+
+        with caplog.at_level(logging.WARNING):
+            index.add_to_index(
+                _random_embeddings(8), _row_ids(8), reload=False
+            )
+
+        assert not _vector_indexes(index)
+        assert "train" in caplog.text
+
+        index.add_to_index(
+            _random_embeddings(PQ_TRAINING_ROWS, seed=1),
+            np.array(["late-%05d" % i for i in range(PQ_TRAINING_ROWS)]),
+            reload=False,
+        )
+
+        assert _vector_indexes(index)[0].index_type == "IvfPq"
+
+    @pytest.mark.parametrize(
+        "metric,expected",
+        [
+            pytest.param("cosine", "Cosine", id="cosine"),
+            pytest.param("euclidean", "L2", id="euclidean"),
+        ],
+    )
+    @builds_indexes
+    def test_built_with_the_metric_the_queries_use(
+        self, tmp_path, metric, expected
+    ):
+        # LanceDB answers a query whose metric disagrees with the index by
+        # silently scanning every vector, reporting it only as a log line from
+        # its Rust layer. A mismatch here is an index that is built, stored
+        # and never read
+        index = _unbound_index(tmp_path, metric=metric)
+        index.add_to_index(
+            _basis_embeddings(3), np.array(["a", "b", "c"]), reload=False
+        )
+
+        plan = _plan(index, _basis_embeddings(3)[0])
+
+        assert "ANNSubIndex" in plan
+        assert "metric=%s" % expected in plan
+
+    @builds_indexes
+    def test_a_query_is_not_an_exhaustive_scan(self, basis_index):
+        plan = _plan(basis_index, _basis_embeddings(3)[0])
+
+        assert "ANNSubIndex: name=%s" % _VECTOR_INDEX_NAME in plan
+
+    @builds_indexes
+    def test_the_bypass_control_is_an_exhaustive_scan(self, basis_index):
+        # The control for the assertion above: same table, same query, index
+        # forced off. Without it, "ANNSubIndex is present" says nothing about
+        # what its absence would look like
+        plan = " ".join(
+            basis_index.table.search(_basis_embeddings(3)[0])
+            .limit(1)
+            .bypass_vector_index()
+            .explain_plan(True)
+            .split()
+        )
+
+        assert "ANNSubIndex" not in plan
+        assert "KNNVectorDistance" in plan
+
+    @builds_indexes
+    def test_building_twice_leaves_one_index(self, populated_index):
+        # `replace=True` is scoped to the index name, so a second build under
+        # a different name would leave both and the query would keep using the
+        # first. The guard is bypassed here to reach the second build at all
+        populated_index._config.index_type = "ivf_flat"
+        with mock.patch.object(
+            type(populated_index.table),
+            "list_indices",
+            autospec=True,
+            return_value=[],
+        ):
+            populated_index._ensure_vector_index()
+
+        vector_indexes = _vector_indexes(populated_index)
+
+        assert len(vector_indexes) == 1
+        assert vector_indexes[0].index_type == "IvfFlat"
+
+    @builds_indexes
+    def test_rebuilt_when_the_metric_stops_matching(self, tmp_path):
+        # An index whose distance type disagrees with the query's metric is
+        # not used: LanceDB scans every vector instead and says so only in a
+        # log line from its Rust layer, which looks exactly like an index
+        # that is merely slow
+        index = _seeded_index(tmp_path, metric="euclidean")
+        assert (
+            index.table.index_stats(_VECTOR_INDEX_NAME).distance_type == "l2"
+        )
+
+        index._config.metric = "cosine"
+        index.add_to_index(
+            _random_embeddings(1, seed=3), np.array(["d"]), reload=False
+        )
+
+        stats = index.table.index_stats(_VECTOR_INDEX_NAME)
+        assert stats.distance_type == "cosine"
+        assert "ANNSubIndex" in _plan(index, _basis_embeddings(3)[0])
+
+    @builds_indexes
+    def test_the_family_is_left_alone_once_built(self, tmp_path):
+        # A rebuild costs minutes at ten million rows, so a changed
+        # `index_type` is a no-op rather than a surprise on the next add
+        index = _seeded_index(tmp_path, index_type="ivf_flat")
+
+        index._config.index_type = "ivf_hnsw_sq"
+        index.add_to_index(
+            _random_embeddings(1, seed=3), np.array(["d"]), reload=False
+        )
+
+        assert _vector_indexes(index)[0].index_type == "IvfFlat"
+
+    @builds_indexes
+    def test_second_add_does_not_rebuild_it(self, populated_index):
+        # A rebuild costs seconds at a million rows and minutes at ten, so an
+        # add that calls `create_index` unconditionally is not an option
+        with mock.patch.object(
+            type(populated_index.table), "create_index", autospec=True
+        ) as create_index:
+            populated_index.add_to_index(
+                _random_embeddings(1, seed=1), np.array(["d"]), reload=False
+            )
+
+        create_index.assert_not_called()
+
+    @builds_indexes
+    def test_a_bad_family_parameter_is_retried_not_latched(self, tmp_path):
+        # A bad key in `index_params` reaches the family constructor as a
+        # TypeError, the same type a release without `config=` raises. Read
+        # as the latter it would report the wrong cause and turn the index
+        # off for the life of the instance, so correcting the config would
+        # never take
+        index = _unbound_index(
+            tmp_path, index_type="ivf_flat", index_params={"nope": 1}
+        )
+        index.add_to_index(_random_embeddings(8), _row_ids(8), reload=False)
+
+        assert not index._vector_index_unavailable
+        assert not _vector_indexes(index)
+
+        index._config.index_params = {}
+        index.add_to_index(
+            _random_embeddings(8, seed=1),
+            np.array(["late-%d" % i for i in range(8)]),
+            reload=False,
+        )
+
+        assert _vector_indexes(index)[0].index_type == "IvfFlat"
+
+    @builds_indexes
+    def test_a_failed_index_does_not_fail_the_add(
+        self, populated_index, caplog
+    ):
+        # A query without the index is slow rather than wrong, and the rows
+        # are committed by this point, so the add must survive
+        with mock.patch.object(
+            type(populated_index.table),
+            "list_indices",
+            autospec=True,
+            return_value=[],
+        ), mock.patch.object(
+            type(populated_index.table),
+            "create_index",
+            autospec=True,
+            side_effect=RuntimeError("retryable commit conflict"),
+        ), caplog.at_level(
+            logging.WARNING
+        ):
+            populated_index.add_to_index(
+                _random_embeddings(1, seed=1),
+                np.array(["d"]),
+                reload=False,
+            )
+
+        assert _ids(populated_index) == ["a", "b", "c", "d"]
+        assert "Failed to index the 'vector' column" in caplog.text
+
+
+class TestQueryKnobs:
+    """``nprobes``, ``ef`` and ``refine_factor`` on a vector query."""
+
+    def _knobs(self, index, query):
+        """The knob calls the connector's query makes, in order.
+
+        Recorded onto a real builder rather than a stand-in: the knobs have
+        to be observed on the object LanceDB would receive.
+        """
+        builder = index.table.search(query).metric("l2").limit(1)
+        recorder = mock.Mock()
+        for knob in (
+            "nprobes",
+            "minimum_nprobes",
+            "maximum_nprobes",
+            "ef",
+            "refine_factor",
+        ):
+            stub = getattr(recorder, knob)
+            stub.return_value = builder
+            setattr(builder, knob, stub)
+
+        with mock.patch.object(
+            type(index.table), "search", autospec=True, return_value=builder
+        ):
+            index._search(index.table, query, "l2", 1)
+
+        return recorder.mock_calls
+
+    @builds_indexes
+    def test_the_default_family_escalates_rather_than_pinning(
+        self, basis_index
+    ):
+        # A narrow width defaults to RQ, which builds about twice the
+        # partitions of PQ at the same row count -- so one pinned value
+        # probes half the share and recall falls as the table grows. The
+        # maximum goes first: a minimum above the standing maximum is
+        # rejected. Zero means unbounded
+        assert self._knobs(basis_index, _basis_embeddings(3)[0]) == [
+            mock.call.maximum_nprobes(0),
+            mock.call.minimum_nprobes(1),
+            mock.call.refine_factor(10),
+        ]
+
+    @builds_indexes
+    def test_a_pinning_family_takes_the_deliberate_value(self, tmp_path):
+        # Not left at LanceDB's implicit 20
+        index = _seeded_index(tmp_path, index_type="ivf_pq")
+
+        assert self._knobs(index, _basis_embeddings(3)[0]) == [
+            mock.call.nprobes(_DEFAULT_NPROBES),
+            mock.call.refine_factor(10),
+        ]
+
+    @builds_indexes
+    def test_an_explicit_value_wins_over_either_regime(self, tmp_path):
+        index = _seeded_index(tmp_path, nprobes=7)
+
+        assert self._knobs(index, _basis_embeddings(3)[0]) == [
+            mock.call.nprobes(7),
+            mock.call.refine_factor(10),
+        ]
+
+    @builds_indexes
+    def test_refine_factor_can_be_turned_off(self, tmp_path):
+        # The probe regime is independent of it and still applies
+        index = _seeded_index(tmp_path, refine_factor=None)
+
+        assert self._knobs(index, _basis_embeddings(3)[0]) == [
+            mock.call.maximum_nprobes(0),
+            mock.call.minimum_nprobes(1),
+        ]
+
+    @builds_indexes
+    def test_each_is_applied_when_set(self, tmp_path):
+        # Built from constructor kwargs rather than by assigning to the
+        # config, because the kwarg is the only route a caller has and
+        # assignment would not notice it being dropped
+        index = _seeded_index(tmp_path, nprobes=25, ef=128, refine_factor=10)
+
+        assert self._knobs(index, _basis_embeddings(3)[0]) == [
+            mock.call.nprobes(25),
+            mock.call.ef(128),
+            mock.call.refine_factor(10),
+        ]
+
+    @builds_indexes
+    def test_a_set_knob_reaches_the_plan(self, tmp_path):
+        # Reaching the plan is not the same as changing the answer -- see
+        # the two tests below, which pin where it actually bites
+        index = _seeded_index(tmp_path, nprobes=3)
+
+        assert "minimum_nprobes=3" in _plan(index, _basis_embeddings(3)[0])
+
+    # Enough rows that a partitioned family separates on probe count
+    PARTITION_ROWS = 300
+
+    def _ids_at_nprobes(self, index, nprobes):
+        return (
+            index.table.search(_random_embeddings(1, seed=9)[0])
+            .metric("l2")
+            .limit(10)
+            .nprobes(nprobes)
+            .to_pandas()["id"]
+            .tolist()
+        )
+
+    def _partitioned(self, tmp_path, **config_kwargs):
+        index = _unbound_index(tmp_path, **config_kwargs)
+        index.add_to_index(
+            _random_embeddings(self.PARTITION_ROWS),
+            _row_ids(self.PARTITION_ROWS),
+            reload=False,
+        )
+        return index
+
+    @builds_indexes
+    def test_nprobes_does_nothing_on_the_default_family(self, tmp_path):
+        # `ivf_hnsw_sq` builds one IVF partition, so there is nothing for a
+        # probe count to choose between. The plan still prints the value and
+        # the engine ignores it, which is why the config documents `ef` as
+        # the pruning knob there rather than this one
+        index = self._partitioned(tmp_path)
+
+        assert self._ids_at_nprobes(index, 1) == self._ids_at_nprobes(
+            index, 50
+        )
+
+    @builds_indexes
+    def test_nprobes_bites_once_the_family_has_partitions(self, tmp_path):
+        # Guards the premise above: without it, a release that gave the HNSW
+        # families real partitions would leave that test passing while its
+        # reasoning had gone stale
+        index = self._partitioned(
+            tmp_path, index_params={"num_partitions": 16}
+        )
+
+        assert self._ids_at_nprobes(index, 1) != self._ids_at_nprobes(
+            index, 50
+        )
+
+
+class TestConfigValidation:
+    """Values rejected when the config is built rather than at query time."""
+
+    @pytest.mark.parametrize(
+        "kwargs,message",
+        [
+            pytest.param(
+                {"metric": "hamming"}, "Unsupported metric", id="metric"
+            ),
+            pytest.param(
+                {"index_type": "brute_force"},
+                "Unsupported index type",
+                id="index_type",
+            ),
+            pytest.param(
+                {"index_params": "not-a-dict"},
+                "index_params must be a dict",
+                id="index_params_type",
+            ),
+            pytest.param(
+                {"index_params": {"distance_type": "l2"}},
+                "distance type is set from",
+                id="index_params_distance_type",
+            ),
+            pytest.param(
+                {"nprobes": 0}, "nprobes must be a positive", id="nprobes_zero"
+            ),
+            pytest.param(
+                {"ef": -5}, "ef must be a positive", id="ef_negative"
+            ),
+            pytest.param(
+                {"refine_factor": "ten"},
+                "refine_factor must be a positive",
+                id="refine_factor_type",
+            ),
+        ],
+    )
+    @builds_indexes
+    def test_bad_values_raise_where_they_are_set(self, kwargs, message):
+        # These otherwise surface from LanceDB's Rust layer at query time, in
+        # whichever session loads the brain run rather than the one that set
+        # them. `distance_type` is the worst of them: it collides with the
+        # value taken from `metric` and leaves the table unindexed for good
+        with pytest.raises(ValueError, match=message):
+            LanceDBSimilarityConfig(**kwargs)
+
+
+class TestIndexedDistances:
+    """Distances an indexed query reports against an unindexed one."""
+
+    def _both_paths(self, index, query):
+        metric = _SUPPORTED_METRICS[index.config.metric]
+        indexed = index._search(index.table, query, metric, 3).to_pandas()
+        scanned = index._search(
+            index.table, query, metric, 3, bypass_index=True
+        ).to_pandas()
+        return list(indexed._distance), list(scanned._distance)
+
+    def test_the_default_refine_makes_them_agree(self, tmp_path):
+        # `find_duplicates(thresh=...)` is a distance threshold a user tunes,
+        # so the indexed and unindexed paths have to report on one scale
+        index = _seeded_index(tmp_path, metric="cosine")
+
+        indexed, scanned = self._both_paths(index, _basis_embeddings(3)[0])
+
+        np.testing.assert_allclose(indexed, scanned, atol=1e-5)
+
+    @builds_indexes
+    def test_without_the_refine_they_disagree(self, tmp_path):
+        # Guards the premise of the test above. How far the indexed values
+        # sit from the scanned ones is the family's business -- SQ reports
+        # twice, RQ a little under, PQ something else again -- so this pins
+        # only that they differ, which is what the re-rank is there for
+        index = _seeded_index(tmp_path, metric="cosine", refine_factor=None)
+
+        indexed, scanned = self._both_paths(index, _basis_embeddings(3)[0])
+
+        assert indexed != pytest.approx(scanned, abs=1e-5)
+
+
+class TestExactK:
+    """Returning every row the caller asked for."""
+
+    # Partitions enough that probing one reaches a small share of the table
+    SCATTERED = {
+        "index_type": "ivf_flat",
+        "index_params": {"num_partitions": 64},
+    }
+    ROWS = 500
+
+    def _index(self, tmp_path, **kwargs):
+        index = _unbound_index(tmp_path, nprobes=1, **self.SCATTERED, **kwargs)
+        index.add_to_index(
+            _random_embeddings(self.ROWS), _row_ids(self.ROWS), reload=False
+        )
+        return index
+
+    @builds_indexes
+    def test_an_indexed_query_alone_comes_back_short(self, tmp_path):
+        # Guards the premise: without a table the index answers partially,
+        # the fallback below would be untested rather than merely unused
+        index = self._index(tmp_path, refine_factor=None)
+
+        short = index._search(
+            index.table, _random_embeddings(1)[0], "l2", self.ROWS
+        ).to_pandas()
+
+        assert len(short) < self.ROWS
+
+    def test_a_short_result_falls_back_to_a_scan(self, tmp_path):
+        # An indexed query sees only the partitions it probes, so a `k` near
+        # the table size returns fewer rows than asked with no error, and
+        # `sort_by_similarity` documents `k=None` as sorting every sample
+        index = self._index(tmp_path, refine_factor=None)
+
+        results = index._search_exactly_k(
+            index.table, _random_embeddings(1)[0], "l2", self.ROWS
+        )
+
+        assert len(results) == self.ROWS
+
+    def test_a_table_smaller_than_k_is_not_retried(self, populated_index):
+        # Three rows cannot answer k=10, and a scan would not change that
+        with mock.patch.object(
+            LanceDBSimilarityIndex, "_search", wraps=populated_index._search
+        ) as search:
+            results = populated_index._search_exactly_k(
+                populated_index.table, _basis_embeddings(3)[0], "l2", 10
+            )
+
+        assert len(results) == 3
+        assert search.call_count == 1
 
 
 class TestPredicateBatching:
