@@ -8,11 +8,13 @@ LanceDB similarity backend.
 
 import logging
 import re
+from copy import deepcopy
 
 import numpy as np
 
 import eta.core.utils as etau
 
+import fiftyone.brain as fb
 import fiftyone.core.utils as fou
 import fiftyone.brain.internal.core.utils as fbu
 from fiftyone.brain.similarity import (
@@ -20,6 +22,9 @@ from fiftyone.brain.similarity import (
     Similarity,
     SimilarityIndex,
 )
+
+#: The store a run opens when neither it nor the backend names one.
+DEFAULT_URI = "/tmp/lancedb"
 
 lancedb = fou.lazy_import("lancedb")
 pa = fou.lazy_import("pyarrow")
@@ -48,7 +53,16 @@ class LanceDBSimilarityConfig(SimilarityConfig):
             provided, a new table will be created
         metric ("cosine"): the embedding distance metric to use when creating a
             new index. Supported values are ``("cosine", "euclidean")``
-        uri ("/tmp/lancedb"): the database URI to use
+        uri (None): the database URI to use. Recorded on the run, so two
+            runs may keep their tables in different stores. A run that names
+            none opens whatever the backend is configured with, which lets a
+            deployment move every unnamed run's store at once
+        storage_options (None): a dict of storage options for the object store
+            backing ``uri``, eg credentials for a cloud bucket. Passed through
+            to ``lancedb.connect()``. Unlike ``uri`` this is not serialized,
+            since it carries credentials, so it must be supplied again each
+            time the index is loaded. A value given here replaces any
+            configured for the backend rather than merging with it
         **kwargs: keyword arguments for :class:`SimilarityConfig`
     """
 
@@ -56,7 +70,8 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         self,
         table_name=None,
         metric="cosine",
-        uri="/tmp/lancedb",
+        uri=None,
+        storage_options=None,
         **kwargs,
     ):
         if metric not in _SUPPORTED_METRICS:
@@ -69,21 +84,29 @@ class LanceDBSimilarityConfig(SimilarityConfig):
 
         self.table_name = table_name
         self.metric = metric
+        # Serialized, so a run keeps the store it was built in rather than
+        # whatever the process reading it happens to be configured with
+        self.uri = uri
 
-        # store privately so these aren't serialized
-        self._uri = uri
+        # Assigned through its setter, which copies. Private: unlike the URI
+        # this carries credentials, and a run document is readable by anyone
+        # who can read the dataset
+        self.storage_options = storage_options
 
     @property
     def method(self):
         return "lancedb"
 
     @property
-    def uri(self):
-        return self._uri
+    def storage_options(self):
+        return self._storage_options
 
-    @uri.setter
-    def uri(self, value):
-        self._uri = value
+    @storage_options.setter
+    def storage_options(self, value):
+        # Copy: `_load_parameters` hands over the dict owned by the global
+        # brain config, and refreshing a credential in place would rewrite it
+        # for every other index in the process
+        self._storage_options = deepcopy(value)
 
     @property
     def max_k(self):
@@ -97,8 +120,42 @@ class LanceDBSimilarityConfig(SimilarityConfig):
     def supported_aggregations(self):
         return ("mean",)
 
-    def load_credentials(self, uri=None):
-        self._load_parameters(uri=uri)
+    def load_credentials(self, uri=None, storage_options=None):
+        # `_load_parameters` lets a configured value overwrite one already
+        # assigned, so the backend is consulted only where this config
+        # carries none: a bare refresh must not swap the credential the
+        # caller is holding for whatever the deployment is configured with
+        if storage_options is not None or self.storage_options is None:
+            self._load_parameters(storage_options=storage_options)
+
+        # Not through `_load_parameters`, which lets a configured value
+        # overwrite what is already set: the run's own URI has to win over
+        # the backend's, or a deployment default would move a run's table
+        # out from under it
+        if uri is not None:
+            self.uri = uri
+
+    def resolve_uri(self):
+        """The store this run opens.
+
+        Its own URI where it recorded one, else whatever the backend is
+        configured with, else a local directory.
+
+        The fallback is resolved here rather than assigned to :attr:`uri`,
+        so a run that named no store does not silently acquire the one that
+        happened to be configured the first time something read it.
+
+        Returns:
+            the database URI
+        """
+        if self.uri:
+            return self.uri
+
+        configured = fb.brain_config.similarity_backends.get(
+            self.method, {}
+        ).get("uri")
+
+        return configured or DEFAULT_URI
 
 
 class LanceDBSimilarity(Similarity):
@@ -137,13 +194,21 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         self._initialize()
 
     def _initialize(self):
+        # Only pass storage options when there are some: no minimum lancedb
+        # version is declared, and older releases have no such parameter. An
+        # empty dict carries no credential, so it counts as none
+        connect_kwargs = {}
+        if self.config.storage_options:
+            connect_kwargs["storage_options"] = self.config.storage_options
+
+        uri = self.config.resolve_uri()
         try:
-            db = lancedb.connect(self.config.uri)
+            db = lancedb.connect(uri, **connect_kwargs)
         except Exception as e:
             raise ValueError(
                 "Failed to connect to LanceDB backend at URI '%s'. Refer to "
                 "https://docs.voxel51.com/integrations/lancedb.html for more "
-                "information" % self.config.uri
+                "information" % uri
             ) from e
 
         if self.config.table_name is None:
@@ -159,6 +224,11 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         else:
             table = _open_table(db, self.config.table_name)
 
+        # Storage options given to `connect()` reach `create_table()` and
+        # `open_table()` through the connection, so those calls need none of
+        # their own. Keep the connection private: its own `serialize()`
+        # includes the storage options, so a public name here would write the
+        # credential into the brain document
         self._db = db
         self._table = table
 
