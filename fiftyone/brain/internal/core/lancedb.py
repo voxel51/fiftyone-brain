@@ -37,6 +37,94 @@ _SUPPORTED_METRICS = {
     "euclidean": "l2",
 }
 
+# Vector index families, mapped to their `lancedb.index` class name. The
+# default suits 512 dimensions; at 2048, `ivf_pq` with `num_sub_vectors=256`
+# matches its recall at a ninth of the index size and builds 3.5x faster, so
+# the family is configuration rather than a constant
+_SUPPORTED_INDEX_TYPES = {
+    "ivf_flat": "IvfFlat",
+    "ivf_sq": "IvfSq",
+    "ivf_pq": "IvfPq",
+    "ivf_rq": "IvfRq",
+    "ivf_hnsw_flat": "IvfHnswFlat",
+    "ivf_hnsw_sq": "IvfHnswSq",
+    "ivf_hnsw_pq": "IvfHnswPq",
+}
+
+# The column every vector index here is built on, and the one name used for
+# it. `replace=True` is scoped to the index *name*, not the column: two builds
+# under different names leave both indexes in place and the query keeps using
+# whichever was created first, with no error and no way to select the other at
+# query time. Reusing one name is what makes a rebuild a replacement
+_VECTOR_COLUMN = "vector"
+_VECTOR_INDEX_NAME = "vector_idx"
+
+# Widths at or below this take IVF_RQ. Its 1-bit codes are best in class at
+# 768 -- 0.9993 mean / 0.900 worst against IVF_PQ m=96's 0.9977 / 0.800, at a
+# third of the latency and a 2 s build against 32 s -- and collapse at 2048
+# (0.088-0.173 mean, 0.000 worst). The boundary sits at the widest measured
+# good rather than anywhere interpolated: 1024 and 1536 are untested and take
+# PQ deliberately.
+_RQ_MAX_DIMS = 768
+
+# Sub-vectors per PQ code, as a divisor of the width. LanceDB's own default
+# is a sixteenth, which at 768 measures 0.9447 mean / 0.200 worst against an
+# eighth's 0.9963 / 0.800 -- so the family default is the one setting here
+# that has to be supplied rather than left alone.
+_PQ_DIMS_PER_SUB_VECTOR = 8
+
+# Partitions probed per query where the family does not escalate. LanceDB's
+# implicit value is 20.
+_DEFAULT_NPROBES = 25
+
+# Rows below which an index is not worth building: an exhaustive scan of a
+# small table beats an indexed query, because the index read is a fixed cost
+# the scan does not pay. The crossover was measured four ways at 768
+# dimensions -- ~749 rows from a laptop and ~2,049 in-region when the index
+# is cache-warm, and ~29,700 and ~239,900 respectively on a cold first
+# query. The default takes the warm in-region figure, which is the steady
+# state a deployment runs in; the cold figures describe how much a first
+# query costs, which pre-warming answers rather than skipping the index.
+# Configurable because the warm crossover moves with client position, which
+# the deployment knows and this library does not.
+_DEFAULT_MIN_INDEX_ROWS = 2048
+
+# Families that escalate instead of pinning. They build about twice the
+# partitions of the others at the same row count, so one pinned value probes
+# half the share and reads as recall decaying with scale: at 400k by 768,
+# nprobes=25 reaches 26% of an RQ index against 52% of a PQ one, and RQ goes
+# 0.9943/0.700 pinned against 0.9993/0.900 escalating.
+_ESCALATING_FAMILIES = frozenset({"ivf_rq", "ivf_sq"})
+
+
+def _default_index_type(dims):
+    """The index family for embeddings of the given width.
+
+    Args:
+        dims: the embedding dimension
+
+    Returns:
+        a key of ``_SUPPORTED_INDEX_TYPES``
+    """
+    return "ivf_rq" if dims <= _RQ_MAX_DIMS else "ivf_pq"
+
+
+def _default_index_params(index_type, dims):
+    """The family's parameters when the config supplies none.
+
+    Args:
+        index_type: a key of ``_SUPPORTED_INDEX_TYPES``
+        dims: the embedding dimension
+
+    Returns:
+        a dict of keyword arguments for the family
+    """
+    if index_type in ("ivf_pq", "ivf_hnsw_pq"):
+        return {"num_sub_vectors": dims // _PQ_DIMS_PER_SUB_VECTOR}
+
+    return {}
+
+
 # IDs per predicate. Lance parses a predicate as a single expression, so an
 # unbounded `IN` list turns a large removal into a multi-megabyte string. At
 # 10k the predicate is ~180 KB and an existence scan runs about 3x faster than
@@ -51,9 +139,9 @@ _ID_BATCH_SIZE = 10000
 _LANCEDB_REQUIREMENT = "lancedb"
 
 # `create_index` first accepts a `config=` in 0.34.0, and that is the only
-# call in this backend that needs it. Older releases skip the index rather
-# than lose the backend: a write without it scans the id column, which is
-# slower and still correct.
+# call in this backend that needs it -- both indexes are built through it.
+# Older releases skip them rather than lose the backend: writes scan the id
+# column and queries scan every vector, slower and still correct.
 _ID_INDEX_REQUIREMENT = "lancedb>=0.34.0"
 
 # Page size when paginating LanceDB table listings
@@ -143,6 +231,45 @@ class LanceDBSimilarityConfig(SimilarityConfig):
             since it carries credentials, so it must be supplied again each
             time the index is loaded. A value given here replaces any
             configured for the backend rather than merging with it
+        index_type (None): the vector index family to build. Supported
+            values are ``("ivf_flat", "ivf_sq", "ivf_pq", "ivf_rq",
+            "ivf_hnsw_flat", "ivf_hnsw_sq", "ivf_hnsw_pq")``. Chosen from the
+            embedding width when unset: ``"ivf_rq"`` at 768 dimensions and
+            below, ``"ivf_pq"`` above
+        min_index_rows (2048): the row count below which no vector index is
+            built, because a scan of a small table beats an indexed query.
+            Measured at 768 dimensions: the cache-warm crossover is ~749
+            rows from a laptop and ~2,049 in-region. Set it from where the
+            queries run, which this library cannot know
+        index_params (None): a dict of keyword arguments for the index
+            family, such as ``num_sub_vectors`` for ``"ivf_pq"``. The PQ
+            families take an eighth of the width when unset, rather than
+            LanceDB's sixteenth. The distance type is set from ``metric`` and
+            cannot be overridden here
+        nprobes (None): the number of partitions to probe per query. Set from
+            the family when unset -- the escalating families search outward
+            until they have enough, and the rest take a fixed 25 -- because
+            the partition count grows with the table, so one pinned value
+            probes an ever-smaller share as rows arrive and recall falls for
+            that reason rather than with scale. **Inert on the
+            ``ivf_hnsw_*`` families**, which build a single IVF partition,
+            leaving nothing to choose between: the query plan still reports
+            the value and the engine ignores it. Use ``ef`` there
+        ef (None): the HNSW search-list size, and the only pruning knob the
+            ``ivf_hnsw_*`` families have. LanceDB suggests starting at
+            ``1.5 * k`` and raising toward ``10 * k`` if recall needs it
+            (https://docs.lancedb.com/performance). Must be at least
+            ``k * refine_factor`` when both are set
+        refine_factor (10): how many extra candidates to retrieve and
+            re-rank by exact distance -- what LanceDB's guide calls pulling
+            extra candidates and re-scoring them on full vectors, which the
+            quantized families need. An indexed query is approximate, and for
+            ``"cosine"`` it also reports distance on the scale the index was
+            built on rather than the scale an unindexed query reports. The
+            re-rank restores both: measured at 50k rows and 512 dimensions it
+            costs 1.1 ms against a 2.2 ms indexed query, and is still 6x
+            faster than the 19.9 ms an unindexed scan costs. Set to ``None``
+            to skip it
         **kwargs: keyword arguments for :class:`SimilarityConfig`
     """
 
@@ -152,6 +279,12 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         metric="cosine",
         uri=None,
         storage_options=None,
+        index_type=None,
+        min_index_rows=None,
+        index_params=None,
+        nprobes=None,
+        ef=None,
+        refine_factor=10,
         **kwargs,
     ):
         if metric not in _SUPPORTED_METRICS:
@@ -160,6 +293,39 @@ class LanceDBSimilarityConfig(SimilarityConfig):
                 % (metric, tuple(_SUPPORTED_METRICS.keys()))
             )
 
+        if index_type is not None and index_type not in _SUPPORTED_INDEX_TYPES:
+            raise ValueError(
+                "Unsupported index type '%s'. Supported values are %s"
+                % (index_type, tuple(_SUPPORTED_INDEX_TYPES.keys()))
+            )
+
+        if index_params is not None and not isinstance(index_params, dict):
+            raise ValueError(
+                "index_params must be a dict, found %s" % type(index_params)
+            )
+
+        # Caught here rather than at build time, where it arrives as a
+        # "multiple values for keyword argument" TypeError inside the build,
+        # is warned about, and leaves the table unindexed for good
+        if index_params and "distance_type" in index_params:
+            raise ValueError(
+                "The index distance type is set from `metric`; remove "
+                "'distance_type' from `index_params`"
+            )
+
+        # Non-positive knobs reach LanceDB as an OverflowError or a bare
+        # "cannot be zero" from its Rust layer, at query time, in whichever
+        # session loads the brain run rather than the one that set them
+        for name, value in (
+            ("nprobes", nprobes),
+            ("ef", ef),
+            ("refine_factor", refine_factor),
+        ):
+            if value is not None and (not isinstance(value, int) or value < 1):
+                raise ValueError(
+                    "%s must be a positive integer, found %r" % (name, value)
+                )
+
         super().__init__(**kwargs)
 
         self.table_name = table_name
@@ -167,6 +333,16 @@ class LanceDBSimilarityConfig(SimilarityConfig):
         # Serialized, so a run keeps the store it was built in rather than
         # whatever the process reading it happens to be configured with
         self.uri = uri
+        self.index_type = index_type
+        self.min_index_rows = (
+            _DEFAULT_MIN_INDEX_ROWS
+            if min_index_rows is None
+            else min_index_rows
+        )
+        self.index_params = index_params or {}
+        self.nprobes = nprobes
+        self.ef = ef
+        self.refine_factor = refine_factor
 
         # Assigned through its setter, which copies. Private: unlike the URI
         # this carries credentials, and a run document is readable by anyone
@@ -272,6 +448,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
     # rather than an `__init__` assignment, because an index can be built
     # without one
     _id_index_unavailable = False
+    _vector_index_unavailable = False
 
     def __init__(self, samples, config, brain_key, backend=None):
         super().__init__(samples, config, brain_key, backend=backend)
@@ -358,17 +535,17 @@ class LanceDBSimilarityIndex(SimilarityIndex):
     def _ensure_id_index(self):
         """Creates the scalar index on the ``id`` column if it is missing.
 
-        Every merge, delete and existence check matches on ``id``, and Lance
-        scans the whole column for those matches unless it is indexed, so an
-        unindexed write grows with the table: 4.1 ms at 1k rows, 8.3 ms at
-        100k, 33.9 ms at 1M. Sub-linear, because a per-commit floor of a few
-        milliseconds dominates below ~100k, but a 3.2x gap by a million.
-        Indexed, that same write is 10.6 ms.
+        Every merge, delete and existence check matches on ``id``, and
+        LanceDB's performance guide is explicit that this index is a
+        prerequisite rather than a tuning choice: a merge "has to scan
+        existing data to find matches on the join key (or look them up via
+        a scalar index, if one exists)", and without one "the matching step
+        falls back to a full column scan, which becomes the dominant cost
+        at scale". Measured at 512 dimensions and a 100-row batch, a merge
+        into a 500k-row table costs 3.8 ms indexed against 13.3 ms
+        unindexed, and the unindexed figure is the one that grows.
 
-        Figures are 512 dimensions, a 100-row batch, local disk. They come
-        from a three-arm harness that is not in the repo; the committed
-        ``tests/intensive/benchmark_lancedb.py`` times only the indexed arm,
-        because it builds this index during warmup.
+        https://docs.lancedb.com/performance
         """
         if self._id_index_unavailable:
             return
@@ -377,11 +554,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             # `create_index` replaces by default, so this guard is what stops
             # every add from rebuilding the index; it is not a
             # micro-optimization
-            indexed_columns = [
-                table_index.columns
-                for table_index in self._table.list_indices()
-            ]
-            if ["id"] in indexed_columns:
+            if self._is_indexed("id"):
                 return
 
             # BTree rather than Bitmap: IDs are unique, so the column's
@@ -413,9 +586,8 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         `fbu.get_embeddings()` hands back an empty array for a collection
         that yields none, and a run saved from it is a brain key pointing at
         nothing. Reading that as an empty index rather than dereferencing
-        `None` is what the other backends do -- sklearn's arrays are simply
-        empty -- and it keeps the missing-ID reporting below working, since
-        every ID asked for is then correctly missing.
+        `None` keeps the missing-ID reporting below working, since every ID
+        asked for is then correctly missing.
 
         Returns:
             a ``pandas.DataFrame`` in the index's schema
@@ -454,6 +626,122 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         ]
 
         return pd.concat(frames, ignore_index=True)
+
+    def _dims(self):
+        """The width of the table's vector column.
+
+        Returns:
+            the embedding dimension
+        """
+        return self._table.schema.field(_VECTOR_COLUMN).type.list_size
+
+    def _is_indexed(self, column):
+        """Whether the table carries an index on the given column.
+
+        Args:
+            column: a column name
+
+        Returns:
+            True/False
+        """
+        return [column] in [
+            table_index.columns for table_index in self._table.list_indices()
+        ]
+
+    def _ensure_vector_index(self):
+        """Creates the index on the ``vector`` column if it is missing.
+
+        An unindexed query scans every vector: 3.7 ms at 1k rows, 47.3 ms
+        at 100k and 417.6 ms at 1M, measured at 512 dimensions on local
+        disk, which spends the whole 500 ms query budget before any network
+        hop. LanceDB's guide puts the threshold at roughly 100k vectors;
+        ``min_index_rows`` is lower because the crossover was measured
+        directly at this width rather than taken as a general figure.
+
+        https://docs.lancedb.com/performance
+
+        A query over a view is answered from a per-query copy of the table
+        that carries no index, so it scans regardless. Replacing that
+        rewrite with a native prefilter is separate work.
+
+        Rebuilt when the distance type stops matching ``metric``, and
+        otherwise left alone. LanceDB answers a query whose metric
+        disagrees with the index by scanning every vector instead, and says
+        so only in a log line from its Rust layer -- no exception, no
+        Python warning -- so a stale distance type looks exactly like an
+        index that is merely slow. The family is not compared: a rebuild
+        costs minutes at ten million rows, so changing ``index_type`` under
+        an existing index is a no-op rather than a surprise that fires on
+        the next add.
+        """
+        if self._vector_index_unavailable:
+            return
+
+        # Not a failure, so not warned: a table under the crossover is
+        # answered faster by a scan, and the next add that carries it over
+        # builds the index then
+        if len(self._table) < self.config.min_index_rows:
+            return
+
+        distance_type = _SUPPORTED_METRICS[self.config.metric]
+
+        try:
+            if self._is_indexed(_VECTOR_COLUMN):
+                stats = self._table.index_stats(_VECTOR_INDEX_NAME)
+                if stats is not None and stats.distance_type == distance_type:
+                    return
+
+            index_type = self.config.index_type or _default_index_type(
+                self._dims()
+            )
+            index_params = self.config.index_params or _default_index_params(
+                index_type, self._dims()
+            )
+            index_class_name = _SUPPORTED_INDEX_TYPES[index_type]
+
+            # Built outside the compatibility handler below: a bad key in
+            # `index_params` reaches the family constructor as a TypeError
+            # too, and treating that as an old release would report the
+            # wrong cause and latch the index off for good -- correcting
+            # the config would then never be retried
+            index_config = getattr(lancedb.index, index_class_name)(
+                distance_type=distance_type, **index_params
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to configure the %r index: %s", _VECTOR_COLUMN, e
+            )
+            return
+
+        try:
+            # Pinned rather than left implicit: `replace=True` is scoped to
+            # the index name, so if LanceDB's default ever moved off
+            # `vector_idx` a rebuild would add a second index rather than
+            # replace this one, and the query would silently keep using
+            # whichever was built first
+            self._table.create_index(
+                _VECTOR_COLUMN, config=index_config, name=_VECTOR_INDEX_NAME
+            )
+        except TypeError as e:
+            # Same keyword, same story as the id index: a release without
+            # `config=` rejects it rather than failing the build. Warned
+            # once, because no later add on this release will differ
+            self._vector_index_unavailable = True
+            logger.warning(
+                "Skipping the %r index (%s); every query will scan every "
+                "vector instead. %s builds it",
+                _VECTOR_COLUMN,
+                e,
+                _ID_INDEX_REQUIREMENT,
+            )
+        except Exception as e:
+            # The rows are committed by this point and a query without the
+            # index is slow rather than wrong, so a failure here must not fail
+            # the add. Concurrent writers race to create it and Lance rejects
+            # the losers
+            logger.warning(
+                "Failed to index the %r column: %s", _VECTOR_COLUMN, e
+            )
 
     def _get_existing_ids(self, ids):
         """Returns the subset of ``ids`` that are present in the index.
@@ -587,9 +875,10 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         else:
             self._merge_rows(pa_table, overwrite=overwrite)
 
-        # Runs after the write so an existing table without the index picks
-        # it up on its next add, with the new rows included
+        # Both run after the write so an existing table without an index
+        # picks one up on its next add, with the new rows included
         self._ensure_id_index()
+        self._ensure_vector_index()
 
         if reload:
             self.reload()
@@ -826,7 +1115,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         label_ids = [] if self.config.patches_field is not None else None
         dists = []
         for q in query:
-            results = table.search(q).metric(metric).limit(k).to_pandas()
+            results = self._search_exactly_k(table, q, metric, k)
 
             if self.config.patches_field is not None:
                 sample_ids.append(results.sample_id.tolist())
@@ -848,6 +1137,88 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             return sample_ids, label_ids, dists
 
         return sample_ids, label_ids
+
+    def _search(self, table, query, metric, k, *, bypass_index=False):
+        """Builds the vector query, applying whichever knobs are configured.
+
+        Each knob is applied only when set, because LanceDB tunes ``nprobes``
+        from the partition count and the partition count grows with the table.
+        Pinning it probes an ever-smaller share as rows are added, which reads
+        as recall decaying with scale.
+
+        ``nprobes`` reaches the plan on every family but only changes results
+        on those that build more than one IVF partition, which the
+        ``ivf_hnsw_*`` families do not.
+
+        Args:
+            table: the ``lancedb.LanceTable`` to query
+            query: a query vector
+            metric: the LanceDB distance type to query with
+            k: the number of neighbors to return
+            bypass_index (False): whether to scan every vector rather than
+                use the index
+
+        Returns:
+            a ``lancedb`` query builder
+        """
+        search = table.search(query).metric(metric).limit(k)
+
+        if bypass_index:
+            return search.bypass_vector_index()
+
+        index_type = self.config.index_type or _default_index_type(len(query))
+
+        if self.config.nprobes is not None:
+            search = search.nprobes(self.config.nprobes)
+        elif index_type in _ESCALATING_FAMILIES:
+            # `maximum_nprobes` first: a minimum above the standing maximum
+            # is rejected. Zero means unbounded, so the floor is where the
+            # search starts rather than where it stops
+            search = search.maximum_nprobes(0).minimum_nprobes(k)
+        else:
+            search = search.nprobes(_DEFAULT_NPROBES)
+
+        if self.config.ef is not None:
+            search = search.ef(self.config.ef)
+
+        if self.config.refine_factor is not None:
+            search = search.refine_factor(self.config.refine_factor)
+
+        return search
+
+    def _search_exactly_k(self, table, query, metric, k):
+        """Runs the query, falling back to a scan if it comes back short.
+
+        An indexed query only sees the rows in the partitions it probes, so a
+        ``k`` approaching the table size can return fewer rows than asked --
+        ``ivf_flat`` saturates near half the table at 150k rows -- and reports
+        no error. Callers read that as the index holding fewer rows than it
+        does, and :meth:`SimilarityIndex.sort_by_similarity` documents
+        ``k=None`` as sorting every sample, so the shortfall drops samples
+        from a view without saying so.
+
+        The scan costs a second query, and only in the case that would
+        otherwise lose rows: a bounded ``k`` returns in full and never
+        reaches it.
+
+        Args:
+            table: the ``lancedb.LanceTable`` to query
+            query: a query vector
+            metric: the LanceDB distance type to query with
+            k: the number of neighbors to return
+
+        Returns:
+            a ``pandas.DataFrame`` of results
+        """
+        results = self._search(table, query, metric, k).to_pandas()
+
+        # A table with fewer than k rows is short for the honest reason
+        if len(results) >= k or len(table) < k:
+            return results
+
+        return self._search(
+            table, query, metric, k, bypass_index=True
+        ).to_pandas()
 
     def _parse_neighbors_query(self, query):
         if etau.is_str(query):
