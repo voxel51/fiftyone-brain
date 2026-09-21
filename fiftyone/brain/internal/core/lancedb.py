@@ -7,6 +7,7 @@ LanceDB similarity backend.
 """
 
 import logging
+from collections import Counter
 import re
 from copy import deepcopy
 
@@ -28,6 +29,7 @@ DEFAULT_URI = "/tmp/lancedb"
 
 lancedb = fou.lazy_import("lancedb")
 pa = fou.lazy_import("pyarrow")
+pd = fou.lazy_import("pandas")
 
 
 _SUPPORTED_METRICS = {
@@ -35,14 +37,92 @@ _SUPPORTED_METRICS = {
     "euclidean": "l2",
 }
 
-# How LanceDB says a table is not there, as against any other refusal from
-# `open_table` -- a store it cannot reach raises the same type
-_NOT_FOUND = re.compile(r"was not found", re.IGNORECASE)
+# IDs per predicate. Lance parses a predicate as a single expression, so an
+# unbounded `IN` list turns a large removal into a multi-megabyte string. At
+# 10k the predicate is ~180 KB and an existence scan runs about 3x faster than
+# it does at 1k, where the per-call overhead dominates
+_ID_BATCH_SIZE = 10000
+
+# No floor, which is what the backend declared before any of this: every
+# call the write path makes -- `merge_insert`, `checkout_latest`, the
+# predicate delete, the unlimited scan, `list_indices`, `index_stats` --
+# was verified working back to 0.30.2. Naming a version here would refuse
+# to run for people the connector serves perfectly well.
+_LANCEDB_REQUIREMENT = "lancedb"
+
+# `create_index` first accepts a `config=` in 0.34.0, and that is the only
+# call in this backend that needs it. Older releases skip the index rather
+# than lose the backend: a write without it scans the id column, which is
+# slower and still correct.
+_ID_INDEX_REQUIREMENT = "lancedb>=0.34.0"
 
 # Page size when paginating LanceDB table listings
 _DB_TABLE_PG_LIMIT = 100
 
 logger = logging.getLogger(__name__)
+
+
+def _empty_rows():
+    """An empty frame in the index's schema."""
+    return pd.DataFrame({"id": [], "sample_id": [], "vector": []}).astype(
+        {"id": str, "sample_id": str}
+    )
+
+
+def _to_arrow_table(ids, sample_ids, embeddings):
+    """Builds an Arrow table in the index's schema.
+
+    Args:
+        ids: an iterable of index IDs
+        sample_ids: an iterable of sample IDs
+        embeddings: a ``num_embeddings x num_dims`` array of embeddings
+
+    Returns:
+        a ``pyarrow.Table``
+    """
+    dims = embeddings.shape[1]
+    vectors = pa.FixedSizeListArray.from_arrays(
+        pa.array(embeddings.reshape(-1), type=pa.float32()), dims
+    )
+    return pa.Table.from_arrays(
+        [_to_id_list(ids), _to_id_list(sample_ids), vectors],
+        names=["id", "sample_id", "vector"],
+    )
+
+
+def _to_id_list(ids):
+    """Normalizes an ID or an iterable of IDs to a list.
+
+    Args:
+        ids: an ID or an iterable of IDs
+
+    Returns:
+        a list of IDs
+    """
+    if ids is None:
+        return []
+
+    # A bare string is iterable, so listing it would split it into characters
+    # and quietly address the wrong rows
+    if not etau.is_container(ids):
+        return [ids]
+
+    return list(ids)
+
+
+def _id_predicate(ids, column="id"):
+    """Builds a SQL predicate matching the given IDs.
+
+    Args:
+        ids: an iterable of IDs
+        column ("id"): the column to match against
+
+    Returns:
+        a SQL predicate string
+    """
+    # Doubling is how Lance's SQL parser escapes a quote inside a literal
+    quoted = ", ".join("'%s'" % str(_id).replace("'", "''") for _id in ids)
+    return "%s IN (%s)" % (column, quoted)
 
 
 class LanceDBSimilarityConfig(SimilarityConfig):
@@ -166,10 +246,10 @@ class LanceDBSimilarity(Similarity):
     """
 
     def ensure_requirements(self):
-        fou.ensure_package("lancedb")
+        fou.ensure_package(_LANCEDB_REQUIREMENT)
 
     def ensure_usage_requirements(self):
-        fou.ensure_package("lancedb")
+        fou.ensure_package(_LANCEDB_REQUIREMENT)
 
     def initialize(self, samples, brain_key):
         return LanceDBSimilarityIndex(
@@ -186,6 +266,12 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         brain_key: the brain key
         backend (None): a :class:`LanceDBSimilarity` instance
     """
+
+    # Set on the instance once the release is known to reject `config=`, so
+    # a long ingest does not warn about it on every add. A class attribute
+    # rather than an `__init__` assignment, because an index can be built
+    # without one
+    _id_index_unavailable = False
 
     def __init__(self, samples, config, brain_key, backend=None):
         super().__init__(samples, config, brain_key, backend=backend)
@@ -237,12 +323,185 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         """The ``lancedb.LanceTable`` instance for this index."""
         return self._table
 
+    def _sync_table(self):
+        """Points this index at the latest committed state of its table.
+
+        Lance pins a handle to the version it was opened at, so another
+        process's writes stay invisible for the lifetime of this object. On a
+        write path that stale view is not merely out of date: an existence
+        check misses rows that are present, so a merge inserts a second row
+        under an ID that already exists, and ``allow_existing=False`` fails to
+        raise. The refresh costs about 0.1 ms against a 2.8 ms merge.
+        """
+        if self._table is None:
+            # Asked for rather than looked up in the listing: another writer
+            # may have created it since this index opened, and absence is the
+            # ordinary case rather than an error
+            self._table = _open_table(self._db, self.config.table_name)
+
+            return
+
+        self._table.checkout_latest()
+
+    def reload(self):
+        """Refreshes the index against the latest committed table version."""
+        self._sync_table()
+        super().reload()
+
     @property
     def total_index_size(self):
         if self._table is None:
             return 0
 
         return len(self._table)
+
+    def _ensure_id_index(self):
+        """Creates the scalar index on the ``id`` column if it is missing.
+
+        Every merge, delete and existence check matches on ``id``, and Lance
+        scans the whole column for those matches unless it is indexed, so an
+        unindexed write grows with the table: 4.1 ms at 1k rows, 8.3 ms at
+        100k, 33.9 ms at 1M. Sub-linear, because a per-commit floor of a few
+        milliseconds dominates below ~100k, but a 3.2x gap by a million.
+        Indexed, that same write is 10.6 ms.
+
+        Figures are 512 dimensions, a 100-row batch, local disk. They come
+        from a three-arm harness that is not in the repo; the committed
+        ``tests/intensive/benchmark_lancedb.py`` times only the indexed arm,
+        because it builds this index during warmup.
+        """
+        if self._id_index_unavailable:
+            return
+
+        try:
+            # `create_index` replaces by default, so this guard is what stops
+            # every add from rebuilding the index; it is not a
+            # micro-optimization
+            indexed_columns = [
+                table_index.columns
+                for table_index in self._table.list_indices()
+            ]
+            if ["id"] in indexed_columns:
+                return
+
+            # BTree rather than Bitmap: IDs are unique, so the column's
+            # cardinality is its row count
+            self._table.create_index("id", config=lancedb.index.BTree())
+        except TypeError as e:
+            # `config=` is what 0.34.0 added, and a release without it
+            # rejects the keyword rather than failing the build. Say what
+            # the cost is, since nothing else here is degraded -- once,
+            # because no later add on this release will fare differently
+            self._id_index_unavailable = True
+            logger.warning(
+                "Skipping the 'id' index (%s); every write will scan the id "
+                "column instead. %s builds it",
+                e,
+                _ID_INDEX_REQUIREMENT,
+            )
+        except Exception as e:
+            # The rows are committed by this point and the index only makes
+            # later writes faster, so failing to build it must not fail the
+            # add. Concurrent writers race to create it and Lance rejects the
+            # losers with a conflict it labels retryable
+            logger.warning("Failed to index the 'id' column: %s", e)
+
+    def _rows(self):
+        """The table's rows, or an empty frame when there is no table yet.
+
+        An index whose adds all yielded no embeddings never creates a table:
+        `fbu.get_embeddings()` hands back an empty array for a collection
+        that yields none, and a run saved from it is a brain key pointing at
+        nothing. Reading that as an empty index rather than dereferencing
+        `None` is what the other backends do -- sklearn's arrays are simply
+        empty -- and it keeps the missing-ID reporting below working, since
+        every ID asked for is then correctly missing.
+
+        Returns:
+            a ``pandas.DataFrame`` in the index's schema
+        """
+        if self._table is None:
+            return _empty_rows()
+
+        return self._table.to_pandas()
+
+    def _rows_for(self, ids, column="id"):
+        """The rows carrying the given IDs, read by predicate.
+
+        A whole-table ``to_pandas()`` reads every vector to answer a
+        question about a handful of rows, and the gap grows with the table
+        because one side reads all of it. Measured at 512 dimensions,
+        fetching one row: 37 ms against 2.0 ms at 20k rows, 180 against 1.7
+        at 100k, 584 against 1.4 at 300k.
+
+        Args:
+            ids: an iterable of IDs
+            column ("id"): the column the IDs name
+
+        Returns:
+            a ``pandas.DataFrame`` in the index's schema
+        """
+        ids = list(ids)
+        if self._table is None or not ids:
+            return _empty_rows()
+
+        frames = [
+            self._table.search(None)
+            .where(_id_predicate(batch_ids, column=column))
+            .limit(None)
+            .to_pandas()
+            for batch_ids in fou.iter_batches(ids, _ID_BATCH_SIZE)
+        ]
+
+        return pd.concat(frames, ignore_index=True)
+
+    def _get_existing_ids(self, ids):
+        """Returns the subset of ``ids`` that are present in the index.
+
+        Args:
+            ids: an iterable of IDs
+
+        Returns:
+            a list of the IDs that are present
+        """
+        if self._table is None:
+            return []
+
+        existing_ids = []
+        for batch_ids in fou.iter_batches(list(ids), _ID_BATCH_SIZE):
+            # A vector search applies a default row limit but a plain scan
+            # does not; asking for no limit keeps a future default from
+            # turning this into a false report of missing IDs
+            results = (
+                self._table.search(None)
+                .where(_id_predicate(batch_ids))
+                .select(["id"])
+                .limit(None)
+                .to_arrow()
+            )
+            existing_ids.extend(results["id"].to_pylist())
+
+        # A table can hold an ID twice — written outside this connector, or
+        # by a merge that raced — and callers count these to report on them
+        return list(dict.fromkeys(existing_ids))
+
+    def _merge_rows(self, pa_table, *, overwrite):
+        """Upserts the given rows into the table.
+
+        Lance merges in place, so this costs the size of the batch, not the
+        size of the table: 33.9 ms against 4,152 ms for a whole-table rewrite
+        at 1M rows, 512 dimensions and a 100-row batch.
+
+        Args:
+            pa_table: a ``pyarrow.Table`` in the index's schema
+            overwrite: whether to replace rows whose IDs already exist
+        """
+        merge = self._table.merge_insert("id")
+        merge = merge.when_not_matched_insert_all()
+        if overwrite:
+            merge = merge.when_matched_update_all()
+
+        merge.execute(pa_table)
 
     def add_to_index(
         self,
@@ -254,27 +513,47 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         warn_existing=False,
         reload=True,
     ):
-        if self._table is None:
-            pa_table = pa.Table.from_arrays(
-                [[], [], []], names=["id", "sample_id", "vector"]
-            )
-        else:
-            pa_table = self._table.to_arrow()
-
         if label_ids is not None:
-            ids = label_ids
+            ids = _to_id_list(label_ids)
         else:
-            ids = sample_ids
+            ids = _to_id_list(sample_ids)
 
-        if warn_existing or not allow_existing or not overwrite:
-            existing_ids = set(pa_table["id"].to_pylist()) & set(ids)
+        if not ids:
+            # `fbu.get_embeddings()` hands back an empty array when a
+            # collection yields no embeddings at all, and an empty Arrow
+            # column is typed null, which no table or index can be built from
+            if reload:
+                self.reload()
+
+            return
+
+        self._sync_table()
+
+        # A duplicate would match one target row twice, which the merge below
+        # rejects, and on the insert-only path it would write two rows sharing
+        # an ID. Raising with the offending ID beats either failure. The set
+        # is the cheap test; the Counter only runs to name the duplicate
+        if len(set(ids)) != len(ids):
+            duplicate_ids = [
+                _id for _id, count in Counter(ids).items() if count > 1
+            ]
+            raise ValueError(
+                "Found %d duplicate IDs (eg %s) in the provided IDs. IDs must "
+                "be unique within a single add"
+                % (len(duplicate_ids), duplicate_ids[0])
+            )
+
+        # The merge honors `overwrite`, so the existing IDs are looked up
+        # only for the warning and the error below
+        if warn_existing or not allow_existing:
+            existing_ids = self._get_existing_ids(ids)
             num_existing = len(existing_ids)
 
             if num_existing > 0:
                 if not allow_existing:
                     raise ValueError(
                         "Found %d IDs (eg %s) that already exist in the index"
-                        % (num_existing, next(iter(existing_ids)))
+                        % (num_existing, existing_ids[0])
                     )
 
                 if warn_existing:
@@ -289,40 +568,28 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                             "Skipping %d IDs that already exist in the index",
                             num_existing,
                         )
+
+        pa_table = _to_arrow_table(ids, sample_ids, embeddings)
+
+        if self._table is None:
+            try:
+                self._table = self._db.create_table(
+                    self.config.table_name, pa_table
+                )
+            except Exception:
+                if self.config.table_name not in _table_names(self._db):
+                    raise
+
+                # Another writer created the table between this index opening
+                # and this add; join it rather than replacing it
+                self._table = self._db.open_table(self.config.table_name)
+                self._merge_rows(pa_table, overwrite=overwrite)
         else:
-            existing_ids = set()
+            self._merge_rows(pa_table, overwrite=overwrite)
 
-        if existing_ids and not overwrite:
-            del_inds = [i for i, _id in enumerate(ids) if _id in existing_ids]
-            embeddings = np.delete(embeddings, del_inds, axis=0)
-            sample_ids = np.delete(sample_ids, del_inds)
-            if label_ids is not None:
-                label_ids = np.delete(label_ids, del_inds)
-
-        if label_ids is not None:
-            ids = list(label_ids)
-        else:
-            ids = list(sample_ids)
-
-        dim = embeddings.shape[1]
-
-        if self._table:
-            prev_embeddings = np.concatenate(
-                pa_table["vector"].to_numpy()
-            ).reshape(-1, dim)
-            embeddings = np.concatenate([prev_embeddings, embeddings])
-            ids = pa_table["id"].to_pylist() + ids
-            sample_ids = pa_table["sample_id"].to_pylist() + sample_ids
-
-        embeddings = pa.array(embeddings.reshape(-1), type=pa.float32())
-        embeddings = pa.FixedSizeListArray.from_arrays(embeddings, dim)
-        sample_ids = list(sample_ids)
-        pa_table = pa.Table.from_arrays(
-            [ids, sample_ids, embeddings], names=["id", "sample_id", "vector"]
-        )
-        self._table = self._db.create_table(
-            self.config.table_name, pa_table, mode="overwrite"
-        )
+        # Runs after the write so an existing table without the index picks
+        # it up on its next add, with the new rows included
+        self._ensure_id_index()
 
         if reload:
             self.reload()
@@ -336,12 +603,14 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         reload=True,
     ):
         if label_ids is not None:
-            ids = label_ids
+            ids = _to_id_list(label_ids)
         else:
-            ids = sample_ids
+            ids = _to_id_list(sample_ids)
+
+        self._sync_table()
 
         if not allow_missing or warn_missing:
-            existing_ids = list(self._index.fetch(ids).vectors.keys())
+            existing_ids = self._get_existing_ids(ids)
             missing_ids = set(ids) - set(existing_ids)
             num_missing = len(missing_ids)
 
@@ -360,11 +629,11 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
                 ids = existing_ids
 
-        df = self._table.to_pandas()
-        df = df[~df["id"].isin(ids)]
-        self._table = self._db.create_table(
-            self.config.table_name, df, mode="overwrite"
-        )
+        if self._table is not None:
+            # Lance records a deletion as a per-fragment sidecar, leaving the
+            # data files untouched
+            for batch_ids in fou.iter_batches(ids, _ID_BATCH_SIZE):
+                self._table.delete(_id_predicate(batch_ids))
 
         if reload:
             self.reload()
@@ -385,7 +654,20 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                     "Ignoring sample IDs when label IDs are provided"
                 )
 
-        df = self._table.to_pandas()
+        # Which column the caller is naming, so the rows can be read by
+        # predicate. Only a request for the whole index reads the whole
+        # table; naming any IDs reads just those rows
+        if sample_ids is not None and self.config.patches_field is not None:
+            lookup_column, lookup_ids = "sample_id", sample_ids
+        elif self.config.patches_field is not None:
+            lookup_column, lookup_ids = "id", label_ids
+        else:
+            lookup_column, lookup_ids = "id", sample_ids
+
+        if lookup_ids is None:
+            df = self._rows()
+        else:
+            df = self._rows_for(_to_id_list(lookup_ids), column=lookup_column)
 
         found_embeddings = []
         found_sample_ids = []
@@ -449,7 +731,14 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                     num_missing_ids,
                 )
 
-        embeddings = np.array(found_embeddings)
+        # Two-dimensional even when empty, as `sklearn.py` is careful to
+        # be: a reducer handed a (0,) array reports "Expected 2D array",
+        # nowhere near whatever produced the empty result
+        embeddings = (
+            np.array(found_embeddings)
+            if found_embeddings
+            else np.empty((0, 0))
+        )
         sample_ids = np.array(found_sample_ids)
         if label_ids is not None:
             label_ids = np.array(found_label_ids)
@@ -503,6 +792,22 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         table = self._table
 
+        if table is None:
+            # No table means no rows to be near. The shape has to match what
+            # a populated query returns, because callers unpack it -- and
+            # each slot gets its own list, because the populated path
+            # returns three and `_set_list_values_by_id` takes all three
+            def empty():
+                return [] if single_query else [[] for _ in query]
+
+            label_ids = (
+                empty() if self.config.patches_field is not None else None
+            )
+            if return_dists:
+                return empty(), label_ids, empty()
+
+            return empty(), label_ids
+
         if self.has_view:
             if self.config.patches_field is not None:
                 index_ids = list(self.current_label_ids)
@@ -521,7 +826,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         label_ids = [] if self.config.patches_field is not None else None
         dists = []
         for q in query:
-            results = table.search(q).metric(metric).limit(k).to_df()
+            results = table.search(q).metric(metric).limit(k).to_pandas()
 
             if self.config.patches_field is not None:
                 sample_ids.append(results.sample_id.tolist())
@@ -558,9 +863,9 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             query_ids = list(query)
             single_query = False
 
-        # Query by ID(s)
-        df = self._table.to_pandas()
-        df = df[df["id"].isin(query_ids)]
+        # Query by ID(s), read by predicate rather than by reading the
+        # whole table back to keep a handful of rows
+        df = self._rows_for(query_ids)
         query = np.array([v for v in df["vector"]])
 
         if query.size == 0:
@@ -579,21 +884,63 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
 
 def _open_table(db, table_name):
-    # Asked for rather than looked up: an existence check means listing
-    # every table, and the listing is paged. A run whose table has yet to
-    # be written is the ordinary case, so its absence is not an error
+    """Opens a table, or returns ``None`` when the name holds none.
+
+    Asked for rather than looked up, because an existence check means paging
+    the whole listing and a run whose table has yet to be written is the
+    ordinary case.
+
+    Args:
+        db: a ``lancedb`` connection
+        table_name: the name to open
+
+    Returns:
+        a ``lancedb.LanceTable``, or None if no table has that name
+    """
     try:
         return db.open_table(table_name)
-    except ValueError as e:
-        # Absence and unreachability are both bare `ValueError` here, and
-        # only the message separates them. Re-raising anything else keeps a
-        # store this process cannot read from reading as an empty index --
-        # and if the wording ever moves, a missing table starts raising
-        # instead of going quiet, which is the safer way to be wrong
-        if _NOT_FOUND.search(str(e)):
-            return None
+    except ValueError:
+        # A table that is absent and one that will not open raise the same
+        # type, and only the message separates them. The listing decides it
+        # instead: a name that is there names a table that exists, whatever
+        # is wrong with it, and calling that absent would let the next add
+        # replace it -- `create_table` succeeds over a directory whose
+        # manifests are gone and drops the rows still sitting in it. Going
+        # through the listing also keeps this off LanceDB's wording, which
+        # differs between the embedded and remote paths
+        if table_name in _table_names(db):
+            raise
 
-        raise
+        return None
+
+
+def _legacy_table_names(db):
+    """Every table name, from the listing releases before 0.27.1 offer.
+
+    `list_tables` does not exist there; `table_names` does, on every
+    release back to at least 0.20.0, and pages on the last name it
+    returned rather than on a token of its own. Measured complete and
+    without repeats that way from 0.20.0 through 0.39.0 -- which the
+    token-based listing is not, hence the compensation in
+    :func:`_table_names`.
+
+    Args:
+        db: a ``lancedb`` connection
+
+    Returns:
+        a list of table names
+    """
+    names = []
+    page_token = None
+    while True:
+        page = list(
+            db.table_names(page_token=page_token, limit=_DB_TABLE_PG_LIMIT)
+        )
+        if not page:
+            return names
+
+        names.extend(page)
+        page_token = page[-1]
 
 
 def _table_names(db):
@@ -602,15 +949,36 @@ def _table_names(db):
     # is a storage key rather than a table name, and it is exclusive: a page
     # begins after the last name of the page before it. The response carries
     # no token once it has returned the last page
+    if not hasattr(db, "list_tables"):
+        return _legacy_table_names(db)
+
     page_token = None
     table_names = []
+    seen = set()
     while True:
         response = db.list_tables(
             page_token=page_token, limit=_DB_TABLE_PG_LIMIT
         )
-        table_names.extend(response.tables)
-        page_token = response.page_token
-        if not page_token:
-            break
 
-    return table_names
+        # Materialized so the guard below tests the rows rather than the
+        # container, which can be truthy while yielding nothing
+        page = list(response.tables)
+        table_names.extend(page)
+        seen.update(page)
+
+        page_token = response.page_token
+
+        # An empty page ends the walk even when a token comes back with it,
+        # which would otherwise spin
+        if not page_token or not page:
+            return table_names
+
+        # Before 0.38.0 the token is the name of the next table rather than
+        # the storage key of the last one returned, and the request it is
+        # passed to resumes *after* it -- so that one table is never listed,
+        # once per page boundary. The name is the token itself, so take it.
+        # A key carries the "/" that LanceDB forbids in a table name, which
+        # is what tells the two forms apart. Past 0.38.0 this never fires.
+        if "/" not in page_token and page_token not in seen:
+            table_names.append(page_token)
+            seen.add(page_token)
