@@ -19,7 +19,7 @@ import types
 import pyarrow as pa
 import pytest
 
-import fiftyone.brain.internal.core.lancedb as foblancedb
+from fiftyone.brain.internal.core import lancedb as lancedb_backend
 
 lancedb = pytest.importorskip("lancedb")
 
@@ -48,11 +48,11 @@ def fixture_database(tmp_path_factory):
 @pytest.fixture(name="page_size")
 def fixture_page_size():
     """Sets the module's page size, and restores it afterwards."""
-    original = foblancedb._DB_TABLE_PG_LIMIT
+    original = lancedb_backend._DB_TABLE_PG_LIMIT
 
-    yield lambda size: setattr(foblancedb, "_DB_TABLE_PG_LIMIT", size)
+    yield lambda size: setattr(lancedb_backend, "_DB_TABLE_PG_LIMIT", size)
 
-    foblancedb._DB_TABLE_PG_LIMIT = original
+    lancedb_backend._DB_TABLE_PG_LIMIT = original
 
 
 class TestTableNames:
@@ -66,7 +66,7 @@ class TestTableNames:
         page_size(size)
         expected = sorted(database.list_tables(limit=TABLE_COUNT * 2).tables)
 
-        listed = foblancedb._table_names(database)
+        listed = lancedb_backend._table_names(database)
 
         assert sorted(listed) == expected
         assert len(listed) == len(set(listed))
@@ -75,19 +75,19 @@ class TestTableNames:
         # The reason any of this exists: the unpaged call answers with a
         # page rather than with every table.
         assert len(database.table_names()) < TABLE_COUNT
-        assert len(foblancedb._table_names(database)) == TABLE_COUNT
+        assert len(lancedb_backend._table_names(database)) == TABLE_COUNT
 
     def test_an_empty_database_lists_nothing(self, tmp_path):
         empty = lancedb.connect(os.path.join(str(tmp_path), "empty"))
 
-        assert foblancedb._table_names(empty) == []
+        assert lancedb_backend._table_names(empty) == []
 
 
 class TestOpenTable:
     """Asking for one table rather than listing every one to find it."""
 
     def test_a_table_that_is_there_comes_back(self, database):
-        opened = foblancedb._open_table(database, "table00")
+        opened = lancedb_backend._open_table(database, "table00")
 
         assert opened is not None
         assert len(opened) == 1
@@ -95,7 +95,7 @@ class TestOpenTable:
     def test_a_table_that_is_not_there_is_not_an_error(self, database):
         # A run whose table has yet to be written is the ordinary case, and
         # reads as an index holding nothing.
-        assert foblancedb._open_table(database, "table99") is None
+        assert lancedb_backend._open_table(database, "table99") is None
 
     def test_a_table_that_cannot_be_read_is_raised(self, tmp_path):
         # Absence and unreadability are not distinguished by type here, so
@@ -112,7 +112,7 @@ class TestOpenTable:
                 handle.write(b"not a manifest")
 
         with pytest.raises(Exception) as raised:
-            foblancedb._open_table(database, "broken")
+            lancedb_backend._open_table(database, "broken")
 
         assert "was not found" not in str(raised.value)
 
@@ -125,13 +125,13 @@ class TestConnect:
         # a full index -- which needs a dataset -- is not required to observe
         # what the connection was opened with
         index = types.SimpleNamespace(config=config)
-        foblancedb.LanceDBSimilarityIndex._initialize(index)
+        lancedb_backend.LanceDBSimilarityIndex._initialize(index)
 
         return index._db
 
     def test_storage_options_reach_the_connection(self, tmp_path):
         options = {"timeout": "30s"}
-        config = foblancedb.LanceDBSimilarityConfig(
+        config = lancedb_backend.LanceDBSimilarityConfig(
             table_name="a-table",
             uri=str(tmp_path),
             storage_options=options,
@@ -149,7 +149,7 @@ class TestConnect:
         # No minimum lancedb version is declared, so a release without the
         # parameter must still work for callers that set no options, which
         # means passing none rather than an empty dict
-        config = foblancedb.LanceDBSimilarityConfig(
+        config = lancedb_backend.LanceDBSimilarityConfig(
             table_name="a-table", uri=str(tmp_path), storage_options=options
         )
 
@@ -158,7 +158,7 @@ class TestConnect:
         assert connection.storage_options is None
 
     def test_the_run_s_own_store_is_the_one_opened(self, tmp_path):
-        config = foblancedb.LanceDBSimilarityConfig(
+        config = lancedb_backend.LanceDBSimilarityConfig(
             table_name="a-table", uri=str(tmp_path)
         )
 
