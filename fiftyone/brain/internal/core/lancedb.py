@@ -67,10 +67,12 @@ _VECTOR_INDEX_NAME = "vector_idx"
 # PQ deliberately.
 _RQ_MAX_DIMS = 768
 
-# Sub-vectors per PQ code, as a divisor of the width. LanceDB's own default
-# is a sixteenth, which at 768 measures 0.9447 mean / 0.200 worst against an
-# eighth's 0.9963 / 0.800 -- so the family default is the one setting here
-# that has to be supplied rather than left alone.
+# Target width of a PQ sub-vector, in dimensions. LanceDB's own default is a
+# sixteenth of the embedding width, which at 768 measures 0.9447 mean / 0.200
+# worst against an eighth's 0.9963 / 0.800 -- so the family default is the one
+# setting here that has to be supplied rather than left alone. Lance takes the
+# sub-vector count rather than the width, and requires it to divide the width
+# exactly, so this is a target and the nearest divisor is what is asked for.
 _PQ_DIMS_PER_SUB_VECTOR = 8
 
 # Partitions probed per query where the family does not escalate. LanceDB's
@@ -109,6 +111,40 @@ def _default_index_type(dims):
     return "ivf_rq" if dims <= _RQ_MAX_DIMS else "ivf_pq"
 
 
+def _sub_vector_count(dims):
+    """The number of PQ sub-vectors to ask for at a given width.
+
+    Lance requires the count to divide the width exactly and rejects the
+    index outright otherwise -- a warning, and then every query scans every
+    vector -- so what is chosen here is the width of a sub-vector, and the
+    count follows from it. The nearest divisor within a factor of two of
+    ``_PQ_DIMS_PER_SUB_VECTOR`` is used. A width with no divisor in that
+    band is left to LanceDB, which picks one that divides.
+
+    Args:
+        dims: the embedding dimension
+
+    Returns:
+        a sub-vector count, or ``None`` to leave the choice to LanceDB
+    """
+    widths = [
+        width
+        for width in range(
+            _PQ_DIMS_PER_SUB_VECTOR // 2, 2 * _PQ_DIMS_PER_SUB_VECTOR + 1
+        )
+        if dims % width == 0
+    ]
+    if not widths:
+        return None
+
+    # Ties go to the wider sub-vector, which is the cheaper index to build
+    width = min(
+        widths,
+        key=lambda width: (abs(width - _PQ_DIMS_PER_SUB_VECTOR), -width),
+    )
+    return dims // width
+
+
 def _default_index_params(index_type, dims):
     """The family's parameters when the config supplies none.
 
@@ -120,7 +156,9 @@ def _default_index_params(index_type, dims):
         a dict of keyword arguments for the family
     """
     if index_type in ("ivf_pq", "ivf_hnsw_pq"):
-        return {"num_sub_vectors": dims // _PQ_DIMS_PER_SUB_VECTOR}
+        num_sub_vectors = _sub_vector_count(dims)
+        if num_sub_vectors is not None:
+            return {"num_sub_vectors": num_sub_vectors}
 
     return {}
 

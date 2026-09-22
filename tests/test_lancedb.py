@@ -45,6 +45,7 @@ from fiftyone.brain.internal.core.lancedb import (  # noqa: E402
     _default_index_params,
     _id_predicate,
     _open_table,
+    _sub_vector_count,
     _table_names,
     _to_arrow_table,
     _to_id_list,
@@ -1021,6 +1022,39 @@ _DEFAULTED_FAMILIES = {
 }
 
 
+class TestSubVectorCount:
+    """The PQ sub-vector count, which Lance requires to divide the width."""
+
+    @pytest.mark.parametrize(
+        "dims", [384, 512, 768, 1024, 1152, 1280, 1536, 2048, 3072, 4096]
+    )
+    def test_a_width_the_target_divides_gets_exactly_an_eighth(self, dims):
+        assert _sub_vector_count(dims) == dims // 8
+
+    # 1020 divides by both 6 and 10, equally far from the target, and takes
+    # the wider sub-vector: 102 of them rather than 170
+    @pytest.mark.parametrize(
+        "dims,expected", [(1001, 143), (1002, 167), (1020, 102)]
+    )
+    def test_a_width_it_does_not_divide_gets_the_nearest_that_does(
+        self, dims, expected
+    ):
+        assert _sub_vector_count(dims) == expected
+
+    @pytest.mark.parametrize("dims", [1009, 1013])
+    def test_a_width_with_no_divisor_in_band_defers(self, dims):
+        assert _sub_vector_count(dims) is None
+        assert _default_index_params("ivf_pq", dims) == {}
+
+    def test_the_count_always_divides_the_width(self):
+        # Lance rejects a count that does not divide the width, and the
+        # rejection costs the whole index rather than just the parameter
+        for dims in range(64, 4097):
+            num_sub_vectors = _sub_vector_count(dims)
+
+            assert num_sub_vectors is None or dims % num_sub_vectors == 0, dims
+
+
 class TestDefaultIndexParams:
     """The parameters a family is given when the config names none."""
 
@@ -1171,6 +1205,22 @@ class TestVectorIndex:
         config = create_index.call_args.kwargs["config"]
 
         assert config.num_sub_vectors == dims // 8
+
+    # A width the target does not divide used to be handed a count Lance
+    # rejects, which left the table with no vector index at all -- warned,
+    # and then every query scanned every vector
+    @builds_indexes
+    def test_a_width_the_target_does_not_divide_still_indexes(self, tmp_path):
+        index = _unbound_index(tmp_path, index_type="ivf_pq")
+        index.add_to_index(
+            np.random.default_rng(0).random(
+                (PQ_TRAINING_ROWS, 1001), dtype=np.float32
+            ),
+            _row_ids(PQ_TRAINING_ROWS),
+            reload=False,
+        )
+
+        assert _vector_indexes(index)
 
     @builds_indexes
     def test_an_explicit_family_overrides_the_width(self, tmp_path):
