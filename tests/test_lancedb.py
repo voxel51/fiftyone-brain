@@ -42,6 +42,7 @@ from fiftyone.brain.internal.core.lancedb import (  # noqa: E402
     _SUPPORTED_INDEX_TYPES,
     _SUPPORTED_METRICS,
     _VECTOR_INDEX_NAME,
+    _default_index_params,
     _id_predicate,
     _open_table,
     _table_names,
@@ -57,6 +58,25 @@ builds_indexes = pytest.mark.skipif(
     "config"
     not in inspect.signature(lancedb.table.Table.create_index).parameters,
     reason="create_index(config=) arrives in lancedb 0.34.0",
+)
+
+#: A family's parameters live in Lance's own index metadata. `index_stats`
+#: carries only the row counts, the distance type and the family name, so
+#: reading anything finer needs pylance -- a separate package from lancedb,
+#: and not one the backend itself requires. It is left out of CI rather
+#: than pinned there, since its releases track Lance's on-disk format
+#: rather than lancedb's, so the parameters are pinned at the point they
+#: are chosen and this reads them back only where it can
+try:
+    import lance  # noqa: F401
+
+    _READS_INDEX_METADATA = True
+except ImportError:
+    _READS_INDEX_METADATA = False
+
+reads_index_metadata = pytest.mark.skipif(
+    not _READS_INDEX_METADATA,
+    reason="reading Lance index metadata needs pylance",
 )
 
 DIMS = 8
@@ -985,6 +1005,55 @@ class TestIdIndex:
         assert "Failed to index the 'id' column" in caplog.text
 
 
+#: Every family, and whether the connector supplies it parameters when the
+#: config names none: `None` marks the width-dependent ones. Spelled out
+#: rather than derived from the backend, and checked against it below, so a
+#: family added there has to have its default decided here instead of
+#: inheriting the empty case by being forgotten
+_DEFAULTED_FAMILIES = {
+    "ivf_flat": {},
+    "ivf_sq": {},
+    "ivf_rq": {},
+    "ivf_hnsw_flat": {},
+    "ivf_hnsw_sq": {},
+    "ivf_pq": None,
+    "ivf_hnsw_pq": None,
+}
+
+
+class TestDefaultIndexParams:
+    """The parameters a family is given when the config names none."""
+
+    def test_every_supported_family_is_listed(self):
+        assert set(_DEFAULTED_FAMILIES) == set(_SUPPORTED_INDEX_TYPES)
+
+    @pytest.mark.parametrize(
+        "index_type",
+        sorted(k for k, v in _DEFAULTED_FAMILIES.items() if v == {}),
+    )
+    def test_a_family_without_parameters_supplies_none(self, index_type):
+        assert _default_index_params(index_type, 1024) == {}
+
+    # Three widths rather than one: at a single width an eighth is
+    # indistinguishable from the constant it happens to equal. 1000 is not a
+    # multiple of 16, so a half-of-a-sixteenth spelling fails it too
+    @pytest.mark.parametrize(
+        "dims,expected", [(768, 96), (1000, 125), (2048, 256)]
+    )
+    @pytest.mark.parametrize(
+        "index_type",
+        sorted(k for k, v in _DEFAULTED_FAMILIES.items() if v is None),
+    )
+    def test_a_pq_family_splits_the_width_by_eight(
+        self, index_type, dims, expected
+    ):
+        # LanceDB's own default is a sixteenth of the width, which measures
+        # 0.9447 mean / 0.200 worst at 768 against an eighth's 0.9963 / 0.800
+        assert _default_index_params(index_type, dims) == {
+            "num_sub_vectors": expected
+        }
+
+
 class TestVectorIndex:
     """The vector index on the ``vector`` column."""
 
@@ -1057,6 +1126,7 @@ class TestVectorIndex:
         assert _vector_indexes(index)[0].index_type == expected
 
     @builds_indexes
+    @reads_index_metadata
     def test_a_pq_default_supplies_its_own_sub_vectors(self, tmp_path):
         # LanceDB's own default is a sixteenth of the width, which measures
         # 0.9447 mean / 0.200 worst at 768 against an eighth's 0.9963 / 0.800
@@ -1073,6 +1143,34 @@ class TestVectorIndex:
         sub_index = _lance_index_meta(index)["sub_index"]
 
         assert sub_index["num_sub_vectors"] == dims // 8
+
+    # The read above needs pylance, so this is what checks in CI that the
+    # computed count is the one LanceDB is handed. `min_index_rows` keeps
+    # the first add under the crossover, so the table exists to patch
+    # before any index is attempted
+    @builds_indexes
+    @pytest.mark.parametrize("dims", [1000, 1024])
+    def test_a_pq_default_reaches_the_family(self, tmp_path, dims):
+        index = _unbound_index(tmp_path, index_type="ivf_pq", min_index_rows=3)
+        rng = np.random.default_rng(0)
+        index.add_to_index(
+            rng.random((2, dims), dtype=np.float32),
+            _row_ids(2),
+            reload=False,
+        )
+
+        with mock.patch.object(
+            type(index.table), "create_index", autospec=True
+        ) as create_index:
+            index.add_to_index(
+                rng.random((2, dims), dtype=np.float32),
+                np.array(["extra-0", "extra-1"]),
+                reload=False,
+            )
+
+        config = create_index.call_args.kwargs["config"]
+
+        assert config.num_sub_vectors == dims // 8
 
     @builds_indexes
     def test_an_explicit_family_overrides_the_width(self, tmp_path):
