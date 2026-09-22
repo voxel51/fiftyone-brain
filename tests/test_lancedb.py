@@ -1031,28 +1031,41 @@ class TestSubVectorCount:
     def test_a_width_the_target_divides_gets_exactly_an_eighth(self, dims):
         assert _sub_vector_count(dims) == dims // 8
 
-    # 1020 divides by both 6 and 10, equally far from the target, and takes
-    # the wider sub-vector: 102 of them rather than 170
+    # The sub-vector width is what gets chosen and the count follows from
+    # it, so these name the width: reading 143 back as "1001 split seven
+    # ways" means factoring 1001 first
     @pytest.mark.parametrize(
-        "dims,expected", [(1001, 143), (1002, 167), (1020, 102)]
+        "dims,width",
+        [
+            pytest.param(1001, 7, id="nearest_of_three_candidates"),
+            pytest.param(1002, 6, id="the_only_divisor_in_band"),
+            pytest.param(1020, 6, id="tie_goes_to_the_narrower"),
+            pytest.param(1035, 9, id="nearest_above_beats_nearest_below"),
+            pytest.param(772, 4, id="at_the_narrow_edge"),
+            pytest.param(1027, 13, id="at_the_wide_edge"),
+        ],
     )
-    def test_a_width_it_does_not_divide_gets_the_nearest_that_does(
-        self, dims, expected
-    ):
-        assert _sub_vector_count(dims) == expected
+    def test_the_width_is_the_divisor_nearest_the_target(self, dims, width):
+        assert _sub_vector_count(dims) == dims // width
 
-    @pytest.mark.parametrize("dims", [1009, 1013])
-    def test_a_width_with_no_divisor_in_band_defers(self, dims):
+    # 1009 and 1013 are prime; 1003 and 1011 divide only by 17 and by 3,
+    # both outside the band, so a wider band would wrongly accept them
+    @pytest.mark.parametrize("dims", [1009, 1013, 1003, 1011])
+    def test_a_width_with_no_divisor_in_band_has_no_count(self, dims):
         assert _sub_vector_count(dims) is None
-        assert _default_index_params("ivf_pq", dims) == {}
 
-    def test_the_count_always_divides_the_width(self):
-        # Lance rejects a count that does not divide the width, and the
-        # rejection costs the whole index rather than just the parameter
-        for dims in range(64, 4097):
+    def test_a_count_always_splits_the_width_into_band_sized_pieces(self):
+        # Dividing the width is what Lance requires, and a piece near the
+        # target is the point of choosing at all -- a count that divides
+        # but leaves 1-dimensional pieces satisfies the first, not the
+        # second
+        for dims in range(1, 4097):
             num_sub_vectors = _sub_vector_count(dims)
+            if num_sub_vectors is None:
+                continue
 
-            assert num_sub_vectors is None or dims % num_sub_vectors == 0, dims
+            assert dims % num_sub_vectors == 0, dims
+            assert 4 <= dims // num_sub_vectors <= 16, dims
 
 
 class TestDefaultIndexParams:
@@ -1085,6 +1098,21 @@ class TestDefaultIndexParams:
         # 0.9447 mean / 0.200 worst at 768 against an eighth's 0.9963 / 0.800
         assert _default_index_params(index_type, dims) == {
             "num_sub_vectors": expected
+        }
+
+    # Reached only by naming the family, since the default sends such a
+    # width to a family that needs no divisor. LanceDB's own choice here is
+    # a single sub-vector coding the whole vector, which retrieves noise
+    @pytest.mark.parametrize("dims", [1009, 1003])
+    @pytest.mark.parametrize(
+        "index_type",
+        sorted(k for k, v in _DEFAULTED_FAMILIES.items() if v is None),
+    )
+    def test_a_width_it_cannot_split_takes_one_dimension_each(
+        self, index_type, dims
+    ):
+        assert _default_index_params(index_type, dims) == {
+            "num_sub_vectors": dims
         }
 
 
@@ -1145,6 +1173,7 @@ class TestVectorIndex:
         [
             pytest.param(_RQ_MAX_DIMS, "IvfRq", id="at_the_boundary"),
             pytest.param(_RQ_MAX_DIMS + 256, "IvfPq", id="above_it"),
+            pytest.param(1009, "IvfSq", id="a_width_pq_cannot_split"),
         ],
     )
     @builds_indexes
@@ -1206,11 +1235,62 @@ class TestVectorIndex:
 
         assert config.num_sub_vectors == dims // 8
 
+    @builds_indexes
+    def test_configured_parameters_replace_rather_than_extend(self, tmp_path):
+        # Merging would add a computed `num_sub_vectors` to a config that
+        # named one unrelated knob, overriding a family the caller may
+        # have picked the width for
+        index = _unbound_index(
+            tmp_path,
+            index_type="ivf_pq",
+            index_params={"num_bits": 4},
+            min_index_rows=3,
+        )
+        rng = np.random.default_rng(0)
+        index.add_to_index(
+            rng.random((2, 1024), dtype=np.float32), _row_ids(2), reload=False
+        )
+
+        with mock.patch.object(
+            type(index.table), "create_index", autospec=True
+        ) as create_index:
+            index.add_to_index(
+                rng.random((2, 1024), dtype=np.float32),
+                np.array(["extra-0", "extra-1"]),
+                reload=False,
+            )
+
+        config = create_index.call_args.kwargs["config"]
+
+        assert config.num_bits == 4
+        assert config.num_sub_vectors is None
+
     # A width the target does not divide used to be handed a count Lance
     # rejects, which left the table with no vector index at all -- warned,
     # and then every query scanned every vector
     @builds_indexes
-    def test_a_width_the_target_does_not_divide_still_indexes(self, tmp_path):
+    def test_a_width_the_target_does_not_divide_still_indexes(
+        self, tmp_path, caplog
+    ):
+        index = _unbound_index(tmp_path, index_type="ivf_pq")
+        with caplog.at_level(logging.WARNING):
+            index.add_to_index(
+                np.random.default_rng(0).random(
+                    (PQ_TRAINING_ROWS, 1001), dtype=np.float32
+                ),
+                _row_ids(PQ_TRAINING_ROWS),
+                reload=False,
+            )
+
+        # Lance refuses a count that does not divide, and the refusal is
+        # caught and warned rather than raised, so the index is simply
+        # absent -- the warning is the only thing that names the cause
+        assert "Failed to index" not in caplog.text
+        assert _vector_indexes(index)
+
+    @builds_indexes
+    @reads_index_metadata
+    def test_the_count_lance_records_is_the_one_chosen(self, tmp_path):
         index = _unbound_index(tmp_path, index_type="ivf_pq")
         index.add_to_index(
             np.random.default_rng(0).random(
@@ -1220,7 +1300,9 @@ class TestVectorIndex:
             reload=False,
         )
 
-        assert _vector_indexes(index)
+        sub_index = _lance_index_meta(index)["sub_index"]
+
+        assert sub_index["num_sub_vectors"] == 143
 
     @builds_indexes
     def test_an_explicit_family_overrides_the_width(self, tmp_path):
