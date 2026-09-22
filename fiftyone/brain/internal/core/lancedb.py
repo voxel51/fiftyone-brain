@@ -128,14 +128,15 @@ def _sub_vector_count(dims):
     index outright otherwise -- a warning, and then every query scans every
     vector -- so what is chosen here is the width of a sub-vector, and the
     count follows from it. The nearest divisor within a factor of two of
-    ``_PQ_DIMS_PER_SUB_VECTOR`` is used. A width with no divisor in that
-    band is left to LanceDB, which picks one that divides.
+    ``_PQ_DIMS_PER_SUB_VECTOR`` is used.
 
     Args:
         dims: the embedding dimension
 
     Returns:
-        a sub-vector count, or ``None`` to leave the choice to LanceDB
+        a sub-vector count, or ``None`` where no divisor near the target
+        splits the width, which is what sends such a width to a family
+        that needs no divisor
     """
     # Nothing above 13 can win: a composite width that large has half of
     # itself as a divisor too, and the half is strictly closer to the
@@ -291,7 +292,10 @@ class LanceDBSimilarityConfig(SimilarityConfig):
             values are ``("ivf_flat", "ivf_sq", "ivf_pq", "ivf_rq",
             "ivf_hnsw_flat", "ivf_hnsw_sq", "ivf_hnsw_pq")``. Chosen from the
             embedding width when unset: ``"ivf_rq"`` at 768 dimensions and
-            below, ``"ivf_pq"`` above
+            below, ``"ivf_pq"`` above, and ``"ivf_sq"`` for a width that no
+            sub-vector size near an eighth divides, which PQ cannot split
+            without falling back to a single sub-vector for the whole
+            vector
         min_index_rows (2048): the row count below which no vector index is
             built, because a scan of a small table beats an indexed query.
             Measured at 768 dimensions: the cache-warm crossover is ~749
