@@ -1,0 +1,66 @@
+name: Release Gate
+
+# A PR into release/* must be a cherry-pick of commits already on main or a
+# labeled release-only fix, so the release branch stays a subset of main and
+# there is never anything to merge back.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+    branches:
+      - release/v**
+
+concurrency:
+  group: release-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Clone fiftyone-brain
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - name: Gate release branch PR
+        env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          if echo "$LABELS" | grep -q '"release-only-fix"'; then
+            echo "Release-only fix. OK."
+            exit 0
+          fi
+
+          # Merge commits can carry unvalidated conflict resolutions, so
+          # cherry-pick branches are updated by rebase
+          git fetch --quiet origin main
+          if [ -n "$(git rev-list --merges "$BASE_SHA..$HEAD_SHA")" ]; then
+            echo "::error::Merge commits are not allowed in release PRs; rebase instead."
+            exit 1
+          fi
+          bad=0
+          for sha in $(git rev-list "$BASE_SHA..$HEAD_SHA"); do
+            src=$(git log -1 --format=%B "$sha" \
+              | sed -nE 's/^\(cherry picked from commit ([0-9a-f]{40})\)$/\1/p' | tail -1)
+            if [ -z "$src" ]; then
+              echo "::error::$sha has no '(cherry picked from commit ...)' trailer."
+              echo "Land the change on main first, then cherry-pick with -x or the"
+              echo "'Cherry-Pick to Release' workflow. If the fix truly applies only to"
+              echo "this release branch, add the 'release-only-fix' label."
+              bad=1
+            elif ! git merge-base --is-ancestor "$src" origin/main 2>/dev/null; then
+              echo "::error::$sha claims source $src, which is not on main."
+              bad=1
+            fi
+          done
+          [ "$bad" -eq 0 ] || exit 1
+          echo "Cherry-picks of main commits. OK."

@@ -46,26 +46,19 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install build
-      - name: Set release version
+      - name: Check release version
         env:
           RELEASE_TAG: ${{ github.ref }}
         run: |
-          # A tag must match the VERSION file (vX.Y.Z), or extend it with a
-          # release-candidate suffix (vX.Y.Z-rc.N), which is written to
-          # VERSION for this build only.
-          base_version=$(tr -d '\r\n' < VERSION)
-          if [[ "$RELEASE_TAG" == refs/tags/v* ]]; then
-            tag_version=${RELEASE_TAG#refs/tags/v}
-            if [ "$tag_version" = "$base_version" ]; then
-              :
-            elif [[ "$tag_version" == "$base_version"-rc.* ]]; then
-              printf '%s\n' "$tag_version" > VERSION
-            else
-              echo "::error::Tag $tag_version does not match VERSION $base_version"
-              exit 1
-            fi
+          # A tag must match the VERSION file exactly, including any .devN or
+          # rcN suffix
+          version=$(tr -d '\r\n' < VERSION)
+          if [[ "$RELEASE_TAG" == refs/tags/v* ]] &&
+            [ "${RELEASE_TAG#refs/tags/v}" != "$version" ]; then
+            echo "::error::Tag ${RELEASE_TAG#refs/tags/} does not match VERSION $version"
+            exit 1
           fi
-          echo "Building fiftyone-brain $(tr -d '\r\n' < VERSION)"
+          echo "Building fiftyone-brain $version"
       - name: Build wheel
         run: |
           python -m build
@@ -201,3 +194,51 @@ jobs:
       # [fiftyone-brain](https://pypi.org/manage/project/fiftyone-brain/settings/publishing/)
       - name: Publish
         uses: pypa/gh-action-pypi-publish@v1.14.2
+
+  bump:
+    needs: [publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Find the next version
+        id: next
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version=${RELEASE_TAG#v}
+          if [[ "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.dev([0-9]+)$ ]]; then
+            branch=main
+            next="${BASH_REMATCH[1]}.dev$((BASH_REMATCH[2] + 1))"
+          elif [[ "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)rc([0-9]+)$ ]]; then
+            branch="release/v${BASH_REMATCH[1]}"
+            next="${BASH_REMATCH[1]}rc$((BASH_REMATCH[2] + 1))"
+          else
+            echo "$version is a final release; nothing to bump"
+            exit 0
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+      - name: Clone fiftyone-brain
+        if: steps.next.outputs.next
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.next.outputs.branch }}
+          # voxel51-bot bypasses branch protection on main and release/v*
+          token: ${{ secrets.FIFTYONE_GITHUB_TOKEN }}
+      - name: Commit the next version
+        if: steps.next.outputs.next
+        env:
+          VERSION: ${{ steps.next.outputs.version }}
+          NEXT: ${{ steps.next.outputs.next }}
+        run: |
+          if [ "$(tr -d '\r\n' < VERSION)" != "$VERSION" ]; then
+            echo "::notice::VERSION moved past $VERSION; nothing to bump"
+            exit 0
+          fi
+          printf '%s\n' "$NEXT" > VERSION
+          git config user.name "voxel51-bot"
+          git config user.email "voxel51-bot@users.noreply.github.com"
+          git commit -am "chore: bump VERSION to $NEXT"
+          git push

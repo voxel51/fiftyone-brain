@@ -1,0 +1,111 @@
+name: Release Branch
+
+on:
+  create:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Release branch (release/vX.Y.Z)
+        required: true
+      finalize:
+        description: Set VERSION to the final X.Y.Z, dropping the rcN suffix
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.ref_type == 'branch' && startsWith(github.ref_name, 'release/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      major: ${{ steps.parse.outputs.major }}
+      minor: ${{ steps.parse.outputs.minor }}
+      patch: ${{ steps.parse.outputs.patch }}
+    steps:
+      - name: Parse version
+        id: parse
+        env:
+          BRANCH: ${{ inputs.branch || github.ref_name }}
+        run: |
+          if [[ ! "$BRANCH" =~ ^release/v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::$BRANCH is not release/vX.Y.Z"
+            exit 1
+          fi
+          echo "major=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+          echo "minor=${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
+          echo "patch=${BASH_REMATCH[3]}" >> "$GITHUB_OUTPUT"
+      - name: Clone fiftyone-brain
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.branch || github.ref_name }}
+          # voxel51-bot bypasses the release gate's required check
+          token: ${{ secrets.FIFTYONE_GITHUB_TOKEN }}
+      - name: Set VERSION
+        env:
+          BASE: ${{ steps.parse.outputs.major }}.${{ steps.parse.outputs.minor }}.${{ steps.parse.outputs.patch }}
+          FINALIZE: ${{ inputs.finalize }}
+        run: |
+          if [ "$FINALIZE" = "true" ]; then
+            VERSION=$BASE
+          else
+            # Start after any rc already tagged for this version, including
+            # the older vX.Y.Z-rc.N spelling
+            last=$(git ls-remote --tags origin "refs/tags/v$BASE*rc*" \
+              | sed -nE "s|.*refs/tags/v${BASE//./\\.}-?rc\.?([0-9]+)$|\1|p" \
+              | sort -n | tail -1)
+            VERSION="${BASE}rc$(( ${last:--1} + 1 ))"
+          fi
+          if [ "$(tr -d '\r\n' < VERSION)" = "$VERSION" ]; then
+            echo "VERSION is already $VERSION"
+            exit 0
+          fi
+          printf '%s\n' "$VERSION" > VERSION
+          git config user.name "voxel51-bot"
+          git config user.email "voxel51-bot@users.noreply.github.com"
+          git commit -am "chore: set VERSION to $VERSION"
+          git push
+
+  bump-main:
+    needs: [version]
+    if: needs.version.outputs.patch == '0' && !inputs.finalize
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Clone fiftyone-brain
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          token: ${{ secrets.FIFTYONE_GITHUB_TOKEN }}
+      - name: Open version-bump PR
+        env:
+          # A PR opened with GITHUB_TOKEN does not trigger CI
+          GH_TOKEN: ${{ secrets.FIFTYONE_GITHUB_TOKEN }}
+          RELEASED: ${{ needs.version.outputs.major }}.${{ needs.version.outputs.minor }}.0
+          MAJOR: ${{ needs.version.outputs.major }}
+          MINOR: ${{ needs.version.outputs.minor }}
+        run: |
+          NEXT="$MAJOR.$((MINOR + 1)).0.dev0"
+          current=$(tr -d '\r\n' < VERSION)
+          if [[ ! "$current" =~ ^${RELEASED//./\\.}\.dev[0-9]+$ ]]; then
+            echo "::notice::main VERSION is $current, not $RELEASED.devN; skipping the bump"
+            exit 0
+          fi
+          branch="chore/version-$NEXT"
+          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            echo "::notice::$branch already exists"
+            exit 0
+          fi
+          git checkout -b "$branch"
+          printf '%s\n' "$NEXT" > VERSION
+          git config user.name "voxel51-bot"
+          git config user.email "voxel51-bot@users.noreply.github.com"
+          git commit -am "chore: bump VERSION to $NEXT"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "chore: bump VERSION to $NEXT" \
+            --body "\`release/v$RELEASED\` was cut. Edit \`VERSION\` here to choose a different next version."
