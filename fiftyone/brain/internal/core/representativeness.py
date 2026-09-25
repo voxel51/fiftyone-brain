@@ -216,17 +216,24 @@ def _cluster_ranker(
     centerness_ranking = 1 / (1 + sample_dists)
 
     # Normalize per cluster vs globally
-    norm_method = "local"
     if norm_method == "global":
         centerness_ranking = centerness_ranking / centerness_ranking.max()
     elif norm_method == "local":
         unique_ids = np.unique(cluster_ids)
         for unique_id in unique_ids:
             cluster_indices = np.where(cluster_ids == unique_id)[0]
-            cluster_dists = sample_dists[cluster_indices]
-            cluster_dists /= cluster_dists.max()
-            sample_dists[cluster_indices] = cluster_dists
-        centerness_ranking = sample_dists
+            cluster_centerness = centerness_ranking[cluster_indices]
+            centerness_ranking[cluster_indices] = (
+                cluster_centerness / cluster_centerness.max()
+            )
+    else:
+        raise ValueError(
+            (
+                "Normalization method '%s' not supported. Please use one of "
+                "['global', 'local']"
+            )
+            % norm_method
+        )
 
     return centerness_ranking, clusterer
 
