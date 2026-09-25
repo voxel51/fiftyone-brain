@@ -778,6 +778,16 @@ def get_embeddings(
             model = foz.load_zoo_model(model, **model_kwargs)
 
         if patches_field is not None:
+            if samples.media_type == fomm.VIDEO:
+                # `compute_patch_embeddings` crops a region of a frame, which a
+                # temporal label does not describe. Segment embeddings are
+                # produced elsewhere and supplied to the index
+                raise ValueError(
+                    "Cannot compute patch embeddings for field '%s' on a "
+                    "video collection. Supply `embeddings` for its temporal "
+                    "labels instead of a model" % patches_field
+                )
+
             logger.info("Computing patch embeddings...")
             embeddings = samples.compute_patch_embeddings(
                 model,
@@ -973,11 +983,28 @@ def _validate_samples_args(samples, path_or_expr=None):
 
 def _validate_patches_args(samples, patches_field, path_or_expr=None):
     if samples.media_type == fomm.VIDEO:
-        raise ValueError(
-            "This method does not directly support frame patches for video "
-            "collections. Try converting to a frames view via `to_frames()` "
-            "first"
+        # A temporal label carries its own extent, so it addresses a span of a
+        # video without reference to a frame. A frame-level field cannot, even
+        # when its type is temporal, and its ids nest one level deeper than the
+        # patch helpers unwind
+        temporal_types = (fol.TemporalDetection, fol.TemporalDetections)
+        label_type = (
+            None
+            if samples._is_frame_field(patches_field)
+            else samples._get_label_field_type(patches_field)
         )
+        if label_type is None or not issubclass(label_type, temporal_types):
+            raise ValueError(
+                "Field '%s' must be a sample-level temporal label to address "
+                "a video collection; found %s. Convert to a frames view via "
+                "`to_frames()` to use frame patches"
+                % (
+                    patches_field,
+                    "a frame field"
+                    if label_type is None
+                    else label_type.__name__,
+                )
+            )
 
     if etau.is_str(path_or_expr) and not path_or_expr.startswith(
         patches_field + "."
