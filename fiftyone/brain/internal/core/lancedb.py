@@ -67,10 +67,12 @@ _VECTOR_INDEX_NAME = "vector_idx"
 # PQ deliberately.
 _RQ_MAX_DIMS = 768
 
-# Sub-vectors per PQ code, as a divisor of the width. LanceDB's own default
-# is a sixteenth, which at 768 measures 0.9447 mean / 0.200 worst against an
-# eighth's 0.9963 / 0.800 -- so the family default is the one setting here
-# that has to be supplied rather than left alone.
+# Target width of a PQ sub-vector, in dimensions. LanceDB's own default is a
+# sixteenth of the embedding width, which at 768 measures 0.9447 mean / 0.200
+# worst against an eighth's 0.9963 / 0.800 -- so the family default is the one
+# setting here that has to be supplied rather than left alone. Lance takes the
+# sub-vector count rather than the width, and requires it to divide the width
+# exactly, so this is a target and the nearest divisor is what is asked for.
 _PQ_DIMS_PER_SUB_VECTOR = 8
 
 # Partitions probed per query where the family does not escalate. LanceDB's
@@ -100,13 +102,64 @@ _ESCALATING_FAMILIES = frozenset({"ivf_rq", "ivf_sq"})
 def _default_index_type(dims):
     """The index family for embeddings of the given width.
 
+    A width that no sub-vector size near the target divides takes scalar
+    quantization instead of PQ. LanceDB's own fallback for such a width is
+    a single sub-vector coding the whole vector, which measures 0.002
+    recall@10 at 1009 dimensions against 0.992 for ``ivf_sq`` -- an index
+    that answers quickly and wrongly, where the family here answers
+    quickly and correctly at the same 4x compression.
+
     Args:
         dims: the embedding dimension
 
     Returns:
         a key of ``_SUPPORTED_INDEX_TYPES``
     """
-    return "ivf_rq" if dims <= _RQ_MAX_DIMS else "ivf_pq"
+    if dims <= _RQ_MAX_DIMS:
+        return "ivf_rq"
+
+    return "ivf_pq" if _sub_vector_count(dims) is not None else "ivf_sq"
+
+
+def _sub_vector_count(dims):
+    """The number of PQ sub-vectors to ask for at a given width.
+
+    Lance requires the count to divide the width exactly and rejects the
+    index outright otherwise -- a warning, and then every query scans every
+    vector -- so what is chosen here is the width of a sub-vector, and the
+    count follows from it. The nearest divisor within a factor of two of
+    ``_PQ_DIMS_PER_SUB_VECTOR`` is used.
+
+    Args:
+        dims: the embedding dimension
+
+    Returns:
+        a sub-vector count, or ``None`` where no divisor near the target
+        splits the width, which is what sends such a width to a family
+        that needs no divisor
+    """
+    # Nothing above 13 can win: a composite width that large has half of
+    # itself as a divisor too, and the half is strictly closer to the
+    # target, so the top of the band is reachable only by 13 itself
+    widths = [
+        width
+        for width in range(
+            _PQ_DIMS_PER_SUB_VECTOR // 2, 2 * _PQ_DIMS_PER_SUB_VECTOR + 1
+        )
+        if dims % width == 0
+    ]
+    if not widths:
+        return None
+
+    # Ties go to the narrower sub-vector, which is the finer quantizer. At
+    # 1020, where 6 and 10 are equally far from the target, 6 measures
+    # 0.300 recall@10 against 10's 0.200 for a 1.6x longer build -- the
+    # same trade the target itself makes against LanceDB's default
+    candidate = min(
+        widths,
+        key=lambda width: (abs(width - _PQ_DIMS_PER_SUB_VECTOR), width),
+    )
+    return dims // candidate
 
 
 def _default_index_params(index_type, dims):
@@ -120,7 +173,11 @@ def _default_index_params(index_type, dims):
         a dict of keyword arguments for the family
     """
     if index_type in ("ivf_pq", "ivf_hnsw_pq"):
-        return {"num_sub_vectors": dims // _PQ_DIMS_PER_SUB_VECTOR}
+        # Only an explicitly configured family reaches the fallback, since
+        # `_default_index_type` sends such a width elsewhere. One dimension
+        # per sub-vector is the finest split the width allows and measures
+        # 0.992 recall@10 at 1009, against 0.002 for LanceDB's own choice
+        return {"num_sub_vectors": _sub_vector_count(dims) or dims}
 
     return {}
 
@@ -235,7 +292,10 @@ class LanceDBSimilarityConfig(SimilarityConfig):
             values are ``("ivf_flat", "ivf_sq", "ivf_pq", "ivf_rq",
             "ivf_hnsw_flat", "ivf_hnsw_sq", "ivf_hnsw_pq")``. Chosen from the
             embedding width when unset: ``"ivf_rq"`` at 768 dimensions and
-            below, ``"ivf_pq"`` above
+            below, ``"ivf_pq"`` above, and ``"ivf_sq"`` for a width that no
+            sub-vector size near an eighth divides, which PQ cannot split
+            without falling back to a single sub-vector for the whole
+            vector
         min_index_rows (2048): the row count below which no vector index is
             built, because a scan of a small table beats an indexed query.
             Measured at 768 dimensions: the cache-warm crossover is ~749
@@ -243,9 +303,10 @@ class LanceDBSimilarityConfig(SimilarityConfig):
             queries run, which this library cannot know
         index_params (None): a dict of keyword arguments for the index
             family, such as ``num_sub_vectors`` for ``"ivf_pq"``. The PQ
-            families take an eighth of the width when unset, rather than
-            LanceDB's sixteenth. The distance type is set from ``metric`` and
-            cannot be overridden here
+            families split the width into sub-vectors of about eight
+            dimensions when unset, rather than LanceDB's sixteen. The
+            distance type is set from ``metric`` and cannot be overridden
+            here
         nprobes (None): the number of partitions to probe per query. Set from
             the family when unset -- the escalating families search outward
             until they have enough, and the rest take a fixed 25 -- because
