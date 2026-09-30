@@ -72,12 +72,12 @@ It commits the bare `X.Y.Z` to `VERSION`, and the branch is ready to publish.
         1. From the *Previous Tag* drop down,
           select the previous released tag (that the branch was created from)
         1. Select *Generate release notes*
-        1. For the *Release label, select *Latest*
+        1. For the *Release label*, select *Latest*
     1. Release Label
         1. For release candidate (`rcN`) or dev (`.devN`) versions,
-          select *Set as a pre-release*.
+           select *Set as a pre-release*
         1. For final versions,
-          `Set as the latest release`
+           select *Set as the latest release*
     1. Select *Publish release*
 
 Pushing the tag triggers the
