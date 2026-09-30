@@ -58,13 +58,13 @@ _SUPPORTED_INDEX_TYPES = {
 _VECTOR_COLUMN = "vector"
 _VECTOR_INDEX_NAME = "vector_idx"
 
-# What a neighbors query reads back. Naming them keeps the vectors on the
-# server: a result row carries its whole embedding otherwise, and a query is
+# What a neighbors query returns. Naming them keeps the vectors out of the
+# result: a result row carries its whole embedding otherwise, and a query is
 # bounded by `k` rather than by the table, so `sort_by_similarity(k=None)`
-# would pull the table back one last time. Measured at 60k rows and 512
-# dimensions, k=60k: 124.6 MB against 1.7 MB. `_distance` is named rather
-# than left implicit because lancedb warns that a future release will stop
-# adding it to a projection that does not ask for it
+# would hand back every vector in the table. Measured at 60k rows of CLIP-512
+# with FiftyOne IDs, k=60k: 126.5 MB against 3.6 MB. `_distance` is named
+# rather than left implicit because lancedb warns that a future release will
+# stop adding it to a projection that does not ask for it
 _QUERY_COLUMNS = ["id", "sample_id", "_distance"]
 
 # Widths at or below this take IVF_RQ. Its 1-bit codes are best in class at
@@ -1102,9 +1102,9 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         if single_query:
             query = [query]
 
-        # No table means no rows to be near, and `k=None` over an index
-        # emptied of its rows asks for none -- which Lance rejects as a
-        # missing limit rather than answering with nothing
+        # No table means no rows to be near, and `k=None` asks for none when
+        # the collection the index serves holds no samples -- which Lance
+        # rejects as a missing limit rather than answering with nothing
         if self._table is None or k == 0:
             return self._empty_neighbors(
                 query, single_query=single_query, return_dists=return_dists
@@ -1220,12 +1220,13 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             view selects nothing
         """
         # Unrestricted on a grouped dataset too, though it shows only its
-        # active slice, because the slice held here is not reliably the
-        # caller's: the `SortBySimilarity` stage skips `use_view` when two
-        # views differ only in their slice, so the App's slice never reaches
-        # this index, and callers such as `compute_uniqueness` query a loaded
-        # index expecting every row it holds. Restricting to the held slice
-        # would return no rows in the App and skew uniqueness
+        # active slice: a caller that wants fewer rows restricts the index to
+        # a view. `compute_uniqueness` queries a loaded index expecting every
+        # row it holds, and a grouped sort searches across slices. Nor is the
+        # slice held here reliably the caller's: a `SortBySimilarity` from
+        # before voxel51/fiftyone#8582 skips `use_view` when two views differ
+        # only in their slice, so restricting to the held slice returns no
+        # rows when the App shows another
         if not self.has_view:
             return [(None, None)]
 

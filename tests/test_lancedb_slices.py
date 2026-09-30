@@ -2,12 +2,13 @@
 Grouped datasets over a real collection.
 
 A grouped dataset shows one slice at a time while its index spans every slice
-it was built from. An unfiltered query on it is unrestricted, because the
-slice the index holds is not reliably the caller's: the ``SortBySimilarity``
-stage skips ``use_view`` when two views differ only in their slice, and
-callers such as ``compute_uniqueness`` query a loaded index expecting every
-row. These run those paths end to end, through the stage and the IDs a real
-dataset reports, so they need a database.
+it was built from. An unfiltered query on it is unrestricted: a caller that
+wants fewer rows restricts the index to a view, and callers such as
+``compute_uniqueness`` query a loaded index expecting every row. Nor is the
+slice the index holds reliably the caller's: a ``SortBySimilarity`` from
+before voxel51/fiftyone#8582 skips ``use_view`` when two views differ only in
+their slice. These run those paths end to end, through the stage and the IDs
+a real dataset reports, so they need a database.
 
 | Copyright 2017-2026, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -166,8 +167,9 @@ class TestUnfilteredGroupedQuery:
         assert set(_slices_of(dataset, found_ids)) == {"right"}
 
     def test_the_dataset_switched_between_queries(self, grouped):
-        # The stage compares the views without their slices, so the second
-        # query runs against the index as the first left it
+        # A stage from before voxel51/fiftyone#8582 compares the views
+        # without their slices, so the second query runs against the index as
+        # the first left it
         _, dataset = grouped
         left, right = _ids_in(dataset, "left"), _ids_in(dataset, "right")
         dataset.sort_by_similarity(left[0], k=GROUPS, brain_key="sim")

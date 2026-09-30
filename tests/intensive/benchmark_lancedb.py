@@ -174,7 +174,7 @@ def _time_adds(index, rng, *, batch_size, dims, repeats, tag="add"):
 
 
 def _time_queries(index, rng, *, dims, k, repeats):
-    """Times ``repeats`` unfiltered k-NN queries, in milliseconds."""
+    """Times ``repeats`` k-NN queries on the current view, in milliseconds."""
     timings = []
 
     for _ in range(repeats):

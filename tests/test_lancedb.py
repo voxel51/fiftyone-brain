@@ -2222,9 +2222,9 @@ class TestCleanup:
         assert populated_index._table is None
 
     def test_a_scratch_filter_table_is_dropped_too(self, populated_index):
-        # Nothing writes this second table any more, but runs created by
-        # older releases have one sitting in the store and dropping the run
-        # is the occasion to take it with them
+        # Nothing writes this second table, but runs created by earlier
+        # releases may have one in the store, and dropping the run is the
+        # occasion to take it with them
         name = populated_index.config.table_name
         populated_index._db.create_table(
             name + "_filter",
@@ -2524,9 +2524,8 @@ class TestKneighborsOverAView:
         assert dists == [[], []]
 
     def test_a_filtered_query_writes_nothing(self, basis_index):
-        # The rewrite this replaced landed a Lance version per query and
-        # left a `<table>_filter` table behind: five queries measured five
-        # versions and 24.0 MB on disk for a 4.8 MB view
+        # A query that wrote would land a Lance version each time, which
+        # nothing prunes, and leave a `<table>_filter` table in the store
         db = basis_index._db
         name = basis_index.config.table_name
         before = len(db.open_table(name).list_versions())
@@ -2540,10 +2539,10 @@ class TestKneighborsOverAView:
         assert _table_names(db) == [name]
 
     def test_two_views_of_one_run_do_not_collide(self, tmp_path):
-        # The scratch table this replaced was named per run rather than per
-        # query, so a second reader's filter overwrote the first's and each
-        # could be served the other's rows. Interleaving is what shows the
-        # two readers are now independent
+        # A scratch table named per run rather than per query would let a
+        # second reader's filter overwrite the first's, and each could be
+        # served the other's rows. Interleaving the two readers is what
+        # shows they are independent
         embeddings = _basis_embeddings(4)
         writer = _unbound_index(tmp_path)
         writer.add_to_index(
@@ -2568,9 +2567,8 @@ class TestKneighborsOverAView:
         assert len(db.open_table(name).list_versions()) == before
 
     def test_a_view_keeps_the_tables_vector_index(self, tmp_path):
-        # The per-query copy carried no index, so a view query was brute
-        # force where a whole-index query was not: 2.1 ms against 51.3 ms
-        # over a 90% view at 50k rows
+        # A view query that lost the vector index would be a brute-force
+        # scan where a whole-index query is not
         index = _unbound_index(tmp_path)
         index.add_to_index(
             _random_embeddings(PQ_TRAINING_ROWS),
@@ -2663,9 +2661,9 @@ class TestKneighborsOverAView:
         assert ids == []
         assert dists == []
 
-    def test_a_query_leaves_the_vectors_on_the_server(self, basis_index):
+    def test_a_query_leaves_the_vectors_out_of_its_result(self, basis_index):
         # A result row carries its whole embedding otherwise, and `k=None`
-        # asks for every row -- which is the whole-table read this replaced.
+        # asks for every row, so a full sort would hand back every vector.
         # Spelled out rather than compared against `_QUERY_COLUMNS`, which
         # would agree with whatever that constant came to say
         results = basis_index._search(_basis_embeddings(3)[0], "l2", 3)
@@ -2719,15 +2717,12 @@ class TestKneighborsOverAView:
         assert len(ids) == UNSORTED_ROWS
         assert dists == sorted(dists)
 
-    def test_an_index_emptied_of_its_rows_answers_with_nothing(
+    def test_a_collection_with_no_samples_answers_with_nothing(
         self, populated_index
     ):
-        # `k=None` becomes `k=0` there, which Lance rejects as a missing
-        # limit rather than answering with no rows
-        populated_index.remove_from_index(
-            sample_ids=["a", "b", "c"], reload=False
-        )
-
+        # `k=None` becomes the index's size, which counts the samples in the
+        # collection it serves, so `k=0` when that holds none. Lance rejects
+        # it as a missing limit rather than answering with no rows
         with _no_view(), mock.patch.object(
             LanceDBSimilarityIndex,
             "index_size",
@@ -2777,8 +2772,9 @@ class TestKneighborsOverAView:
         # because the rescan makes it exact, not in spite of the index: the
         # scattered partitions send every batch short of `k`. Recall where
         # the rescan does not fire is a measurement rather than an
-        # invariant -- 0.992 to 1.000 across filter selectivity on real
-        # CLIP-512 embeddings -- so it is not asserted anywhere
+        # invariant -- 1.000 across filter selectivity on real CLIP-512
+        # embeddings with the default probing, down to 0.988 with `nprobes`
+        # pinned at 25 -- so it is not asserted anywhere
         monkeypatch.setattr(lancedb_backend, "_ID_BATCH_SIZE", 40)
         index, embeddings, ids = self._scattered_index(tmp_path)
 
