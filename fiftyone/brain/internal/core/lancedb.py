@@ -8,7 +8,6 @@ LanceDB similarity backend.
 
 import logging
 from collections import Counter
-import re
 from copy import deepcopy
 
 import numpy as np
@@ -67,14 +66,6 @@ _VECTOR_INDEX_NAME = "vector_idx"
 # than left implicit because lancedb warns that a future release will stop
 # adding it to a projection that does not ask for it
 _QUERY_COLUMNS = ["id", "sample_id", "_distance"]
-
-# The column a grouped dataset's index carries its slice in, so that a
-# within-slice search is one predicate at any selectivity rather than an
-# enumerated list of every ID in the slice. Only a grouped dataset's writer
-# takes on populating it; a flat dataset's index has no such column, and
-# neither does one written before the column existed, so every read of it is
-# conditional on the table actually carrying it
-_SLICE_NAME_COLUMN = "slice_name"
 
 # Widths at or below this take IVF_RQ. Its 1-bit codes are best in class at
 # 768 -- 0.9993 mean / 0.900 worst against IVF_PQ m=96's 0.9977 / 0.800, at a
@@ -174,15 +165,13 @@ def _empty_rows():
     )
 
 
-def _to_arrow_table(ids, sample_ids, embeddings, slice_names=None):
+def _to_arrow_table(ids, sample_ids, embeddings):
     """Builds an Arrow table in the index's schema.
 
     Args:
         ids: an iterable of index IDs
         sample_ids: an iterable of sample IDs
         embeddings: a ``num_embeddings x num_dims`` array of embeddings
-        slice_names (None): an iterable of group slice names, one per row,
-            for an index whose table carries :const:`_SLICE_NAME_COLUMN`
 
     Returns:
         a ``pyarrow.Table``
@@ -191,17 +180,10 @@ def _to_arrow_table(ids, sample_ids, embeddings, slice_names=None):
     vectors = pa.FixedSizeListArray.from_arrays(
         pa.array(embeddings.reshape(-1), type=pa.float32()), dims
     )
-    columns = [_to_id_list(ids), _to_id_list(sample_ids), vectors]
-    names = ["id", "sample_id", "vector"]
-
-    if slice_names is not None:
-        # Typed rather than inferred: a batch whose samples all sit outside
-        # the flattened view carries nothing but None, and an untyped null
-        # column will not merge into a string one
-        columns.append(pa.array(_to_id_list(slice_names), type=pa.string()))
-        names.append(_SLICE_NAME_COLUMN)
-
-    return pa.Table.from_arrays(columns, names=names)
+    return pa.Table.from_arrays(
+        [_to_id_list(ids), _to_id_list(sample_ids), vectors],
+        names=["id", "sample_id", "vector"],
+    )
 
 
 def _to_id_list(ids):
@@ -224,19 +206,6 @@ def _to_id_list(ids):
     return list(ids)
 
 
-def _quote(value):
-    """Renders a value as a SQL string literal.
-
-    Args:
-        value: the value to quote
-
-    Returns:
-        a SQL string literal
-    """
-    # Doubling is how Lance's SQL parser escapes a quote inside a literal
-    return "'%s'" % str(value).replace("'", "''")
-
-
 def _id_predicate(ids, column="id", negate=False):
     """Builds a SQL predicate matching the given IDs.
 
@@ -248,7 +217,8 @@ def _id_predicate(ids, column="id", negate=False):
     Returns:
         a SQL predicate string
     """
-    quoted = ", ".join(_quote(_id) for _id in ids)
+    # Doubling is how Lance's SQL parser escapes a quote inside a literal
+    quoted = ", ".join("'%s'" % str(_id).replace("'", "''") for _id in ids)
     return "%s %sIN (%s)" % (column, "NOT " if negate else "", quoted)
 
 
@@ -674,20 +644,6 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         """
         return self._table.schema.field(_VECTOR_COLUMN).type.list_size
 
-    def _has_column(self, column):
-        """Whether the table carries the given column.
-
-        Args:
-            column: a column name
-
-        Returns:
-            True/False
-        """
-        if self._table is None:
-            return False
-
-        return column in self._table.schema.names
-
     def _is_indexed(self, column):
         """Whether the table carries an index on the given column.
 
@@ -833,69 +789,6 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         return search.to_arrow()["id"].to_pylist()
 
-    def _group_field(self):
-        """The dataset's group field, or ``None`` if it is not grouped.
-
-        Returns:
-            a field name, or None
-        """
-        # An index can be built without a collection, and one that names no
-        # dataset names no slices either
-        if self._samples is None:
-            return None
-
-        # None on a flat dataset, which is the whole test: only a grouped
-        # dataset has slices for a search to be restricted to
-        return self._samples._root_dataset.group_field
-
-    def _resolve_slice_names(self, sample_ids):
-        """The group slice each of the given samples belongs to.
-
-        ``None`` -- meaning no slice column at all -- for a flat dataset,
-        and for a table that was written before the column existed. Lance
-        rejects a merge whose source carries a column the target lacks, so
-        such a table can only be written the way it was created.
-
-        Args:
-            sample_ids: an iterable of sample IDs, one per row being written
-
-        Returns:
-            a list of slice names, one per row, or None
-        """
-        group_field = self._group_field()
-        if group_field is None:
-            return None
-
-        if self._table is not None and not self._has_column(
-            _SLICE_NAME_COLUMN
-        ):
-            return None
-
-        sample_ids = _to_id_list(sample_ids)
-
-        # Every slice, because the index spans them: the dataset itself
-        # shows only its active one, and a lookup through that would leave
-        # every other slice's rows unlabeled
-        view = self._samples._root_dataset.select_group_slices(
-            _allow_mixed=True
-        )
-        name_path = group_field + ".name"
-
-        # A patches index writes one row per label, so the same sample is
-        # named once per label it carries
-        unique_ids = list(dict.fromkeys(sample_ids))
-
-        by_id = {}
-        # Batched for the same reason the predicates are, and with the same
-        # bound: the first add of an index carries the whole dataset, and a
-        # `$in` naming every sample of a large one approaches the 16 MB
-        # ceiling on the aggregation command that would carry it
-        for batch_ids in fou.iter_batches(unique_ids, _ID_BATCH_SIZE):
-            ids, names = view.select(batch_ids).values(["id", name_path])
-            by_id.update(zip(ids, names))
-
-        return [by_id.get(_id) for _id in sample_ids]
-
     def _merge_rows(self, pa_table, *, overwrite):
         """Upserts the given rows into the table.
 
@@ -980,12 +873,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                             num_existing,
                         )
 
-        pa_table = _to_arrow_table(
-            ids,
-            sample_ids,
-            embeddings,
-            slice_names=self._resolve_slice_names(sample_ids),
-        )
+        pa_table = _to_arrow_table(ids, sample_ids, embeddings)
 
         if self._table is None:
             try:
@@ -999,20 +887,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
                 # Another writer created the table between this index opening
                 # and this add; join it rather than replacing it
                 self._table = self._db.open_table(self.config.table_name)
-
-                # Rebuilt against the schema that writer chose, which may
-                # not be the one above: a writer on a release without the
-                # slice column creates a table with three, and Lance
-                # rejects a merge whose source names a fourth
-                self._merge_rows(
-                    _to_arrow_table(
-                        ids,
-                        sample_ids,
-                        embeddings,
-                        slice_names=self._resolve_slice_names(sample_ids),
-                    ),
-                    overwrite=overwrite,
-                )
+                self._merge_rows(pa_table, overwrite=overwrite)
         else:
             self._merge_rows(pa_table, overwrite=overwrite)
 
@@ -1299,26 +1174,6 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         return empty(), label_ids
 
-    def _current_slice_name(self):
-        """The group slice the current view is scoped to.
-
-        ``None`` when the dataset is not grouped, when a stage has flattened
-        the slices -- which is a search across all of them rather than
-        within one -- and when the table carries no slice column.
-
-        Returns:
-            a slice name, or None
-        """
-        if not self._has_column(_SLICE_NAME_COLUMN):
-            return None
-
-        # Read off the view rather than the dataset: the dataset's active
-        # slice is the default a view inherits, and a flattening stage
-        # clears it
-        view = self._curr_view
-
-        return None if view is None else view.group_slice
-
     def _complement_if_shorter(self, index_ids):
         """The table's IDs that ``index_ids`` leaves out, or ``None`` when
         naming them would be the longer predicate.
@@ -1364,20 +1219,15 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             ``None`` for "no restriction" and "unknown"; empty when the
             view selects nothing
         """
-        # A view carries its own slice: the IDs below are the view's, and a
-        # view that has not flattened its slices holds one of them. Naming
-        # the slice as well would say the same thing twice, out of two
-        # snapshots -- the IDs are the ones an earlier call cached, while
-        # the slice is read live, so a dataset whose active slice moves
-        # between them would ask for rows no ID names
+        # Unrestricted on a grouped dataset too, though it shows only its
+        # active slice, because the slice held here is not reliably the
+        # caller's: the `SortBySimilarity` stage skips `use_view` when two
+        # views differ only in their slice, so the App's slice never reaches
+        # this index, and callers such as `compute_uniqueness` query a loaded
+        # index expecting every row it holds. Restricting to the held slice
+        # would return no rows in the App and skew uniqueness
         if not self.has_view:
-            slice_name = self._current_slice_name()
-            if slice_name is None:
-                return [(None, None)]
-
-            return [
-                ("%s = %s" % (_SLICE_NAME_COLUMN, _quote(slice_name)), None)
-            ]
+            return [(None, None)]
 
         if self.config.patches_field is not None:
             index_ids = self.current_label_ids
@@ -1539,8 +1389,10 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             metric: the LanceDB distance type to query with
             k: the number of neighbors to return
             where (None): a SQL predicate to restrict the query to
-            max_rows (None): how many rows ``where`` can match at most,
-                counted from the table if not supplied
+            max_rows (None): how many rows ``where`` can match at most.
+                The table's size if not supplied, which bounds any predicate:
+                a bound that is too high costs a scan that finds nothing
+                new, where one that is too low would drop rows
 
         Returns:
             a ``pandas.DataFrame`` of results
@@ -1551,11 +1403,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
             return results
 
         if max_rows is None:
-            max_rows = (
-                len(self._table)
-                if where is None
-                else self._table.count_rows(filter=where)
-            )
+            max_rows = len(self._table)
 
         # Short for the honest reason: there were never more rows to find.
         # Counted against the rows the filter reaches rather than against

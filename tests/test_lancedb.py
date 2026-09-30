@@ -4,8 +4,9 @@ Unit tests for the LanceDB similarity backend.
 LanceDB is embedded, so these exercise a real table under ``tmp_path`` and
 need no service. They are skipped where ``lancedb`` is not installed; CI
 installs it. The tests that build an index over a dataset live in
-``tests/intensive/test_similarity.py``, and the table listing is covered
-against a real database in ``tests/test_lancedb_store.py``.
+``tests/intensive/test_similarity.py`` and, for grouped datasets,
+``tests/test_lancedb_slices.py``; the table listing is covered against a
+real database in ``tests/test_lancedb_store.py``.
 
 | Copyright 2017-2026, Voxel51, Inc.
 | `voxel51.com <https://voxel51.com/>`_
@@ -41,7 +42,6 @@ from fiftyone.brain.internal.core.lancedb import (  # noqa: E402
     _DEFAULT_NPROBES,
     _ID_INDEX_REQUIREMENT,
     _RQ_MAX_DIMS,
-    _SLICE_NAME_COLUMN,
     _SUPPORTED_INDEX_TYPES,
     _SUPPORTED_METRICS,
     _VECTOR_INDEX_NAME,
@@ -89,11 +89,17 @@ BATCHED_ROWS = 2 * _ID_BATCH_SIZE + 1
 
 # Rows past which a search stops returning them in distance order: it hands
 # back batches sorted within themselves, and `k` near the table size -- what
-# `k=None` asks for -- then spans several. Measured reliable at this count on
-# lancedb 0.38.0 and 0.39.0, and flaky at 24576 on 0.39.0, so the margin is
-# deliberate. `TestKneighborsOverAView` guards the premise rather than
-# assuming it holds
-UNSORTED_ROWS = 32768
+# `k=None` asks for -- then spans several. Measured under three-way
+# concurrent load on lancedb 0.38.0 and 0.39.0: sorted anyway in 12 of 150
+# searches at 32768 rows and in none of 150 at this count, though one search
+# in 30 still came back sorted under a heavier load. The premise test in
+# `TestKneighborsOverAView` therefore asks several times
+UNSORTED_ROWS = 65536
+
+# Searches the premise test runs before concluding a large result can come
+# back sorted. At the rate measured above, all of them coming back sorted by
+# chance is below one in a million
+_PREMISE_ATTEMPTS = 5
 
 # Rows a product quantizer needs before it can train, so the `ivf_pq` and
 # `ivf_hnsw_pq` families cannot be exercised on the 3-row fixtures
@@ -134,12 +140,9 @@ def _detached_index(config):
     ``SimilarityIndex.__init__`` binds the index to a collection, which
     needs a database. The paths under test reach only the table, the
     connection and the config, so the instance is built without that
-    binding — with the attributes that would name a collection set to
-    ``None``, which is the state an unbound index is in.
+    binding, and a test that needs a view says outright what it holds.
     """
     index = LanceDBSimilarityIndex.__new__(LanceDBSimilarityIndex)
-    index._samples = None
-    index._curr_view = None
     index._config = config
     index._initialize()
     return index
@@ -205,14 +208,18 @@ def _view_of(sample_ids, label_ids=None):
 
 
 def _scoped_to(index, slice_name):
-    """Points the index at a view scoped to the given group slice.
+    """Points the index at a collection showing the given group slice, or
+    ``None`` for a flat dataset.
 
-    A plain value rather than a ``PropertyMock``: ``_curr_view`` is an
-    attribute ``use_view`` assigns, and a grouped collection is the only
-    thing that carries a slice.
+    A plain value rather than a ``PropertyMock``, because ``_curr_view`` is
+    an attribute ``use_view`` assigns. It carries only ``group_slice``, so
+    pair it with ``_viewing``: the real ``has_view`` calls ``.view()`` on it.
     """
     return mock.patch.object(
-        index, "_curr_view", types.SimpleNamespace(group_slice=slice_name)
+        index,
+        "_curr_view",
+        types.SimpleNamespace(group_slice=slice_name),
+        create=True,
     )
 
 
@@ -362,26 +369,6 @@ def fixture_basis_index(index):
     index.add_to_index(
         _basis_embeddings(3), np.array(["a", "b", "c"]), reload=False
     )
-    return index
-
-
-@pytest.fixture(name="sliced_index")
-def fixture_sliced_index(index):
-    """An index whose table carries a slice column, as a grouped one's does.
-
-    The resolution is patched rather than driven from a dataset: what the
-    table holds is what the query path reads, and building a grouped
-    collection to reach it would need a database this module does without.
-    """
-    with mock.patch.object(
-        LanceDBSimilarityIndex,
-        "_resolve_slice_names",
-        return_value=["left", "left", "right"],
-    ):
-        index.add_to_index(
-            _basis_embeddings(3), np.array(["a", "b", "c"]), reload=False
-        )
-
     return index
 
 
@@ -692,26 +679,6 @@ class TestToArrowTable:
         assert table["id"].to_pylist() == ["a", "b"]
         assert table["sample_id"].to_pylist() == ["s1", "s2"]
 
-    def test_slice_names_become_a_column(self):
-        table = _to_arrow_table(
-            ["a", "b"], ["s1", "s2"], _random_embeddings(2), ["left", "right"]
-        )
-
-        assert table.column_names == [
-            "id",
-            "sample_id",
-            "vector",
-            _SLICE_NAME_COLUMN,
-        ]
-        assert table[_SLICE_NAME_COLUMN].to_pylist() == ["left", "right"]
-
-    def test_unresolved_slice_names_are_still_typed(self):
-        # An untyped null column will not merge into a string one, so a
-        # batch whose samples are all missing has to say what it is
-        table = _to_arrow_table(["a"], ["s1"], _random_embeddings(1), [None])
-
-        assert table.schema.field(_SLICE_NAME_COLUMN).type == pa.string()
-
     def test_float64_embeddings_are_cast(self):
         embeddings = np.ones((2, DIMS), dtype=np.float64)
 
@@ -1018,34 +985,6 @@ class TestAddToIndex:
             )
 
         assert _ids(index) == ["a", "b"]
-
-    def test_race_fallback_takes_the_schema_the_winner_chose(
-        self, index, tmp_path
-    ):
-        # A writer on a release without the slice column creates a table
-        # with three, and Lance rejects a merge whose source names a
-        # fourth. The rows were built before that table was known, so they
-        # are rebuilt once it is
-        other = lancedb.connect(str(tmp_path))
-        other.create_table(
-            "test", _to_arrow_table(["a"], ["a"], _random_embeddings(1))
-        )
-
-        # A real grouped collection, so the resolution under test is the
-        # connector's own rather than a stand-in for it
-        view = mock.MagicMock()
-        view.select.return_value.values.return_value = (["b"], ["left"])
-        dataset = mock.MagicMock(group_field="group")
-        dataset.select_group_slices.return_value = view
-        index._samples = mock.MagicMock(_root_dataset=dataset)
-
-        with mock.patch.object(LanceDBSimilarityIndex, "_sync_table"):
-            index.add_to_index(
-                _random_embeddings(1, seed=1), np.array(["b"]), reload=False
-            )
-
-        assert _ids(index) == ["a", "b"]
-        assert _SLICE_NAME_COLUMN not in index.table.schema.names
 
     def test_create_failure_propagates_when_no_table_appeared(self, index):
         # Only a lost race is recoverable; anything else must surface
@@ -1913,26 +1852,6 @@ class TestPredicateBatching:
             list(call.args[0]) for call in id_predicate.call_args_list
         ] == [["a", "b"], ["c"]]
 
-    def test_the_slice_lookup_splits_its_id_list(self, index):
-        # The first add of an index carries the whole dataset, and a `$in`
-        # naming every sample of a large one approaches the 16 MB ceiling
-        # on the aggregation command that would carry it
-        view = mock.MagicMock()
-        view.select.return_value.values.return_value = ([], [])
-        dataset = mock.MagicMock(group_field="group")
-        dataset.select_group_slices.return_value = view
-        index._samples = mock.MagicMock(_root_dataset=dataset)
-
-        assert index._resolve_slice_names(["a", "b", "c"]) == [
-            None,
-            None,
-            None,
-        ]
-        assert [list(call.args[0]) for call in view.select.call_args_list] == [
-            ["a", "b"],
-            ["c"],
-        ]
-
     def test_delete_splits_the_predicate(self, populated_index):
         with mock.patch.object(
             type(populated_index.table),
@@ -2429,10 +2348,12 @@ class TestQueryFilters:
                 [("id IN ('a', 'b')", 2)],
                 id="an_id_is_named_once",
             ),
+            # Longer than one character, or splitting it into characters
+            # would name the same single ID and the case would prove nothing
             pytest.param(
-                ["a", "b", "c"],
-                "a",
-                [("id IN ('a')", 1)],
+                ["ab", "c", "d"],
+                "ab",
+                [("id IN ('ab')", 1)],
                 id="a_scalar_id_is_not_split_into_characters",
             ),
             # Distinct from `[(None, None)]`, which is the whole table: no
@@ -2465,6 +2386,14 @@ class TestQueryFilters:
                 ["a", "x", "y"],
                 [("id IN ('a', 'x', 'y')", 3)],
                 id="a_complement_no_shorter_than_the_view_is_not_taken",
+            ),
+            # The complement's bound counts the table's rows it leaves in,
+            # not the IDs the view names, which can include ones it lacks
+            pytest.param(
+                ["a", "b", "c", "d"],
+                ["a", "b", "c", "x"],
+                [("id NOT IN ('d')", 3)],
+                id="a_complement_bounds_by_the_rows_it_keeps",
             ),
         ],
     )
@@ -2528,94 +2457,30 @@ class TestQueryFilters:
         assert filters[0][0] == "id NOT IN ('id-00004', 'id-00005')"
 
 
-class TestSliceFilter:
-    """Restricting a search to one group slice."""
-
-    def test_an_index_without_the_column_names_no_slice(self, basis_index):
-        # Every index written before the column existed, which has to keep
-        # answering rather than ask for a rebuild
-        with _scoped_to(basis_index, "left"):
-            assert basis_index._current_slice_name() is None
-
-    def test_a_flattened_view_names_no_slice(self, sliced_index):
-        # `group_slice` is None exactly when a stage has flattened the
-        # slices, which is a search across all of them
-        with _scoped_to(sliced_index, None):
-            assert sliced_index._current_slice_name() is None
-
-        with _scoped_to(sliced_index, None), _no_view():
-            assert sliced_index._query_filters() == [(None, None)]
-
-    def test_a_slice_is_a_predicate_rather_than_an_id_list(self, sliced_index):
-        with _scoped_to(sliced_index, "left"), _no_view():
-            assert sliced_index._query_filters() == [
-                ("slice_name = 'left'", None)
-            ]
+class TestGroupedDatasets:
+    """An unfiltered query on a grouped dataset, which shows one slice."""
 
     @pytest.mark.parametrize(
-        "view_ids,expected",
+        "slice_name",
         [
-            pytest.param(["a"], [("id IN ('a')", 1)], id="named"),
-            pytest.param(["a", "b"], [("id NOT IN ('c')", 2)], id="excluded"),
+            pytest.param(None, id="flat"),
+            pytest.param("left", id="grouped"),
         ],
     )
-    def test_a_view_names_no_slice_of_its_own(
-        self, sliced_index, view_ids, expected
-    ):
-        # A view holds one slice, so its IDs already say which. Naming the
-        # slice as well would say it twice out of two snapshots: the IDs
-        # are cached and the slice is read live, so a dataset whose active
-        # slice moves between them would ask for rows no ID names
-        with _scoped_to(sliced_index, "left"), _view_of(view_ids):
-            assert sliced_index._query_filters() == expected
-
-    def test_a_slice_that_moves_under_a_view_does_not_empty_it(
-        self, sliced_index
-    ):
-        # The rows the view names, whatever the dataset's active slice has
-        # since become
-        with _scoped_to(sliced_index, "right"), _view_of(["a", "b"]):
-            ids, _, _ = sliced_index._kneighbors(
-                query=_basis_embeddings(3)[0], k=3, return_dists=True
-            )
-
-        assert sorted(ids) == ["a", "b"]
-
-    def test_a_quoted_slice_name_round_trips(self, index):
-        with mock.patch.object(
+    def test_an_unfiltered_query_reads_no_ids(self, basis_index, slice_name):
+        # Unrestricted whatever slice the held collection shows, because
+        # that slice is not reliably the caller's -- and so the aggregation
+        # that would list its IDs is never paid for
+        with _scoped_to(
+            basis_index, slice_name
+        ), _no_view(), mock.patch.object(
             LanceDBSimilarityIndex,
-            "_resolve_slice_names",
-            return_value=["o'clock", "o'clock", "right"],
-        ):
-            index.add_to_index(
-                _basis_embeddings(3), np.array(["a", "b", "c"]), reload=False
-            )
+            "current_sample_ids",
+            new_callable=mock.PropertyMock,
+        ) as current:
+            assert basis_index._query_filters() == [(None, None)]
 
-        with _scoped_to(index, "o'clock"), _no_view():
-            ids, _, _ = index._kneighbors(
-                query=_basis_embeddings(3)[2], k=3, return_dists=True
-            )
-
-        assert sorted(ids) == ["a", "b"]
-
-    def test_a_query_stays_inside_the_slice(self, sliced_index):
-        # `c` is the nearest row to this query and sits in the other slice
-        with _scoped_to(sliced_index, "left"), _no_view():
-            ids, _, dists = sliced_index._kneighbors(
-                query=_basis_embeddings(3)[2], k=3, return_dists=True
-            )
-
-        assert sorted(ids) == ["a", "b"]
-        assert len(dists) == len(ids)
-
-    def test_an_unwritten_slice_is_not_matched(self, sliced_index):
-        with _scoped_to(sliced_index, "nowhere"), _no_view():
-            ids, _, dists = sliced_index._kneighbors(
-                query=_basis_embeddings(3)[0], k=3, return_dists=True
-            )
-
-        assert ids == []
-        assert dists == []
+        current.assert_not_called()
 
 
 class TestKneighborsOverAView:
@@ -2823,14 +2688,21 @@ class TestKneighborsOverAView:
 
     def test_a_large_result_arrives_unsorted(self, tmp_path):
         # Guards the premise: were a search to sort its own output, the
-        # test below would be passing for a reason that is not the merge
+        # test below would be passing for a reason that is not the merge.
+        # Whether one search comes back out of order turns on how Lance
+        # schedules its threads, so this asks several times and needs one
         index = self._wide_index(tmp_path)
+        query = _random_embeddings(1, seed=6)[0]
 
-        dists = index._search(
-            _random_embeddings(1, seed=6)[0], "l2", UNSORTED_ROWS
-        ).to_pandas()["_distance"]
+        def arrives_sorted():
+            dists = list(
+                index._search(query, "l2", UNSORTED_ROWS).to_pandas()[
+                    "_distance"
+                ]
+            )
+            return dists == sorted(dists)
 
-        assert list(dists) != sorted(dists)
+        assert not all(arrives_sorted() for _ in range(_PREMISE_ATTEMPTS))
 
     def test_a_large_result_is_sorted_before_it_is_returned(self, tmp_path):
         # `sort_by_similarity` documents `k=None` as sorting every sample,
@@ -3013,136 +2885,6 @@ class TestKneighborsOverAView:
 
         assert ids == ["b"]
         assert search.call_count == 1
-
-
-class TestSliceWritePath:
-    """Deciding whether a write carries slice names."""
-
-    def _grouped(self):
-        return mock.patch.object(
-            LanceDBSimilarityIndex, "_group_field", return_value="group"
-        )
-
-    def test_an_index_with_no_collection_writes_no_slice_column(
-        self, basis_index
-    ):
-        assert basis_index._resolve_slice_names(["a", "b", "c"]) is None
-        assert _SLICE_NAME_COLUMN not in basis_index.table.schema.names
-
-    def test_a_flat_dataset_writes_no_slice_column(self, basis_index):
-        # A flat dataset has no group field, which is the test -- and a
-        # different one from having no collection at all
-        basis_index._samples = mock.MagicMock(
-            _root_dataset=mock.MagicMock(group_field=None)
-        )
-
-        assert basis_index._resolve_slice_names(["a", "b", "c"]) is None
-        assert _SLICE_NAME_COLUMN not in basis_index.table.schema.names
-
-    def test_a_table_written_without_the_column_is_not_given_one(
-        self, basis_index
-    ):
-        # Lance rejects a merge whose source names a column the target
-        # lacks, so an index written before the column existed can only be
-        # written the way it was created
-        with self._grouped():
-            assert basis_index._resolve_slice_names(["a"]) is None
-
-        with self._grouped():
-            basis_index.add_to_index(
-                _basis_embeddings(1), np.array(["d"]), reload=False
-            )
-
-        assert _SLICE_NAME_COLUMN not in basis_index.table.schema.names
-        assert _ids(basis_index) == ["a", "b", "c", "d"]
-
-    def test_a_table_carries_the_column_when_the_rows_do(self, sliced_index):
-        assert _SLICE_NAME_COLUMN in sliced_index.table.schema.names
-        assert sliced_index.table.to_arrow()[
-            _SLICE_NAME_COLUMN
-        ].to_pylist() == ["left", "left", "right"]
-
-    def _grouped_samples(self, index, by_id):
-        """Binds the index to a grouped collection returning ``by_id``.
-
-        The lookup answers in its own order, as an aggregation does, which
-        is what makes keying the result by ID rather than by position
-        observable.
-        """
-        view = mock.MagicMock()
-        view.select.return_value.values.return_value = (
-            list(by_id.keys()),
-            list(by_id.values()),
-        )
-        dataset = mock.MagicMock(group_field="group")
-        dataset.select_group_slices.return_value = view
-        index._samples = mock.MagicMock(_root_dataset=dataset)
-
-    def test_slice_names_follow_the_ids_not_the_lookup_order(self, index):
-        # An aggregation returns its rows in an order of its own, so the
-        # names have to be matched back to the IDs that asked for them.
-        # Positional labeling agrees by accident whenever the two coincide
-        self._grouped_samples(
-            index, {"s1": "left", "s2": "right", "s3": "left"}
-        )
-
-        assert index._resolve_slice_names(["s3", "s1", "s2"]) == [
-            "left",
-            "left",
-            "right",
-        ]
-
-    def test_a_sample_named_once_per_label_is_labeled_each_time(self, index):
-        # A patches index writes one row per label, so the same sample is
-        # named once per label it carries and every row needs its own value
-        self._grouped_samples(index, {"s1": "left", "s2": "right"})
-
-        assert index._resolve_slice_names(["s1", "s1", "s2"]) == [
-            "left",
-            "left",
-            "right",
-        ]
-
-    def test_a_later_add_keeps_filling_the_column(self, sliced_index):
-        with mock.patch.object(
-            LanceDBSimilarityIndex,
-            "_resolve_slice_names",
-            return_value=["right"],
-        ):
-            sliced_index.add_to_index(
-                _basis_embeddings(1), np.array(["d"]), reload=False
-            )
-
-        rows = sliced_index.table.to_arrow().to_pylist()
-        assert {row["id"]: row[_SLICE_NAME_COLUMN] for row in rows} == {
-            "a": "left",
-            "b": "left",
-            "c": "right",
-            "d": "right",
-        }
-
-    def test_a_row_outside_the_flattened_view_is_left_unlabeled(self, index):
-        # Typed rather than inferred, or a batch of nothing but None would
-        # be an untyped null column that will not merge into a string one
-        with mock.patch.object(
-            LanceDBSimilarityIndex,
-            "_resolve_slice_names",
-            return_value=[None, None, None],
-        ):
-            index.add_to_index(
-                _basis_embeddings(3), np.array(["a", "b", "c"]), reload=False
-            )
-
-        assert index.table.schema.field(_SLICE_NAME_COLUMN).type == pa.string()
-
-        # SQL leaves a null out of an equality, which is what keeps an
-        # unlabeled row from answering for every slice
-        with _scoped_to(index, "left"), _no_view():
-            ids, _, _ = index._kneighbors(
-                query=_basis_embeddings(3)[0], k=3, return_dists=True
-            )
-
-        assert ids == []
 
 
 class TestReload:
