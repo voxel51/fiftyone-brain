@@ -16,6 +16,7 @@ Usage::
 
     python tests/intensive/benchmark_lancedb.py
     python tests/intensive/benchmark_lancedb.py --sizes 10000 --dims 2048
+    python tests/intensive/benchmark_lancedb.py --filtered --sizes 100000
 
 The defaults -- 1k/100k/1M rows, 512 dimensions, 100-row batches, 20 timed
 repeats -- are the settings the recorded numbers came from.
@@ -43,6 +44,7 @@ import fiftyone as fo
 from fiftyone.brain.internal.core.lancedb import (
     LanceDBSimilarityConfig,
     LanceDBSimilarityIndex,
+    _table_names,
     _to_arrow_table,
 )
 
@@ -55,9 +57,18 @@ _SEED_BATCH_SIZE = 50000
 # first and read as growth
 _WARMUP_REPEATS = 10
 
+# Warm-up before a filtered arm. Fewer, because a query naming most of a
+# large table costs hundreds of milliseconds and there is no index build to
+# absorb here -- the table is already warm from the arm before it
+_FILTER_WARMUP_REPEATS = 3
+
 # Rows per bulk add while growing the tail to a checkpoint. Large so growing
 # is cheap; the timed adds use `batch_size` so they stay comparable.
 _TAIL_GROW_BATCH = 5000
+
+# Shares of the table a timed view holds. Spread across the point where the
+# complement becomes the shorter predicate, which is half
+_FILTER_SHARES = (0.01, 0.1, 0.5, 0.9, 1.0)
 
 
 def _random_embeddings(num_rows, dims, rng):
@@ -66,6 +77,15 @@ def _random_embeddings(num_rows, dims, rng):
 
 def _batch_ids(tag, repeat, count):
     return ["%s-%d-%06d" % (tag, repeat, i) for i in range(count)]
+
+
+def _seed_ids(start, stop):
+    """The IDs :func:`_seed_table` writes for a row range.
+
+    Derived rather than read back, so a sweep can name the rows a view holds
+    without scanning the table for them.
+    """
+    return ["seed-%09d" % i for i in range(start, stop)]
 
 
 def _seed_table(uri, num_rows, dims, rng):
@@ -85,7 +105,7 @@ def _seed_table(uri, num_rows, dims, rng):
 
     for start in range(0, num_rows, _SEED_BATCH_SIZE):
         stop = min(start + _SEED_BATCH_SIZE, num_rows)
-        ids = ["seed-%09d" % i for i in range(start, stop)]
+        ids = _seed_ids(start, stop)
         embeddings = _random_embeddings(stop - start, dims, rng)
         rows = _to_arrow_table(ids, ids, embeddings)
 
@@ -97,23 +117,45 @@ def _seed_table(uri, num_rows, dims, rng):
     return table.count_rows()
 
 
-def _make_index(samples, uri):
+class _ViewedIndex(LanceDBSimilarityIndex):
+    """An index whose view state is set rather than derived.
+
+    The filter sweep seeds its rows straight into LanceDB, so no collection
+    holds them and the base class's view properties -- which aggregate over
+    one -- have nothing to report. What is timed is the predicate a view
+    turns into and the search it runs, not the aggregation that produces its
+    ID list.
+    """
+
+    #: The IDs the view holds, or None for the whole index
+    view_ids = None
+
+    @property
+    def has_view(self):
+        return self.view_ids is not None
+
+    @property
+    def current_sample_ids(self):
+        return self.view_ids
+
+
+def _make_index(samples, uri, cls=LanceDBSimilarityIndex):
     """Opens an index over ``uri``.
 
     ``samples=None`` builds one without binding it to a sample collection,
     which skips the database entirely. The write paths reach only the table,
     the connection and the config, so add, remove and the id index all work
-    unbound -- but anything reading the view does not, so a query needs the
-    bound form.
+    unbound. A query reads the view, so it needs the bound form or a class
+    that supplies its own, as :class:`_ViewedIndex` does.
     """
     config = LanceDBSimilarityConfig(table_name=_TABLE_NAME, uri=uri)
     if samples is None:
-        index = LanceDBSimilarityIndex.__new__(LanceDBSimilarityIndex)
+        index = cls.__new__(cls)
         index._config = config
         index._initialize()
         return index
 
-    return LanceDBSimilarityIndex(samples, config, "benchmark")
+    return cls(samples, config, "benchmark")
 
 
 def _time_adds(index, rng, *, batch_size, dims, repeats, tag="add"):
@@ -132,7 +174,7 @@ def _time_adds(index, rng, *, batch_size, dims, repeats, tag="add"):
 
 
 def _time_queries(index, rng, *, dims, k, repeats):
-    """Times ``repeats`` unfiltered k-NN queries, in milliseconds."""
+    """Times ``repeats`` k-NN queries on the current view, in milliseconds."""
     timings = []
 
     for _ in range(repeats):
@@ -240,6 +282,99 @@ def _run_size(samples, num_rows, *, dims, batch_size, repeats, k, seed):
         )
 
         return add_ms, query_ms, remove_ms
+    finally:
+        shutil.rmtree(uri, ignore_errors=True)
+
+
+def _describe_filters(filters):
+    """A short label for what a view turned into."""
+    predicate = filters[0][0] if filters else None
+
+    if predicate is None:
+        shape = "unrestricted"
+    elif "NOT IN" in predicate:
+        shape = "id NOT IN"
+    else:
+        shape = "id IN"
+
+    return "%s, %d search%s" % (
+        shape,
+        len(filters),
+        "" if len(filters) == 1 else "es",
+    )
+
+
+def _run_filter_sweep(num_rows, *, dims, repeats, k, seed, shares):
+    """Times a query against the predicates a view turns into.
+
+    A filtered query is a prefilter on the indexed table, so what this
+    measures is the predicate's own cost against how much of the table the
+    view holds -- which is what decides whether the ID list or its
+    complement is the one named.
+    """
+    rng = np.random.default_rng(seed)
+    uri = tempfile.mkdtemp(prefix="lancedb-filter-")
+
+    try:
+        print("  seeding %d rows at %d dims..." % (num_rows, dims))
+        seeded = _seed_table(uri, num_rows, dims, rng)
+
+        index = _make_index(None, uri, cls=_ViewedIndex)
+        assert index.total_index_size == seeded, "seeded table did not open"
+
+        # The connector's own calls, which seeding straight into LanceDB
+        # skipped. A filtered query uses both -- the point of the prefilter
+        # is that it does -- so timing one without them would measure an
+        # unindexed scan
+        print("  building the id and vector indexes...")
+        index._ensure_id_index()
+        index._ensure_vector_index()
+        versions = len(index.table.list_versions())
+
+        ids = _seed_ids(0, seeded)
+        arms = [("whole index", None)]
+        arms += [
+            ("view %g%%" % (100 * share), ids[: max(1, round(share * seeded))])
+            for share in shares
+        ]
+
+        for label, view_ids in arms:
+            index.view_ids = view_ids
+
+            shape = _describe_filters(index._query_filters())
+            _time_queries(
+                index, rng, dims=dims, k=k, repeats=_FILTER_WARMUP_REPEATS
+            )
+            timings = _time_queries(
+                index, rng, dims=dims, k=k, repeats=repeats
+            )
+
+            print(
+                "    %-14s median %8.1f ms   min %8.1f ms   max %8.1f ms   "
+                "(%s)"
+                % (
+                    label,
+                    statistics.median(timings),
+                    min(timings),
+                    max(timings),
+                    shape,
+                )
+            )
+
+        # A filtered query must not write: no new table version, and no
+        # second table in the store
+        after = len(index._db.open_table(_TABLE_NAME).list_versions())
+        print(
+            "    %-14s %d table version%s, %d table%s in the store"
+            % (
+                "state",
+                after,
+                "" if after == 1 else "s",
+                len(_table_names(index._db)),
+                "" if len(_table_names(index._db)) == 1 else "s",
+            )
+        )
+        assert after == versions, "a filtered query wrote to the table"
     finally:
         shutil.rmtree(uri, ignore_errors=True)
 
@@ -373,6 +508,18 @@ def main():
     )
     parser.add_argument("--seed", type=int, default=51, help="random seed")
     parser.add_argument(
+        "--filtered",
+        action="store_true",
+        help="sweep query latency against how much of the table a view "
+        "holds, instead of against table size",
+    )
+    parser.add_argument(
+        "--shares",
+        default=",".join(str(share) for share in _FILTER_SHARES),
+        help="comma-separated shares of the table a timed view holds, with "
+        "--filtered",
+    )
+    parser.add_argument(
         "--tail",
         action="store_true",
         help="sweep add cost against a growing unindexed tail instead of "
@@ -395,10 +542,11 @@ def main():
 
     sizes = [int(size) for size in args.sizes.split(",")]
 
-    # The tail sweep times writes only, which need no sample collection and
-    # so no database
+    # The tail sweep only writes and the filter sweep sets its own view
+    # state, so neither needs a sample collection, and so neither needs a
+    # database
     dataset = None
-    if not args.tail:
+    if not (args.tail or args.filtered):
         dataset = fo.Dataset(_DATASET_NAME, overwrite=True)
         dataset.add_samples(
             [
@@ -417,6 +565,19 @@ def main():
             args.k,
         )
     )
+
+    if args.filtered:
+        for num_rows in sizes:
+            print("\n%d rows" % num_rows)
+            _run_filter_sweep(
+                num_rows,
+                dims=args.dims,
+                repeats=args.repeats,
+                k=args.k,
+                seed=args.seed,
+                shares=[float(share) for share in args.shares.split(",")],
+            )
+        return
 
     if args.tail:
         _run_tail_sweep(

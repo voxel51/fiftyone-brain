@@ -8,7 +8,6 @@ LanceDB similarity backend.
 
 import logging
 from collections import Counter
-import re
 from copy import deepcopy
 
 import numpy as np
@@ -58,6 +57,15 @@ _SUPPORTED_INDEX_TYPES = {
 # query time. Reusing one name is what makes a rebuild a replacement
 _VECTOR_COLUMN = "vector"
 _VECTOR_INDEX_NAME = "vector_idx"
+
+# What a neighbors query returns. Naming them keeps the vectors out of the
+# result: a result row carries its whole embedding otherwise, and a query is
+# bounded by `k` rather than by the table, so `sort_by_similarity(k=None)`
+# would hand back every vector in the table. Measured at 60k rows of CLIP-512
+# with FiftyOne IDs, k=60k: 126.5 MB against 3.6 MB. `_distance` is named
+# rather than left implicit because lancedb warns that a future release will
+# stop adding it to a projection that does not ask for it
+_QUERY_COLUMNS = ["id", "sample_id", "_distance"]
 
 # Widths at or below this take IVF_RQ. Its 1-bit codes are best in class at
 # 768 -- 0.9993 mean / 0.900 worst against IVF_PQ m=96's 0.9977 / 0.800, at a
@@ -198,19 +206,20 @@ def _to_id_list(ids):
     return list(ids)
 
 
-def _id_predicate(ids, column="id"):
+def _id_predicate(ids, column="id", negate=False):
     """Builds a SQL predicate matching the given IDs.
 
     Args:
         ids: an iterable of IDs
         column ("id"): the column to match against
+        negate (False): whether to match every row the IDs do *not* name
 
     Returns:
         a SQL predicate string
     """
     # Doubling is how Lance's SQL parser escapes a quote inside a literal
     quoted = ", ".join("'%s'" % str(_id).replace("'", "''") for _id in ids)
-    return "%s IN (%s)" % (column, quoted)
+    return "%s %sIN (%s)" % (column, "NOT " if negate else "", quoted)
 
 
 class LanceDBSimilarityConfig(SimilarityConfig):
@@ -660,9 +669,8 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         https://docs.lancedb.com/performance
 
-        A query over a view is answered from a per-query copy of the table
-        that carries no index, so it scans regardless. Replacing that
-        rewrite with a native prefilter is separate work.
+        A query over a view is answered from this same table under a
+        prefilter, so it uses this index too.
 
         Rebuilt when the distance type stops matching ``metric``, and
         otherwise left alone. LanceDB answers a query whose metric
@@ -757,21 +765,29 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         existing_ids = []
         for batch_ids in fou.iter_batches(list(ids), _ID_BATCH_SIZE):
-            # A vector search applies a default row limit but a plain scan
-            # does not; asking for no limit keeps a future default from
-            # turning this into a false report of missing IDs
-            results = (
-                self._table.search(None)
-                .where(_id_predicate(batch_ids))
-                .select(["id"])
-                .limit(None)
-                .to_arrow()
-            )
-            existing_ids.extend(results["id"].to_pylist())
+            existing_ids.extend(self._scan_ids(_id_predicate(batch_ids)))
 
         # A table can hold an ID twice — written outside this connector, or
         # by a merge that raced — and callers count these to report on them
         return list(dict.fromkeys(existing_ids))
+
+    def _scan_ids(self, where=None):
+        """The IDs of the rows matching the given predicate.
+
+        Args:
+            where (None): a SQL predicate, or None for every row
+
+        Returns:
+            a list of IDs
+        """
+        # A vector search applies a default row limit but a plain scan does
+        # not; asking for no limit keeps a future default from silently
+        # truncating the answer
+        search = self._table.search(None).select(["id"]).limit(None)
+        if where is not None:
+            search = search.where(where)
+
+        return search.to_arrow()["id"].to_pylist()
 
     def _merge_rows(self, pa_table, *, overwrite):
         """Upserts the given rows into the table.
@@ -1038,12 +1054,19 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         if self._db is None:
             return
 
-        for tbl in (
-            self.config.table_name,
-            self.config.table_name + "_filter",
-        ):
-            if isinstance(tbl, str) and tbl in _table_names(self._db):
-                self._db.drop_table(tbl)
+        # A run that never named a table has none to drop, and the name is
+        # concatenated below before it is looked up
+        if self.config.table_name is not None:
+            # Nothing writes this second table: a query prefilters the
+            # indexed one. Runs created by older releases still have one in
+            # the store, and dropping the run is the occasion to take it
+            # with them
+            for tbl in (
+                self.config.table_name,
+                self.config.table_name + "_filter",
+            ):
+                if tbl in _table_names(self._db):
+                    self._db.drop_table(tbl)
 
         self._table = None
 
@@ -1079,34 +1102,21 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         if single_query:
             query = [query]
 
-        table = self._table
-
-        if table is None:
-            # No table means no rows to be near. The shape has to match what
-            # a populated query returns, because callers unpack it -- and
-            # each slot gets its own list, because the populated path
-            # returns three and `_set_list_values_by_id` takes all three
-            def empty():
-                return [] if single_query else [[] for _ in query]
-
-            label_ids = (
-                empty() if self.config.patches_field is not None else None
+        # No table means no rows to be near, and `k=None` asks for none when
+        # the collection the index serves holds no samples -- which Lance
+        # rejects as a missing limit rather than answering with nothing
+        if self._table is None or k == 0:
+            return self._empty_neighbors(
+                query, single_query=single_query, return_dists=return_dists
             )
-            if return_dists:
-                return empty(), label_ids, empty()
 
-            return empty(), label_ids
+        filters = self._query_filters()
 
-        if self.has_view:
-            if self.config.patches_field is not None:
-                index_ids = list(self.current_label_ids)
-            else:
-                index_ids = list(self.current_sample_ids)
-
-            df = table.to_pandas()
-            df = df[df["id"].isin(index_ids)]
-            table = self._db.create_table(
-                self.config.table_name + "_filter", df, mode="overwrite"
+        # No filter at all is the whole table; no filters is a view that
+        # selects nothing, which nothing in the table can be near
+        if not filters:
+            return self._empty_neighbors(
+                query, single_query=single_query, return_dists=return_dists
             )
 
         metric = _SUPPORTED_METRICS[self.config.metric]
@@ -1115,7 +1125,7 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         label_ids = [] if self.config.patches_field is not None else None
         dists = []
         for q in query:
-            results = self._search_exactly_k(table, q, metric, k)
+            results = self._search_filtered(q, metric, k, filters)
 
             if self.config.patches_field is not None:
                 sample_ids.append(results.sample_id.tolist())
@@ -1138,7 +1148,166 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         return sample_ids, label_ids
 
-    def _search(self, table, query, metric, k, *, bypass_index=False):
+    def _empty_neighbors(self, query, *, single_query, return_dists):
+        """The empty result, in the shape a populated query returns.
+
+        The shape has to match, because callers unpack it -- and each slot
+        gets its own list, because the populated path returns three and
+        ``_set_list_values_by_id`` takes all three.
+
+        Args:
+            query: the list of query vectors
+            single_query: whether the caller asked with one vector
+            return_dists: whether the caller asked for distances
+
+        Returns:
+            the two- or three-slot tuple :meth:`_kneighbors` returns
+        """
+
+        def empty():
+            return [] if single_query else [[] for _ in query]
+
+        label_ids = empty() if self.config.patches_field is not None else None
+
+        if return_dists:
+            return empty(), label_ids, empty()
+
+        return empty(), label_ids
+
+    def _complement_if_shorter(self, index_ids):
+        """The table's IDs that ``index_ids`` leaves out, or ``None`` when
+        naming them would be the longer predicate.
+
+        A predicate costs in the IDs it names, and a view usually selects
+        most of a table, so ``id NOT IN (the rest)`` is usually the shorter
+        of the two ways to say the same thing. Finding out costs a scan of
+        one narrow column, so it is only spent where it can pay: a view
+        holding at most half the table cannot have the shorter complement.
+
+        Args:
+            index_ids: the IDs the view selects
+
+        Returns:
+            a list of IDs, or None to filter on ``index_ids`` instead
+        """
+        if 2 * len(index_ids) <= len(self._table):
+            return None
+
+        included = set(index_ids)
+        excluded = [_id for _id in self._scan_ids() if _id not in included]
+
+        # The row count above only predicts which list is shorter -- a view
+        # may name IDs the table does not hold -- so this is the answer
+        return excluded if len(excluded) < len(index_ids) else None
+
+    def _query_filters(self):
+        """The prefilters a query runs under, as ``(predicate, max_rows)``.
+
+        ``max_rows`` is an upper bound on how many rows the predicate can
+        match, which is what tells a result that is short because the index
+        under-returned from one that is short because the filter is. It
+        counts IDs, which is a count of rows because ``id`` is unique: a
+        table holding one twice -- which this connector does not write, and
+        tolerates only when reporting -- bounds it low, and a query over one
+        can come back short rather than rescanning.
+
+        A list, because an ID restriction longer than one predicate batch is
+        split across several searches.
+
+        Returns:
+            a list of ``(predicate, max_rows)``, either of which may be
+            ``None`` for "no restriction" and "unknown"; empty when the
+            view selects nothing
+        """
+        # Unrestricted on a grouped dataset too, though it shows only its
+        # active slice: a caller that wants fewer rows restricts the index to
+        # a view. `compute_uniqueness` queries a loaded index expecting every
+        # row it holds, and a grouped sort searches across slices. Nor is the
+        # slice held here reliably the caller's: a `SortBySimilarity` from
+        # before voxel51/fiftyone#8582 skips `use_view` when two views differ
+        # only in their slice, so restricting to the held slice returns no
+        # rows when the App shows another
+        if not self.has_view:
+            return [(None, None)]
+
+        if self.config.patches_field is not None:
+            index_ids = self.current_label_ids
+        else:
+            index_ids = self.current_sample_ids
+
+        # Deduped because the batches below have to partition the rows they
+        # match: an ID named by two of them puts its row in two results, and
+        # the merge would hand the caller that row twice
+        index_ids = list(dict.fromkeys(_to_id_list(index_ids)))
+        if not index_ids:
+            return []
+
+        excluded_ids = self._complement_if_shorter(index_ids)
+        if excluded_ids is not None:
+            # One predicate rather than batches. `NOT IN` batches partition
+            # nothing -- each excludes only the IDs it names, so a search
+            # under one still returns the rows another excludes -- so they
+            # would have to be conjoined into a single predicate anyway
+            #
+            # Nothing to exclude is a view holding every row, which is no
+            # restriction at all. Said as a predicate it would be
+            # `id NOT IN ()`, which Lance rejects as a parse error rather
+            # than reading as the tautology it looks like
+            predicate = (
+                _id_predicate(excluded_ids, negate=True)
+                if excluded_ids
+                else None
+            )
+
+            return [(predicate, len(self._table) - len(excluded_ids))]
+
+        return [
+            (_id_predicate(batch_ids), len(batch_ids))
+            for batch_ids in fou.iter_batches(index_ids, _ID_BATCH_SIZE)
+        ]
+
+    def _search_filtered(self, query, metric, k, filters):
+        """Runs the query under each filter and merges the results.
+
+        The filters partition the rows they match, and the k nearest of a
+        union of disjoint sets are the k nearest of their per-set k
+        nearest, so splitting an ID list costs searches rather than
+        accuracy.
+
+        Returns the rows nearest first, which a search does not guarantee
+        on its own.
+
+        Args:
+            query: a query vector
+            metric: the LanceDB distance type to query with
+            k: the number of neighbors to return
+            filters: the ``(predicate, max_rows)`` pairs from
+                :meth:`_query_filters`
+
+        Returns:
+            a ``pandas.DataFrame`` of results, nearest first
+        """
+        frames = [
+            self._search_exactly_k(
+                query, metric, k, where=where, max_rows=max_rows
+            )
+            for where, max_rows in filters
+        ]
+
+        merged = (
+            frames[0]
+            if len(frames) == 1
+            else pd.concat(frames, ignore_index=True)
+        )
+
+        # Sorted even when there is one frame to merge: past 16384 rows a
+        # single search returns its batches in an order of its own, so a
+        # `k` near the table size -- which is what `k=None` asks for --
+        # comes back out of order. Measured at 60k rows, with and without a
+        # vector index
+        return merged.sort_values("_distance", kind="stable").head(k)
+
+    def _search(self, query, metric, k, *, where=None, bypass_index=False):
         """Builds the vector query, applying whichever knobs are configured.
 
         Each knob is applied only when set, because LanceDB tunes ``nprobes``
@@ -1151,17 +1320,30 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         ``ivf_hnsw_*`` families do not.
 
         Args:
-            table: the ``lancedb.LanceTable`` to query
             query: a query vector
             metric: the LanceDB distance type to query with
             k: the number of neighbors to return
+            where (None): a SQL predicate to restrict the query to
             bypass_index (False): whether to scan every vector rather than
                 use the index
 
         Returns:
             a ``lancedb`` query builder
         """
-        search = table.search(query).metric(metric).limit(k)
+        search = (
+            self._table.search(query)
+            .metric(metric)
+            .limit(k)
+            .select(_QUERY_COLUMNS)
+        )
+
+        if where is not None:
+            # Prefiltered, so the restriction decides which rows the vector
+            # search runs over rather than which of its results survive.
+            # Postfiltering takes k from the whole table and then discards
+            # whatever falls outside the view, which returns fewer than k
+            # rows -- usually none, once the view is small
+            search = search.where(where, prefilter=True)
 
         if bypass_index:
             return search.bypass_vector_index()
@@ -1186,7 +1368,9 @@ class LanceDBSimilarityIndex(SimilarityIndex):
 
         return search
 
-    def _search_exactly_k(self, table, query, metric, k):
+    def _search_exactly_k(
+        self, query, metric, k, *, where=None, max_rows=None
+    ):
         """Runs the query, falling back to a scan if it comes back short.
 
         An indexed query only sees the rows in the partitions it probes, so a
@@ -1202,22 +1386,35 @@ class LanceDBSimilarityIndex(SimilarityIndex):
         reaches it.
 
         Args:
-            table: the ``lancedb.LanceTable`` to query
             query: a query vector
             metric: the LanceDB distance type to query with
             k: the number of neighbors to return
+            where (None): a SQL predicate to restrict the query to
+            max_rows (None): how many rows ``where`` can match at most.
+                The table's size if not supplied, which bounds any predicate:
+                a bound that is too high costs a scan that finds nothing
+                new, where one that is too low would drop rows
 
         Returns:
             a ``pandas.DataFrame`` of results
         """
-        results = self._search(table, query, metric, k).to_pandas()
+        results = self._search(query, metric, k, where=where).to_pandas()
 
-        # A table with fewer than k rows is short for the honest reason
-        if len(results) >= k or len(table) < k:
+        if len(results) >= k:
+            return results
+
+        if max_rows is None:
+            max_rows = len(self._table)
+
+        # Short for the honest reason: there were never more rows to find.
+        # Counted against the rows the filter reaches rather than against
+        # the whole table, or every query over a view narrower than k would
+        # scan the table to confirm what the filter already said
+        if max_rows <= len(results):
             return results
 
         return self._search(
-            table, query, metric, k, bypass_index=True
+            query, metric, k, where=where, bypass_index=True
         ).to_pandas()
 
     def _parse_neighbors_query(self, query):
