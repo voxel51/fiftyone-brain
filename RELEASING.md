@@ -52,21 +52,33 @@ version.
 
 Run the
 [Release Branch workflow](https://github.com/voxel51/fiftyone-brain/actions/workflows/release-branch.yml)
-with the release branch and `finalize` checked. It commits the bare `X.Y.Z`
-to `VERSION`, and the branch is ready to publish.
+with the release branch and `finalize` checked.
+It commits the bare `X.Y.Z` to `VERSION`, and the branch is ready to publish.
 
 ## Publishing (Aloha only)
 
+1. On the release branch,
+    confirm the `VERSION` file on is `X.Y.Z`.
 1. Navigate to the
    [releases page](https://github.com/voxel51/fiftyone-brain/releases) and
-   select `Draft a new release`.
-
-2. Select `Create new tag`, enter the tag matching the branch's `VERSION`
-   with a `v` prefix, and set the target to that branch.
-
-3. Select `Generate release notes`. For an `rcN` or `.devN` tag, select
-   `Set as a pre-release`. Otherwise select `Set as the latest release` when
-   the tag is the highest version released so far. Then `Publish release`.
+   select *Draft a new release*.
+    1. Tag
+        1. From the *Tag: Select Tag* drop down,
+          select *Create new tag*,
+          enter `vX.Y.Z`, and
+          select *Create*
+        1. Set the *Target* branch to `release/vX.Y.Z`
+    1. Release Notes
+        1. From the *Previous Tag* drop down,
+          select the previous released tag (that the branch was created from)
+        1. Select *Generate release notes*
+        1. For the *Release label*, select *Latest*
+    1. Release Label
+        1. For release candidate (`rcN`) or dev (`.devN`) versions,
+           select *Set as a pre-release*
+        1. For final versions,
+           select *Set as the latest release*
+    1. Select *Publish release*
 
 Pushing the tag triggers the
 [build workflow](https://github.com/voxel51/fiftyone-brain/blob/main/.github/workflows/build.yml),
@@ -76,5 +88,5 @@ which builds the `.whl` artifacts and publishes them to
 ## Release candidates and dev builds
 
 Publish the tag that matches the branch's current `VERSION`: `vX.Y.ZrcN` on
-a release branch, `vX.Y.0.devN` on `main`. The next number is committed once
-the build publishes.
+a release branch, `vX.Y.0.devN` on `main`.
+The next number is committed once the build publishes.
