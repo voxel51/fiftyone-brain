@@ -114,6 +114,45 @@ def test_hardness():
     print(dataset)
 
 
+def test_redaction():
+    dataset = foz.load_zoo_dataset("quickstart").clone()
+    test_view = dataset.take(10, seed=42)
+
+    _ = fob.create_redaction(
+        test_view,
+        label_field="ground_truth",
+        label_classes=["person", "car"],
+        redaction_type="bounding_box",
+        redaction_method="stack_blur",
+        redaction_field="test_interface",
+    )
+    print(dataset.list_brain_runs())
+    print(dataset.get_brain_info("test_interface"))
+
+    dataset.delete_brain_run("test_interface")
+    print(dataset)
+
+
+def test_redaction_video():
+    dataset = foz.load_zoo_dataset("quickstart-video").clone()
+    test_view = dataset.limit(1)
+
+    _ = fob.create_redaction(
+        test_view,
+        label_field="frames.detections",
+        label_classes=["person", "car"],
+        redaction_type="bounding_box",
+        redaction_method="stack_blur",
+        redaction_field="test_interface_video",
+        num_workers=2,
+    )
+    print(dataset.list_brain_runs())
+    print(dataset.get_brain_info("test_interface_video"))
+
+    dataset.delete_brain_run("test_interface_video")
+    print(dataset)
+
+
 if __name__ == "__main__":
     fo.config.show_progress_bars = True
     unittest.main(verbosity=2)
