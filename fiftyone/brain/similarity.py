@@ -1471,6 +1471,16 @@ class DuplicatesMixin(object):
         if patches_field is not None and not isinstance(
             samples, fop.PatchesView
         ):
+            # A patches view crops each label, which a temporal label does not
+            # describe, so a video index has no view to return here
+            if samples.media_type == fom.VIDEO:
+                raise ValueError(
+                    "This method is not supported for a video collection "
+                    "indexed by temporal labels, which have no patches view. "
+                    "Use `find_duplicates()` or `find_unique()` and read the "
+                    "ids they record"
+                )
+
             samples = samples.to_patches(patches_field)
 
         if sort_by == "distance":
@@ -1538,6 +1548,16 @@ class DuplicatesMixin(object):
         if patches_field is not None and not isinstance(
             samples, fop.PatchesView
         ):
+            # A patches view crops each label, which a temporal label does not
+            # describe, so a video index has no view to return here
+            if samples.media_type == fom.VIDEO:
+                raise ValueError(
+                    "This method is not supported for a video collection "
+                    "indexed by temporal labels, which have no patches view. "
+                    "Use `find_duplicates()` or `find_unique()` and read the "
+                    "ids they record"
+                )
+
             samples = samples.to_patches(patches_field)
 
         return samples.select(unique_ids)
