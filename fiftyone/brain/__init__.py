@@ -218,8 +218,11 @@ def compute_uniqueness(
             -   the name of a dataset field containing the embeddings to use
 
             If a ``model`` is provided, this argument specifies the name of a
-            field in which to store the computed embeddings. In either case,
-            when working with patch embeddings, you can provide either the
+            field in which to store the computed embeddings. If this field
+            already exists, the model is **not** used to compute embeddings;
+            the existing embeddings are used instead, and any samples or
+            labels without embeddings are skipped. In either case, when
+            working with patch embeddings, you can provide either the
             fully-qualified path to the patch embeddings or just the name of
             the label attribute in ``roi_field``
         similarity_index (None): a
@@ -327,8 +330,11 @@ def compute_representativeness(
             -   the name of a dataset field containing the embeddings to use
 
             If a ``model`` is provided, this argument specifies the name of a
-            field in which to store the computed embeddings. In either case,
-            when working with patch embeddings, you can provide either the
+            field in which to store the computed embeddings. If this field
+            already exists, the model is **not** used to compute embeddings;
+            the existing embeddings are used instead, and any samples or
+            labels without embeddings are skipped. In either case, when
+            working with patch embeddings, you can provide either the
             fully-qualified path to the patch embeddings or just the name of
             the label attribute in ``roi_field``
         similarity_index (None): a
@@ -462,8 +468,11 @@ def compute_visualization(
             -   the name of a dataset field containing the embeddings to use
 
             If a ``model`` is provided, this argument specifies the name of a
-            field in which to store the computed embeddings. In either case,
-            when working with patch embeddings, you can provide either the
+            field in which to store the computed embeddings. If this field
+            already exists, the model is **not** used to compute embeddings;
+            the existing embeddings are used instead, and any samples or
+            labels without embeddings are skipped. In either case, when
+            working with patch embeddings, you can provide either the
             fully-qualified path to the patch embeddings or just the name of
             the label attribute in ``patches_field``
         points (None): a pre-computed low-dimensional representation to use. If
@@ -640,7 +649,10 @@ def compute_similarity(
             If a ``model`` is provided, this argument specifies where to store
             the model's embeddings:
 
-            -   the name of a field in which to store the computed embeddings
+            -   the name of a field in which to store the computed embeddings.
+                If this field already exists, the model is **not** used to
+                compute embeddings; the existing embeddings are used instead,
+                and any samples or labels without embeddings are skipped
             -   ``False``: **do not** compute embeddings right now
 
             In either case, when working with patch embeddings, you can provide
@@ -755,8 +767,11 @@ def compute_near_duplicates(
             -   the name of a dataset field containing the embeddings to use
 
             If a ``model`` is provided, this argument specifies the name of a
-            field in which to store the computed embeddings. In either case,
-            when working with patch embeddings, you can provide either the
+            field in which to store the computed embeddings. If this field
+            already exists, the model is **not** used to compute embeddings;
+            the existing embeddings are used instead, and any samples or
+            labels without embeddings are skipped. In either case, when
+            working with patch embeddings, you can provide either the
             fully-qualified path to the patch embeddings or just the name of
             the label attribute in ``roi_field``
         similarity_index (None): a
@@ -906,8 +921,11 @@ def compute_leaky_splits(
             -   the name of a dataset field containing the embeddings to use
 
             If a ``model`` is provided, this argument specifies the name of a
-            field in which to store the computed embeddings. In either case,
-            when working with patch embeddings, you can provide either the
+            field in which to store the computed embeddings. If this field
+            already exists, the model is **not** used to compute embeddings;
+            the existing embeddings are used instead, and any samples or
+            labels without embeddings are skipped. In either case, when
+            working with patch embeddings, you can provide either the
             fully-qualified path to the patch embeddings or just the name of
             the label attribute in ``roi_field``
         similarity_index (None): a

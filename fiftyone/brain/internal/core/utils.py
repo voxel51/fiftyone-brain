@@ -16,6 +16,7 @@ import numpy as np
 import eta.core.utils as etau
 
 import fiftyone.brain as fob
+import fiftyone.core.aggregations as foa
 import fiftyone.core.fields as fof
 import fiftyone.core.labels as fol
 import fiftyone.core.models as fom
@@ -771,8 +772,14 @@ def get_embeddings(
     if (
         embeddings is None
         and model is not None
-        and not _has_embeddings_field(samples, embeddings_field, patches_field)
+        and _has_embeddings_field(samples, embeddings_field, patches_field)
     ):
+        logger.warning(
+            "Using existing embeddings from field '%s' rather than computing "
+            "new embeddings with the provided model",
+            embeddings_field,
+        )
+    elif embeddings is None and model is not None:
         if etau.is_str(model):
             model_kwargs = model_kwargs or {}
             model = foz.load_zoo_model(model, **model_kwargs)
@@ -928,6 +935,27 @@ def _load_embeddings(samples, embeddings_field, patches_field=None):
         is_list_field = False
     else:
         return [], samples.limit(0)
+
+    if patches_field is not None:
+        _, labels_path = samples._get_label_field_path(patches_field)
+        num_total, num_found = samples.aggregate(
+            [foa.Count(labels_path), foa.Count(embeddings_path)]
+        )
+        ftype = "labels"
+    else:
+        num_total = len(samples)
+        num_found = samples.count(embeddings_path)
+        ftype = "samples"
+
+    num_missing = num_total - num_found
+    if num_missing > 0:
+        logger.warning(
+            "Skipping %d of %d %s that have no embeddings in field '%s'",
+            num_missing,
+            num_total,
+            ftype,
+            embeddings_field,
+        )
 
     if is_list_field:
         samples = samples.filter_labels(

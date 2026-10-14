@@ -94,6 +94,13 @@ def compute_similarity(
         if batch_size is None:
             batch_size = _DEFAULT_BATCH_SIZE
 
+    if model is not None and embeddings is not False and embeddings_exist:
+        logger.warning(
+            "Using existing embeddings from field '%s' rather than computing "
+            "new embeddings with the provided model",
+            embeddings_field,
+        )
+
     if etau.is_str(model):
         _model_kwargs = model_kwargs or {}
         _model = foz.load_zoo_model(model, **_model_kwargs)
@@ -161,9 +168,10 @@ def compute_similarity(
             handle_missing = "skip"
             agg_fcn = None
 
+        # The model is unused when embeddings already exist (warned above)
         embeddings, sample_ids, label_ids = fbu.get_embeddings(
             samples,
-            model=_model,
+            model=None if embeddings_exist else _model,
             patches_field=patches_field or roi_field,
             embeddings=embeddings,
             embeddings_field=embeddings_field,
