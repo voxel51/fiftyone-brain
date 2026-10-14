@@ -16,12 +16,16 @@ needs neither, is covered in ``test_lancedb.py``.
 import os
 import types
 
-import pyarrow as pa
 import pytest
 
-from fiftyone.brain.internal.core import lancedb as lancedb_backend
-
 lancedb = pytest.importorskip("lancedb")
+pa = pytest.importorskip("pyarrow")
+
+# This import is E402 by construction: it has to follow the `importorskip`
+# calls above, which decide whether this module runs at all
+from fiftyone.brain.internal.core import (  # noqa: E402
+    lancedb as lancedb_backend,
+)
 
 #: More tables than a single default page holds, so a listing that stops at
 #: the first page is visibly short. Kept as low as that allows: writing a

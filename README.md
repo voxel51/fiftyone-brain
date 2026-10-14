@@ -75,7 +75,19 @@ bash install.sh
 ### Developer installation
 
 If you are a developer contributing to this repository, you should perform a
-developer installation using the `-d` flag of the install script:
+developer installation.
+
+The Brain imports from the core `fiftyone` package, but `fiftyone-brain` does
+not declare `fiftyone` as a dependency because `fiftyone` already depends on
+`fiftyone-brain`. So first install `fiftyone` in your environment, either from
+PyPI or from a source checkout:
+
+```shell
+pip install fiftyone
+```
+
+This also installs a released `fiftyone-brain`. Then replace it with your
+source copy by running the install script with its `-d` flag:
 
 ```shell
 # Mac or Linux
@@ -84,6 +96,9 @@ bash install.sh -d
 # Windows
 .\install.bat -d
 ```
+
+If you reinstall `fiftyone` later, run the install script again, as it will
+have replaced your source copy of the Brain with a released one.
 
 Check out the [contribution guide](CONTRIBUTING.md) to get started.
 
@@ -96,7 +111,7 @@ pip uninstall fiftyone-brain
 ## Repository layout
 
 -   `fiftyone/brain/` definition of the `fiftyone.brain` namespace
--   `requirements/` Python requirements for the project
+-   `pyproject.toml` package metadata and Python requirements for the project
 -   `tests/` tests for the various components of the Brain
 
 ## Citation

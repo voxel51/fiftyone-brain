@@ -7,15 +7,19 @@ Tests for :mod:`fiftyone.brain.internal.models.simple_resnet`.
 """
 import imageio
 from PIL import Image
-import torch
+import pytest
 
-import eta.core.image as etai
+torch = pytest.importorskip("torch")
 
-import fiftyone as fo
-import fiftyone.core.utils as fou
-import fiftyone.zoo as foz
+# Every import below is E402 by construction: it has to follow the
+# `importorskip` call above, which decides whether this module runs at all
+import eta.core.image as etai  # noqa: E402
 
-import fiftyone.brain.internal.models as fbm
+import fiftyone as fo  # noqa: E402
+import fiftyone.core.utils as fou  # noqa: E402
+import fiftyone.zoo as foz  # noqa: E402
+
+import fiftyone.brain.internal.models as fbm  # noqa: E402
 
 
 def _transpose(x, source, target):

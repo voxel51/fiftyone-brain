@@ -9,7 +9,6 @@
 #
 
 # Show usage information
-set -e
 usage() {
     echo "Usage:  sh $0 [-h] [-d]
 
@@ -28,19 +27,41 @@ while getopts "hd" FLAG; do
     case "${FLAG}" in
         h) SHOW_HELP=true ;;
         d) DEV_INSTALL=true ;;
-        *) usage ;;
+        *)
+            usage
+            exit 1
+            ;;
     esac
 done
-[ ${SHOW_HELP} = true ] && usage && exit 0
-OS=$(uname -s)
+[ "$SHOW_HELP" = true ] && usage && exit 0
+
+set -e
+
+if command -v python >/dev/null 2>&1; then
+    PYTHON=python
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON=python3
+else
+    echo "ERROR: Neither python3 nor python found in PATH."
+    exit 1
+fi
+
+# Ensure pip targets this Python interpreter
+if command -v uv >/dev/null 2>&1; then
+    PIP="uv pip"
+else
+    PIP="$PYTHON -m pip"
+fi
 
 echo "***** INSTALLING FIFTYONE-BRAIN *****"
-if [ ${DEV_INSTALL} = true ]; then
+if [ "$DEV_INSTALL" = true ]; then
     echo "Performing dev install"
-    pip install -e ".[dev]"
+    # Compat mode puts the source tree on sys.path, which lets static tools
+    # like pylint resolve `fiftyone.brain` alongside the core `fiftyone`
+    $PIP install -e ".[dev]" --config-settings editable_mode=compat
     pre-commit install
 else
-    pip install .
+    $PIP install .
 fi
 
 echo "***** INSTALLATION COMPLETE *****"

@@ -8,6 +8,8 @@ Uniqueness tests.
 import os
 import unittest
 
+import pytest
+
 import eta.core.storage as etas
 import eta.core.utils as etau
 
@@ -30,12 +32,19 @@ def test_uniqueness():
 def test_gray():
     """Test default support for handling grayscale images.
 
-    Requires Voxel51 Google Drive credentials to download the test data.
+    Requires Voxel51 Google Drive credentials to download the test data, so
+    it is skipped where none are available.
     """
+    from google.auth.exceptions import DefaultCredentialsError
+
+    try:
+        client = etas.GoogleDriveStorageClient()
+    except DefaultCredentialsError:
+        pytest.skip("requires Voxel51 Google Drive credentials")
+
     with etau.TempDir() as tmpdir:
         tmp_zip = os.path.join(tmpdir, "data.zip")
         tmp_data = os.path.join(tmpdir, "brain_grayscale_test_data")
-        client = etas.GoogleDriveStorageClient()
         client.download("1ECeNnLmKQCHxlVdRqGefV5eXOD_OkmWx", tmp_zip)
         etau.extract_zip(tmp_zip, delete_zip=True)
 
