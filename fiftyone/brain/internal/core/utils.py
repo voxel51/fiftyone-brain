@@ -813,6 +813,16 @@ def get_embeddings(
                 embeddings.get(_id, None) for _id in samples.values("id")
             ]
 
+        # An image model embeds a video frame by frame, giving each sample a
+        # num_frames x num_dims array, which is pooled to one embedding per
+        # sample. Patch embeddings keep one row per patch
+        if (
+            patches_field is None
+            and samples.media_type == fomm.VIDEO
+            and isinstance(embeddings, list)
+        ):
+            embeddings = [_pool_frames(e) for e in embeddings]
+
         embeddings, ref_sample_ids = _handle_missing_embeddings(
             embeddings, samples
         )
@@ -1007,6 +1017,14 @@ def _validate_patches_args(samples, patches_field, path_or_expr=None):
             "fields '%s' and '%s', not '%s'"
             % (samples.gt_field, samples.pred_field, patches_field)
         )
+
+
+def _pool_frames(embedding):
+    # A video's frame embeddings become their mean; anything else is kept
+    if isinstance(embedding, np.ndarray) and embedding.ndim == 2:
+        return embedding.mean(axis=0)
+
+    return embedding
 
 
 def _handle_missing_embeddings(embeddings, samples):
