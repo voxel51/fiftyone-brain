@@ -469,21 +469,24 @@ def add_ids(
         num_existing = existing_inds.size
 
         if num_existing > 0:
+            existing_id = ids[ii[existing_inds[0]]]
+
             if not allow_existing:
                 raise ValueError(
                     "Found %d IDs (eg '%s') that are already present in the "
-                    "index" % (num_existing, ids[ii[0]])
+                    "index" % (num_existing, existing_id)
                 )
-            elif warn_existing:
+
+            if warn_existing:
                 logger.warning(
                     "Ignoring %d IDs (eg '%s') that are already present in "
                     "the index",
                     num_existing,
-                    ids[ii[0]],
+                    existing_id,
                 )
 
-                ii = np.delete(ii, existing_inds)
-                jj = np.delete(jj, existing_inds)
+            ii = np.delete(ii, existing_inds)
+            jj = np.delete(jj, existing_inds)
 
     if ii.size > 0:
         sample_ids = np.array(sample_ids)
