@@ -186,6 +186,27 @@ def _compute_representativeness(embeddings, method="cluster-center"):
 def _cluster_ranker(
     embeddings, cluster_algorithm="kmeans", N=20, norm_method="local"
 ):
+    """Ranks samples by how representative (central) they are within their
+    cluster.
+
+    Samples close to their cluster center receive higher scores.
+
+    Args:
+        embeddings: a ``num_samples x num_dims`` array of embeddings
+        cluster_algorithm ("kmeans"): the clustering algorithm to use.
+            Supported values are ``("kmeans", "meanshift")``
+        N (20): the number of clusters to use when ``cluster_algorithm`` is
+            ``"kmeans"``
+        norm_method ("local"): how to normalize the centerness scores.
+            Supported values are ``("local", "global")``, which normalize
+            per-cluster or across all samples, respectively
+
+    Returns:
+        a tuple of
+
+        -   the ``num_samples`` array of representativeness scores
+        -   the fitted clusterer
+    """
     # Cluster
     if cluster_algorithm == "meanshift":
         bandwidth = skc.estimate_bandwidth(
@@ -213,20 +234,31 @@ def _cluster_ranker(
         embeddings - cluster_centers[cluster_ids], axis=1
     )
 
+    # Centerness: samples close to their cluster center are more
+    # representative, so this decreases as the distance to the center grows.
     centerness_ranking = 1 / (1 + sample_dists)
 
-    # Normalize per cluster vs globally
-    norm_method = "local"
+    # Normalize per cluster vs globally. In both cases we normalize the
+    # centerness scores (not the raw distances) so that a higher value always
+    # means "more representative".
     if norm_method == "global":
         centerness_ranking = centerness_ranking / centerness_ranking.max()
     elif norm_method == "local":
         unique_ids = np.unique(cluster_ids)
         for unique_id in unique_ids:
             cluster_indices = np.where(cluster_ids == unique_id)[0]
-            cluster_dists = sample_dists[cluster_indices]
-            cluster_dists /= cluster_dists.max()
-            sample_dists[cluster_indices] = cluster_dists
-        centerness_ranking = sample_dists
+            cluster_scores = centerness_ranking[cluster_indices]
+            centerness_ranking[cluster_indices] = (
+                cluster_scores / cluster_scores.max()
+            )
+    else:
+        raise ValueError(
+            (
+                "Normalization method '%s' not supported. Please use one of "
+                "['global', 'local']"
+            )
+            % norm_method
+        )
 
     return centerness_ranking, clusterer
 
